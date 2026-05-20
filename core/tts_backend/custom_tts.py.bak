@@ -1,0 +1,197 @@
+import os
+import sys
+import shutil
+import tempfile
+import time
+import re
+import soundfile as sf
+import numpy as np
+from pathlib import Path
+from natsort import natsorted
+from pydub import AudioSegment, effects
+
+# --- 仅检查 F5-TTS 库 ---
+try:
+    from f5_tts_mlx.generate import generate
+except ImportError:
+    print("❌ Error: f5-tts-mlx not found.")
+    raise ImportError("必须安装 f5-tts-mlx 才能运行此脚本")
+
+class ProjectResourceManager:
+    def __init__(self, start_dir):
+        self.start_path = Path(start_dir).resolve()
+        self.project_root = None
+        self.output_root = None
+        self._locate_roots()
+        
+        if self.output_root:
+            self.chunks_file = self.output_root / "log" / "cleaned_chunks.json"
+            self.refers_dir = self.output_root / "audio" / "refers"
+            self.possible_audio_paths = [
+                self.output_root / "audio" / "vocal.wav", 
+                self.output_root / "audio" / "vocal.mp3",
+                self.output_root / "audio.wav",
+                self.output_root.parent / "audio.wav"
+            ]
+            self.ref_audio_save_path = self.output_root / "audio" / "refer_normalized.wav"
+        else:
+            self.chunks_file = None; self.refers_dir = None; self.possible_audio_paths = []
+            self.ref_audio_save_path = Path("refer_normalized.wav")
+
+    def _locate_roots(self):
+        current = self.start_path
+        for _ in range(6):
+            if (current / "log" / "cleaned_chunks.json").exists():
+                self.output_root = current; self.project_root = current.parent; return
+            if current.name == "output":
+                self.output_root = current; self.project_root = current.parent; return
+            if current == current.parent: break
+            current = current.parent
+
+    def get_audio_source(self):
+        for p in self.possible_audio_paths:
+            if p.exists(): return p
+        return None
+
+class AudioPreprocessor:
+    def __init__(self, resource_manager):
+        self.mgr = resource_manager
+
+    def prepare(self):
+        if self.mgr.ref_audio_save_path.exists(): return True
+        if self._try_use_existing_refers(): return True
+        audio_source = self.mgr.get_audio_source()
+        if not audio_source: return False
+        return self._create_reference_from_source(audio_source)
+
+    def _try_use_existing_refers(self):
+        if not self.mgr.refers_dir or not self.mgr.refers_dir.exists(): return False
+        wav_files = sorted(list(self.mgr.refers_dir.glob("*.wav")))
+        if not wav_files: return False
+        try:
+            idx = len(wav_files) // 2
+            combined_audio = AudioSegment.from_file(str(wav_files[idx]))
+            combined_audio = effects.normalize(combined_audio)
+            self.mgr.ref_audio_save_path.parent.mkdir(parents=True, exist_ok=True)
+            combined_audio.export(self.mgr.ref_audio_save_path, format="wav")
+            return True
+        except: return False
+
+    def _create_reference_from_source(self, audio_source_path):
+        try:
+            full_audio = AudioSegment.from_file(audio_source_path)
+            # 避开开头，取中间 5秒
+            start_ms = len(full_audio) // 3
+            ref_clip = full_audio[start_ms : start_ms + 5000]
+            ref_clip = effects.normalize(ref_clip)
+            self.mgr.ref_audio_save_path.parent.mkdir(parents=True, exist_ok=True)
+            ref_clip.export(self.mgr.ref_audio_save_path, format="wav")
+            return True
+        except: return False
+
+def clean_text_for_tts(text):
+    if not text: return ""
+    # 1. 去除 XML 标签
+    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'\[[^\]]+\]', '', text)
+    text = re.sub(r'\([^)]+\)', '', text)
+    
+    # 2. 修复截断的英文单词 (针对 "Ub..." 这种特定的报错源)
+    # 如果发现以字母开头且以...结尾的，直接去掉...
+    text = re.sub(r'([a-zA-Z]+)\.\.\.', r'\1', text)
+    
+    # 3. 替换掉无法识别的 "Ub" 为 "Ubuntu" (针对你的特定 Case)
+    text = text.replace(" Ub ", " Ubuntu ").replace("Ub ", "Ubuntu ")
+    if text.endswith("Ub"): text += "untu"
+    
+    return text.strip()
+
+def custom_tts(text_list, output_file_path):
+    output_path = Path(output_file_path).resolve()
+    os.makedirs(output_path.parent, exist_ok=True)
+    
+    # 为了避免旧文件干扰，如果目标文件已存在，先删除
+    if output_path.exists():
+        try: os.remove(output_path)
+        except: pass
+    
+    mgr = ProjectResourceManager(output_path.parent.parent.parent) 
+    preprocessor = AudioPreprocessor(mgr)
+    
+    if not preprocessor.prepare():
+        raise RuntimeError("❌ 致命错误：F5-TTS 缺少参考音频。")
+    
+    # 文本合并与清洗
+    full_text = "".join(text_list)
+    cleaned_text = clean_text_for_tts(full_text)
+    
+    if not cleaned_text:
+        raise ValueError("输入文本为空")
+    
+    print(f"🚀 [F5-TTS] 生成: '{cleaned_text[:15]}...' -> {output_path.name}")
+    
+    # 准备系统临时参考音频
+    sys_temp_dir = Path(tempfile.gettempdir())
+    standard_ref_path = sys_temp_dir / "f5_ref_strict.wav"
+    
+    # 🔍 关键修复 1: 使用有意义的通用参考文本
+    GENERIC_REF_TEXT = "这段声音将作为语音合成的参考音频。" 
+    
+    try:
+        # 处理参考音频：强制 24k, 单声道, 3.5秒
+        if mgr.ref_audio_save_path.exists():
+            audio = AudioSegment.from_file(str(mgr.ref_audio_save_path))
+            
+            target_len = 3500 
+            if len(audio) > target_len: 
+                audio = audio[:target_len]
+            elif len(audio) < 1000:
+                audio = audio * (target_len // len(audio) + 1)
+                audio = audio[:target_len]
+                
+            audio = audio.set_channels(1).set_frame_rate(24000)
+            audio.export(standard_ref_path, format="wav")
+        else:
+            raise RuntimeError("参考音频文件未找到")
+            
+    except Exception as e:
+        raise RuntimeError(f"参考音频处理失败: {e}")
+
+    try:
+        # 🟢 核心修复：使用【文件输出模式】而非内存模式
+        # output_path 必须传入字符串路径，模型会自动保存文件
+        generate(
+            generation_text=cleaned_text,
+            ref_audio_path=str(standard_ref_path), 
+            ref_audio_text=GENERIC_REF_TEXT,
+            output_path=str(output_path),  # 👈 关键点：直接写入硬盘
+            steps=32,
+            speed=1.0
+        )
+
+        # 🟢 验证逻辑调整：检查文件是否生成且大小正常
+        if output_path.exists() and output_path.stat().st_size > 4000: # >4KB
+            # 可选：打印一下生成的时长
+            try:
+                # 简单估算时长或读取信息
+                file_size = output_path.stat().st_size
+                # 24k * 16bit * 1ch = 48000 bytes/sec
+                approx_duration = file_size / 48000
+                print(f"✅ [F5] 成功 (约 {approx_duration:.2f}s)")
+            except:
+                print("✅ [F5] 成功 (文件已生成)")
+        else:
+            err_msg = f"F5-TTS 生成似乎失败。文件未生成或过小 (Path: {output_path})"
+            print(f"❌ {err_msg}")
+            # 如果生成了 0kb 的空文件，删除它以免影响后续流程
+            if output_path.exists(): os.remove(output_path)
+            raise RuntimeError(err_msg)
+
+    except Exception as e:
+        print(f"❌ F5-TTS 执行报错: {e}")
+        raise e
+    finally:
+        try: os.remove(standard_ref_path)
+        except: pass
+    
+    return [str(output_path)]
