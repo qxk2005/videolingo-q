@@ -320,7 +320,7 @@ def process_audio():
     st.balloons()
 
 def file_browser():
-    """Windows-style interactive file browser for the output directory."""
+    """Windows-style interactive file browser for the output directory with click-to-expand."""
     st.markdown(f"### 📂 {t('Output Files')}")
     output_dir = "output"
     if not os.path.exists(output_dir):
@@ -373,7 +373,7 @@ def file_browser():
             indent = "　" * level + "　　" # Align with folder text
             st.markdown(f"<p style='margin: 0; padding: 2px 5px; font-size: 0.9em; color: #555;'>{indent}📄 {f}</p>", unsafe_allow_html=True)
 
-    # Scrollable container for the tree
+    # Scrollable container for the tree with custom class for styling
     st.markdown('<div class="windows-file-tree">', unsafe_allow_html=True)
     with st.container(height=600, border=True):
         render_tree_node(output_dir)
@@ -384,6 +384,10 @@ def main():
     
     # ── Split Main Body into Center and Right ──
     col_center, col_right = st.columns([7, 3])
+
+    # Important: Render Right Sidebar FIRST to avoid it disappearing during blocking operations in Center
+    with col_right:
+        file_browser()
 
     with col_center:
         # Logo and Welcome moved here
@@ -400,10 +404,6 @@ def main():
         download_video_section()
         text_processing_section()
         audio_processing_section()
-    
-    with col_right:
-        with st.container(border=True):
-            file_browser()
 
 if __name__ == "__main__":
     main()
