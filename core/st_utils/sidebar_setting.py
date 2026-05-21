@@ -55,15 +55,20 @@ def page_setting():
             update_key("display_language", DISPLAY_LANGUAGES[display_language])
             st.rerun()
 
-        # with st.expander(t("Youtube Settings"), expanded=True):
-        #     config_input(t("Cookies Path"), "youtube.cookies_path")
+        st.divider()
 
-        with st.expander(t("LLM Configuration"), expanded=True):
+        # ── Tab-based Settings ──────────────────────────────────────────
+        tab_llm, tab_sub, tab_dub = st.tabs([
+            f"🤖 {t('LLM Configuration')}", 
+            f"📝 {t('Subtitles Settings')}", 
+            f"🔊 {t('Dubbing Settings')}"
+        ])
+
+        with tab_llm:
             # ── Gemini CLI Toggle (Now at the top) ────────────────────────
             use_gemini_cli = st.toggle(t("Use Gemini CLI"), value=load_key("api.use_gemini_cli"), help=t("If enabled, use gemini-cli to call LLM, ignoring above settings"))
             if use_gemini_cli != load_key("api.use_gemini_cli"):
                 update_key("api.use_gemini_cli", use_gemini_cli)
-                # No st.rerun() here to allow fragment-only update
             
             if not use_gemini_cli:
                 # ── Profile selector (only when profiles exist) ──────────────────
@@ -133,7 +138,7 @@ def page_setting():
                 if llm_support_json != load_key("api.llm_support_json"):
                     update_key("api.llm_support_json", llm_support_json)
 
-        with st.expander(t("Subtitles Settings"), expanded=True):
+        with tab_sub:
             c1, c2 = st.columns(2)
             with c1:
                 langs = {
@@ -205,7 +210,8 @@ def page_setting():
             efficiency_mode = st.toggle(t("Efficiency Mode"), value=load_key("efficiency_mode"), help=t("Send all subtitle data to LLM in large batches to reduce API calls. Automatically falls back to standard mode on failure."))
             if efficiency_mode != load_key("efficiency_mode"):
                 update_key("efficiency_mode", efficiency_mode)
-        with st.expander(t("Dubbing Settings"), expanded=True):
+
+        with tab_dub:
             tts_methods = ["azure_tts", "openai_tts", "fish_tts", "sf_fish_tts", "edge_tts", "gpt_sovits", "custom_tts", "sf_cosyvoice2", "f5tts"]
             select_tts = st.selectbox(t("TTS Method"), options=tts_methods, index=tts_methods.index(load_key("tts_method")))
             if select_tts != load_key("tts_method"):

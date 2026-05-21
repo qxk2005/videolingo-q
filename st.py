@@ -319,6 +319,49 @@ def process_audio():
     st.success(t("Audio processing complete! 🎇"))
     st.balloons()
 
+def file_browser():
+    """Simple file browser for the output directory."""
+    st.markdown(f"### 📂 {t('Output Files')}")
+    output_dir = "output"
+    if not os.path.exists(output_dir):
+        st.info("No output directory yet.")
+        return
+    
+    # Add a refresh button
+    if st.button("🔄 " + t("Refresh"), key="refresh_files", use_container_width=True):
+        st.rerun()
+
+    # List files with simple hierarchy
+    try:
+        all_items = []
+        for root, dirs, files in os.walk(output_dir):
+            # Ignore hidden files and __pycache__
+            files = [f for f in files if not f.startswith('.') and f != 'desktop.ini']
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__']
+            
+            rel_path = os.path.relpath(root, output_dir)
+            if rel_path == ".":
+                level = 0
+            else:
+                level = rel_path.count(os.sep) + 1
+            
+            indent = "&nbsp;&nbsp;" * level * 2
+            folder_name = os.path.basename(root)
+            
+            if rel_path != ".":
+                all_items.append(f"{indent}📁 **{folder_name}/**")
+            
+            sub_indent = "&nbsp;&nbsp;" * (level + 1) * 2
+            for f in sorted(files):
+                all_items.append(f"{sub_indent}📄 {f}")
+        
+        if not all_items:
+            st.write("No files found.")
+        else:
+            st.markdown("<br>".join(all_items), unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Error listing files: {e}")
+
 def main():
     logo_col, _ = st.columns([1,1])
     with logo_col:
@@ -327,13 +370,22 @@ def main():
     welcome_text = t("Hello, welcome to VideoLingo. If you encounter any issues, feel free to get instant answers with our Free QA Agent <a href=\"https://share.fastgpt.in/chat/share?shareId=066w11n3r9aq6879r4z0v9rh\" target=\"_blank\">here</a>! You can also try out our SaaS website at <a href=\"https://videolingo.io\" target=\"_blank\">videolingo.io</a> for free!")
     st.markdown(f"<p style='font-size: 20px; color: #808080;'>{welcome_text}</p>", unsafe_allow_html=True)
     
-    # add settings
-    with st.sidebar:
-        page_setting()
-        st.markdown(give_star_button, unsafe_allow_html=True)
-    download_video_section()
-    text_processing_section()
-    audio_processing_section()
+    # ── Split Main Body into Center and Right ──
+    col_center, col_right = st.columns([7, 3])
+
+    with col_center:
+        # add settings (Left part is st.sidebar)
+        with st.sidebar:
+            page_setting()
+            st.markdown(give_star_button, unsafe_allow_html=True)
+        
+        download_video_section()
+        text_processing_section()
+        audio_processing_section()
+    
+    with col_right:
+        with st.container(border=True):
+            file_browser()
 
 if __name__ == "__main__":
     main()
