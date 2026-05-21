@@ -2,7 +2,7 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
 import streamlit as st
-import os, sys, shutil
+import os, sys, shutil, subprocess
 import pandas as pd
 from core.st_utils.imports_and_utils import *
 from core.utils.models import *
