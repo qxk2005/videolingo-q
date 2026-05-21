@@ -180,5 +180,35 @@ header[data-testid="stHeader"] div {
     color: white !important;
 }
 
+/* 🚀 Framework-level Chinese Localization */
+/* 1. Hide Deploy Button */
+[data-testid="stHeaderDeploy"] {
+    display: none !important;
+}
+
+/* 2. Translate "RUNNING..." indicator */
+div[data-testid="stStatusWidget"] div[role="img"] + span {
+    font-size: 0 !important;
+}
+div[data-testid="stStatusWidget"] div[role="img"] + span::after {
+    content: "正在运行..." !important;
+    font-size: 14px !important;
+    color: white !important;
+}
+
+/* 3. Rebrand Footer */
+footer {
+    visibility: hidden !important;
+}
+footer::after {
+    content: '© 2026 VideoLingo Q - 专业视频本地化工作站'; 
+    visibility: visible !important;
+    display: block !important;
+    position: relative !important;
+    color: #808080 !important;
+    padding: 5px !important;
+    top: 2px !important;
+}
+
 </style>
 """
