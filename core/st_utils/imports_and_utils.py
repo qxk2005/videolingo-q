@@ -95,22 +95,38 @@ div.stButton > button:hover {
     color: #144070 !important;
 }
 
-/* Custom Tab Styling - More Specific for Sidebar */
+/* Custom Tab Styling - Card Look for Sidebar */
 [data-testid="stSidebar"] [data-testid="stTabs"] [data-baseweb="tab-list"] {
-    gap: 8px !important;
+    gap: 4px !important;
+    background-color: transparent !important;
 }
 [data-testid="stSidebar"] [data-testid="stTabs"] button[data-baseweb="tab"] {
     border: 1px solid #D0DFF2 !important;
-    border-radius: 8px !important;
-    padding: 4px 12px !important;
-    background-color: transparent !important;
+    border-bottom: none !important;
+    border-radius: 8px 8px 0 0 !important;
+    padding: 6px 16px !important;
+    background-color: #f0f5ff !important;
+    margin-bottom: -1px !important; /* Overlap with panel border */
+    z-index: 1 !important;
     transition: all 0.2s ease !important;
 }
 [data-testid="stSidebar"] [data-testid="stTabs"] button[aria-selected="true"] {
-    background-color: #D0DFF2 !important;
+    background-color: #ffffff !important;
+    border-color: #D0DFF2 !important;
     color: #144070 !important;
     font-weight: bold !important;
+    border-top: 3px solid #144070 !important;
 }
+
+/* Style the content panel below the tabs */
+[data-testid="stSidebar"] [data-testid="stTabs"] [data-baseweb="tab-panel"] {
+    border: 1px solid #D0DFF2 !important;
+    border-radius: 0 0 12px 12px !important;
+    padding: 20px 15px !important;
+    background-color: #ffffff !important;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.02) !important;
+}
+
 /* Hide the default underline */
 [data-testid="stSidebar"] [data-testid="stTabs"] [data-testid="stTabHighlight"] {
     display: none !important;
