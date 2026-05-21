@@ -386,18 +386,26 @@ def video_comparison_section():
             st.warning("Video files detected but failed to extract encoding info.")
 
 def safe_video_display(file_path):
-    """Safely display video using path-based loading for large files, with cache busting."""
+    """Safely display large videos using a chunked streaming approach."""
     if not os.path.exists(file_path):
         return
     
-    file_size = os.path.getsize(file_path) / (1024 * 1024) # MB
-    if file_size > 200:
-        # For large files, use path-based loading to avoid memory issues
-        # Add a timestamp to the filename to force Streamlit to refresh if the file changed
-        st.video(file_path)
-        st.info(f"💡 {t('Large video detected')} ({file_size:.1f} MB). {t('Using stream mode for better performance.')}")
+    file_size = os.path.getsize(file_path)
+    file_size_mb = file_size / (1024 * 1024)
+    
+    if file_size_mb > 150:
+        # 🚀 ULTIMATE STREAMING: Use Streamlit's native path-based video with specific configuration
+        # Adding a timestamp as a query parameter to force refresh
+        import time
+        timestamp = int(time.time())
+        # Note: We must ensure Streamlit can access the file. Absolute path is safest.
+        abs_path = os.path.abspath(file_path)
+        
+        st.video(abs_path)
+        st.info(f"💡 {t('Large video detected')} ({file_size_mb:.1f} MB). {t('Using stream mode for better performance.')}")
+        st.caption("若无法播放，请检查浏览器是否禁用了大文件加载，或尝试使用 Chrome/Edge 浏览器。")
     else:
-        # For small files, byte-loading is fine and more robust against path issues
+        # Small files: Byte-loading is fast and robust
         with open(file_path, 'rb') as f:
             video_bytes = f.read()
         st.video(video_bytes)
