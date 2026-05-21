@@ -320,7 +320,7 @@ def process_audio():
     st.balloons()
 
 def file_browser():
-    """Simple file browser for the output directory."""
+    """Collapsible file browser for the output directory."""
     st.markdown(f"### 📂 {t('Output Files')}")
     output_dir = "output"
     if not os.path.exists(output_dir):
@@ -331,34 +331,21 @@ def file_browser():
     if st.button("🔄 " + t("Refresh"), key="refresh_files", use_container_width=True):
         st.rerun()
 
-    # List files with simple hierarchy
-    try:
-        all_items = []
-        for root, dirs, files in os.walk(output_dir):
-            # Ignore hidden files and __pycache__
-            files = [f for f in files if not f.startswith('.') and f != 'desktop.ini']
-            dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__']
-            
-            rel_path = os.path.relpath(root, output_dir)
-            if rel_path == ".":
-                level = 0
-            else:
-                level = rel_path.count(os.sep) + 1
-            
-            indent = "&nbsp;&nbsp;" * level * 2
-            folder_name = os.path.basename(root)
-            
-            if rel_path != ".":
-                all_items.append(f"{indent}📁 **{folder_name}/**")
-            
-            sub_indent = "&nbsp;&nbsp;" * (level + 1) * 2
-            for f in sorted(files):
-                all_items.append(f"{sub_indent}📄 {f}")
+    def render_tree(directory):
+        items = os.listdir(directory)
+        # Separate files and directories
+        dirs = sorted([d for d in items if os.path.isdir(os.path.join(directory, d)) and not d.startswith('.') and d != '__pycache__'])
+        files = sorted([f for f in items if os.path.isfile(os.path.join(directory, f)) and not f.startswith('.')])
         
-        if not all_items:
-            st.write("No files found.")
-        else:
-            st.markdown("<br>".join(all_items), unsafe_allow_html=True)
+        for d in dirs:
+            with st.expander(f"📁 {d}", expanded=False):
+                render_tree(os.path.join(directory, d))
+        
+        for f in files:
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;📄 {f}")
+
+    try:
+        render_tree(output_dir)
     except Exception as e:
         st.error(f"Error listing files: {e}")
 
