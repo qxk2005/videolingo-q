@@ -36,18 +36,24 @@ def extract_refer_audio_main():
     df = pd.read_excel(_8_1_AUDIO_TASK)
     data, sr = sf.read(_VOCAL_AUDIO_FILE)
     
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-    ) as progress:
-        task = progress.add_task("Extracting audio segments...", total=len(df))
-        
-        for _, row in df.iterrows():
-            out_file = os.path.join(_AUDIO_REFERS_DIR, f"{row['number']}.wav")
-            extract_audio(data, sr, row['start_time'], row['end_time'], out_file)
-            progress.update(task, advance=1)
+    from core.utils.progress_utils import get_progress, update_st_progress
+    progress = get_progress()
+    is_internal = not progress.live.is_started
+    if is_internal: progress.start()
+
+    task_desc = "🎙️ 正在提取参考音频分段..."
+    task = progress.add_task(task_desc, total=len(df))
+    
+    for i, (_, row) in enumerate(df.iterrows()):
+        out_file = os.path.join(_AUDIO_REFERS_DIR, f"{row['number']}.wav")
+        extract_audio(data, sr, row['start_time'], row['end_time'], out_file)
+        progress.update(task, advance=1)
+        update_st_progress(i + 1, len(df), task_desc)
+    
+    if is_internal:
+        progress.stop()
+    else:
+        progress.remove_task(task)
             
     rprint(Panel(f"Audio segments saved to {_AUDIO_REFERS_DIR}", title="Success", border_style="green"))
 

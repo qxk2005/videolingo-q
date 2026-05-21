@@ -76,31 +76,43 @@ def process_audio_segment(audio_file):
 def merge_audio_segments(audios, new_sub_times, sample_rate):
     merged_audio = AudioSegment.silent(duration=0, frame_rate=sample_rate)
     
-    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), TaskProgressColumn()) as progress:
-        merge_task = progress.add_task("🎵 Merging audio segments...", total=len(audios))
-        
-        for i, (audio_file, time_range) in enumerate(zip(audios, new_sub_times)):
-            if not os.path.exists(audio_file):
-                console.print(f"[bold yellow]⚠️  Warning: File {audio_file} does not exist, skipping...[/bold yellow]")
-                progress.advance(merge_task)
-                continue
-                
-            audio_segment = process_audio_segment(audio_file)
-            start_time, end_time = time_range
+    from core.utils.progress_utils import get_progress, update_st_progress
+    progress = get_progress()
+    is_internal = not progress.live.is_started
+    if is_internal: progress.start()
+
+    task_desc = "🎵 正在合并音频分段..."
+    task = progress.add_task(task_desc, total=len(audios))
+    
+    for i, (audio_file, time_range) in enumerate(zip(audios, new_sub_times)):
+        if not os.path.exists(audio_file):
+            console.print(f"[bold yellow]⚠️  Warning: File {audio_file} does not exist, skipping...[/bold yellow]")
+            progress.advance(task)
+            update_st_progress(i + 1, len(audios), task_desc)
+            continue
             
-            # Add silence segment
-            if i > 0:
-                prev_end = new_sub_times[i-1][1]
-                silence_duration = start_time - prev_end
-                if silence_duration > 0:
-                    silence = AudioSegment.silent(duration=int(silence_duration * 1000), frame_rate=sample_rate)
-                    merged_audio += silence
-            elif start_time > 0:
-                silence = AudioSegment.silent(duration=int(start_time * 1000), frame_rate=sample_rate)
+        audio_segment = process_audio_segment(audio_file)
+        start_time, end_time = time_range
+        
+        # Add silence segment
+        if i > 0:
+            prev_end = new_sub_times[i-1][1]
+            silence_duration = start_time - prev_end
+            if silence_duration > 0:
+                silence = AudioSegment.silent(duration=int(silence_duration * 1000), frame_rate=sample_rate)
                 merged_audio += silence
-                
-            merged_audio += audio_segment
-            progress.advance(merge_task)
+        elif start_time > 0:
+            silence = AudioSegment.silent(duration=int(start_time * 1000), frame_rate=sample_rate)
+            merged_audio += silence
+            
+        merged_audio += audio_segment
+        progress.advance(task)
+        update_st_progress(i + 1, len(audios), task_desc)
+    
+    if is_internal:
+        progress.stop()
+    else:
+        progress.remove_task(task)
     
     return merged_audio
 

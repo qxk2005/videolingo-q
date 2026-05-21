@@ -175,13 +175,26 @@ def process_srt():
     # Save original text before trimming so gen_dub_chunks can match against trans.srt.
     df['orig_text'] = df['text'].copy()
     # AI-assisted text compression before TTS generation.
-    # Trims subtitles whose estimated TTS duration exceeds the available window even at
-    # speed_factor.max, preserving meaning while reducing audio length at the source.
     efficiency_mode = load_key("efficiency_mode")
+    from core.utils.progress_utils import get_progress, update_st_progress
+    progress = get_progress()
+    is_internal = not progress.live.is_started
+    if is_internal: progress.start()
+
+    task_desc = "✂️ 正在根据预估语速压缩字幕..."
     if efficiency_mode:
         df['text'] = batch_check_len_then_trim(df['text'].tolist(), df['duration'].tolist())
     else:
-        df['text'] = df.apply(lambda x: check_len_then_trim(x['text'], x['duration']), axis=1)
+        task = progress.add_task(task_desc, total=len(df))
+        def process_with_progress(row):
+            res = check_len_then_trim(row['text'], row['duration'])
+            progress.advance(task)
+            update_st_progress(int(progress.tasks[task].completed), len(df), task_desc)
+            return res
+        df['text'] = df.apply(process_with_progress, axis=1)
+        if not is_internal: progress.remove_task(task)
+
+    if is_internal: progress.stop()
 
     # Apply video slow-down factor: scale all timestamps so that each subtitle window is
     # proportionally wider. Enables the audio to fit with less speed-up.
