@@ -166,5 +166,19 @@ div.stDownloadButton > button:active:hover, div.stDownloadButton > button:focus:
     font-weight: 700 !important;
     letter-spacing: 0.8px;
 }
+
+/* Style the very top Streamlit Header bar */
+header[data-testid="stHeader"] {
+    background-color: #144070 !important;
+    border-bottom: 1px solid #0d2b4d !important;
+}
+/* Adjust color of the status icons and menu in the top bar */
+header[data-testid="stHeader"] svg {
+    fill: white !important;
+}
+header[data-testid="stHeader"] div {
+    color: white !important;
+}
+
 </style>
 """
