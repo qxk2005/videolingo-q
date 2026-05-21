@@ -127,6 +127,19 @@ div.stButton > button:hover {
     box-shadow: 0 4px 6px rgba(0,0,0,0.02) !important;
 }
 
+/* Enhance input visibility within tab panels */
+[data-testid="stSidebar"] [data-testid="stTabs"] [data-baseweb="tab-panel"] div[data-baseweb="input"],
+[data-testid="stSidebar"] [data-testid="stTabs"] [data-baseweb="tab-panel"] div[data-baseweb="select"],
+[data-testid="stSidebar"] [data-testid="stTabs"] [data-baseweb="tab-panel"] textarea {
+    border: 1px solid #c1d5e0 !important;
+    border-radius: 6px !important;
+}
+[data-testid="stSidebar"] [data-testid="stTabs"] [data-baseweb="tab-panel"] div[data-baseweb="input"]:focus-within,
+[data-testid="stSidebar"] [data-testid="stTabs"] [data-baseweb="tab-panel"] div[data-baseweb="select"]:focus-within {
+    border-color: #144070 !important;
+    box-shadow: 0 0 0 1px #144070 !important;
+}
+
 /* Hide the default underline */
 [data-testid="stSidebar"] [data-testid="stTabs"] [data-testid="stTabHighlight"] {
     display: none !important;
