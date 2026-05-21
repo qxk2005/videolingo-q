@@ -95,21 +95,24 @@ div.stButton > button:hover {
     color: #144070 !important;
 }
 
-/* Custom Tab Styling */
-div[data-testid="stSidebar"] div[data-testid="stTabs"] button {
+/* Custom Tab Styling - More Specific for Sidebar */
+[data-testid="stSidebar"] [data-testid="stTabs"] [data-baseweb="tab-list"] {
+    gap: 8px !important;
+}
+[data-testid="stSidebar"] [data-testid="stTabs"] button[data-baseweb="tab"] {
     border: 1px solid #D0DFF2 !important;
-    border-radius: 12px 12px 0 0 !important;
-    padding: 5px 15px !important;
-    margin-right: 5px !important;
-    background-color: #f8fafd !important;
-    transition: all 0.3s ease !important;
+    border-radius: 8px !important;
+    padding: 4px 12px !important;
+    background-color: transparent !important;
+    transition: all 0.2s ease !important;
 }
-div[data-testid="stSidebar"] div[data-testid="stTabs"] button[aria-selected="true"] {
+[data-testid="stSidebar"] [data-testid="stTabs"] button[aria-selected="true"] {
     background-color: #D0DFF2 !important;
-    border-bottom: 2px solid #144070 !important;
     color: #144070 !important;
+    font-weight: bold !important;
 }
-div[data-testid="stSidebar"] div[data-testid="stTabs"] [data-testid="stTabHighlight"] {
+/* Hide the default underline */
+[data-testid="stSidebar"] [data-testid="stTabs"] [data-testid="stTabHighlight"] {
     display: none !important;
 }
 
