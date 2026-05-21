@@ -325,8 +325,70 @@ def process_audio():
     st.success(t("Audio processing complete! 🎇"))
     st.balloons()
 
+def get_video_info(file_path):
+    """Get video encoding info using ffprobe."""
+    if not os.path.exists(file_path):
+        return None
+    try:
+        import json
+        cmd = [
+            'ffprobe', '-v', 'quiet', '-print_format', 'json',
+            '-show_streams', '-show_format', file_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        data = json.loads(result.stdout)
+        
+        v_stream = next((s for s in data['streams'] if s['codec_type'] == 'video'), None)
+        a_stream = next((s for s in data['streams'] if s['codec_type'] == 'audio'), None)
+        
+        info = {
+            "File": os.path.basename(file_path),
+            "Video Codec": v_stream.get('codec_name', 'N/A') if v_stream else 'N/A',
+            "Audio Codec": a_stream.get('codec_name', 'N/A') if a_stream else 'N/A',
+            "Resolution": f"{v_stream.get('width')}x{v_stream.get('height')}" if v_stream else 'N/A',
+            "Pixel Format": v_stream.get('pix_fmt', 'N/A') if v_stream else 'N/A',
+            "Size": f"{os.path.getsize(file_path) / (1024*1024):.2f} MB"
+        }
+        return info
+    except Exception:
+        return None
+
+def video_comparison_section():
+    """Display comparison of video encoding info."""
+    st.markdown(f"### 🔍 {t('Encoding Comparison')}")
+    
+    # Identify files
+    try:
+        orig_video = _1_ytdlp.find_video_files()
+    except:
+        orig_video = None
+        
+    videos = {
+        "Original": orig_video,
+        "Subtitled": SUB_VIDEO,
+        "Dubbed": DUB_VIDEO
+    }
+    
+    comparison_data = []
+    for label, path in videos.items():
+        if path and os.path.exists(path):
+            info = get_video_info(path)
+            if info:
+                info["Stage"] = label
+                comparison_data.append(info)
+    
+    if comparison_data:
+        df_comp = pd.DataFrame(comparison_data)
+        # Reorder columns to put Stage first
+        cols = ["Stage", "Video Codec", "Audio Codec", "Pixel Format", "Resolution", "Size"]
+        st.dataframe(df_comp[cols], hide_index=True, use_container_width=True)
+    else:
+        st.info("No video files available for comparison yet.")
+
 def file_browser():
-    """Windows-style interactive file browser for the output directory with click-to-expand."""
+    """Interactive Windows-style file browser with encoding comparison."""
+    video_comparison_section()
+    st.divider()
     st.markdown(f"### 📂 {t('Output Files')}")
     output_dir = "output"
     if not os.path.exists(output_dir):

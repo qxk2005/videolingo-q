@@ -151,6 +151,7 @@
     "Output Files": "文件浏览",
     "Refresh": "刷新列表",
     "TTS Batch Size": "TTS 批量转换数量",
-    "Number of audio files to generate in parallel. Increase for faster processing, but be aware of API limits.": "并行生成的音频文件数量。增加此值可加快处理速度，但请注意 API 限制。"
+    "Number of audio files to generate in parallel. Increase for faster processing, but be aware of API limits.": "并行生成的音频文件数量。增加此值可加快处理速度，但请注意 API 限制。",
+    "Encoding Comparison": "视频编码对比"
 }
 
