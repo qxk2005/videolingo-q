@@ -33,15 +33,55 @@ VideoLingo Q 是一款一体化的视频搬运神器，旨在生成高质量的 
 
 VideoLingo Q 采用了专为生产力设计的 **“汉堡工作站”** 布局，分为三个核心区域：
 
-```mermaid
-graph LR
-    subgraph UI界面布局示意图
-        L["<b>左侧：配置面板</b><br/>Tab页切换<br/>LLM/字幕/配音"]
-        C["<b>中间：主工作流</b><br/>Logo/欢迎语<br/>任务列表<br/>实时进度条"]
-        R["<b>右侧：文件管理</b><br/>编码对比<br/>Windows树形树"]
-        L --- C --- R
-    end
-```
+<table width="100%">
+  <tr>
+    <td width="25%" bgcolor="#f8fafd" valign="top">
+      <b>左侧：配置面板</b><br>
+      <hr/>
+      <ul>
+        <li>🤖 LLM 配置</li>
+        <li>📝 字幕设置</li>
+        <li>🔊 配音设置</li>
+      </ul>
+      <small><i>Tab页快速切换，局部刷新保持状态</i></small>
+    </td>
+    <td width="50%" valign="top">
+      <div align="center">
+        <b>中间：主工作流区</b><br>
+        <img src="docs/logo.png" width="80"><br>
+        <b>欢迎使用 VideoLingo Q</b>
+      </div>
+      <hr/>
+      <ol>
+        <li>下载/上传视频 ✅</li>
+        <li>翻译并生成字幕 ⏳</li>
+        <li>配音环节</li>
+      </ol>
+      <div align="center">
+        <small>实时进度条：[██████░░] 60%</small>
+      </div>
+    </td>
+    <td width="25%" bgcolor="#f8fafd" valign="top">
+      <b>右侧：文件管理</b><br>
+      <hr/>
+      <b>🔍 编码对比</b>
+      <table font-size="0.8em">
+        <tr><td>Orig: h264</td></tr>
+        <tr><td>Sub: yuv420p</td></tr>
+      </table>
+      <br>
+      <b>📂 目录树</b>
+      <ul>
+        <li>📁 output/
+          <ul>
+            <li>📄 src.srt</li>
+            <li>📄 output_sub.mp4</li>
+          </ul>
+        </li>
+      </ul>
+    </td>
+  </tr>
+</table>
 
 1. **左侧：功能配置区 (Sidebar Tabs)**
    - 采用标签页 (Tabs) 切换：**LLM**、**字幕**、**配音**。
