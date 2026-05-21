@@ -95,6 +95,24 @@ div.stButton > button:hover {
     color: #144070 !important;
 }
 
+/* Custom Tab Styling */
+div[data-testid="stSidebar"] div[data-testid="stTabs"] button {
+    border: 1px solid #D0DFF2 !important;
+    border-radius: 12px 12px 0 0 !important;
+    padding: 5px 15px !important;
+    margin-right: 5px !important;
+    background-color: #f8fafd !important;
+    transition: all 0.3s ease !important;
+}
+div[data-testid="stSidebar"] div[data-testid="stTabs"] button[aria-selected="true"] {
+    background-color: #D0DFF2 !important;
+    border-bottom: 2px solid #144070 !important;
+    color: #144070 !important;
+}
+div[data-testid="stSidebar"] div[data-testid="stTabs"] [data-testid="stTabHighlight"] {
+    display: none !important;
+}
+
 div.stDownloadButton > button:first-child {
     display: block;
     padding: 0.5em 1em;

@@ -59,9 +59,9 @@ def page_setting():
 
         # ── Tab-based Settings ──────────────────────────────────────────
         tab_llm, tab_sub, tab_dub = st.tabs([
-            f"🤖 {t('LLM Configuration')}", 
-            f"📝 {t('Subtitles Settings')}", 
-            f"🔊 {t('Dubbing Settings')}"
+            "LLM", 
+            "字幕", 
+            "配音"
         ])
 
         with tab_llm:
