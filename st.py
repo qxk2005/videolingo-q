@@ -211,7 +211,10 @@ def text_processing_section():
                     reset_subtitle_cache()
                     st.rerun()
         else:
-            if load_key("burn_subtitles"): st.video(SUB_VIDEO)
+            if load_key("burn_subtitles"): 
+                with open(SUB_VIDEO, 'rb') as f:
+                    video_bytes = f.read()
+                st.video(video_bytes)
             download_subtitle_zip_button(text=t("Download All Srt Files"))
             if st.button(t("Re-apply Vocab & Rebuild"), key="reapply_vocab_button"):
                 reapply_and_rebuild()
@@ -293,7 +296,10 @@ def audio_processing_section():
                     st.rerun()
         else:
             st.success(t("Audio processing is complete! You can check the audio files in the `output` folder."))
-            if load_key("burn_subtitles"): st.video(DUB_VIDEO)
+            if load_key("burn_subtitles"): 
+                with open(DUB_VIDEO, 'rb') as f:
+                    video_bytes = f.read()
+                st.video(video_bytes)
             if st.button(t("Delete dubbing files"), key="delete_dubbing_files"):
                 delete_dubbing_files()
                 st.rerun()
