@@ -386,29 +386,27 @@ def video_comparison_section():
             st.warning("Video files detected but failed to extract encoding info.")
 
 def safe_video_display(file_path):
-    """Safely display large videos using a chunked streaming approach."""
+    """Safely display large videos using Streamlit's optimized media server."""
     if not os.path.exists(file_path):
         return
     
-    file_size = os.path.getsize(file_path)
-    file_size_mb = file_size / (1024 * 1024)
+    file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
     
-    if file_size_mb > 150:
-        # 🚀 ULTIMATE STREAMING: Use Streamlit's native path-based video with specific configuration
-        # Adding a timestamp as a query parameter to force refresh
-        import time
-        timestamp = int(time.time())
-        # Note: We must ensure Streamlit can access the file. Absolute path is safest.
-        abs_path = os.path.abspath(file_path)
-        
-        st.video(abs_path)
-        st.info(f"💡 {t('Large video detected')} ({file_size_mb:.1f} MB). {t('Using stream mode for better performance.')}")
-        st.caption("若无法播放，请检查浏览器是否禁用了大文件加载，或尝试使用 Chrome/Edge 浏览器。")
-    else:
-        # Small files: Byte-loading is fast and robust
-        with open(file_path, 'rb') as f:
-            video_bytes = f.read()
-        st.video(video_bytes)
+    # ── Method 1: Path-based streaming (Best for 100MB+) ──
+    # We use a trick: Streamlit handles absolute paths by serving them through its own media server
+    abs_path = os.path.abspath(file_path)
+    
+    try:
+        if file_size_mb > 150:
+            st.video(abs_path)
+            st.info(f"💡 {t('Large video detected')} ({file_size_mb:.1f} MB). {t('Using stream mode for better performance.')}")
+        else:
+            # For smaller files, reading as bytes is more responsive
+            with open(file_path, 'rb') as f:
+                st.video(f.read())
+    except Exception as e:
+        st.error(f"播放器加载失败: {str(e)}")
+        st.warning("请尝试重新生成视频（当前文件体积过大，可能超出了浏览器或系统的单文件处理限制）。")
 
 def file_browser():
     """Interactive Windows-style file browser with encoding comparison."""
