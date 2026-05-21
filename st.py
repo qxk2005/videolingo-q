@@ -16,7 +16,17 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 os.environ['PATH'] += os.pathsep + current_dir
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-st.set_page_config(page_title="VideoLingo Q", page_icon="docs/logo.svg", layout="wide")
+st.set_page_config(
+    page_title="VideoLingo Q", 
+    page_icon="docs/logo.svg", 
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': 'https://github.com/qxk2005/videolingo-q',
+        'Report a bug': "https://github.com/qxk2005/videolingo-q/issues",
+        'About': "# VideoLingo Q\n专业视频本地化工作站\n\n版本：1.0.0"
+    }
+)
 
 SUB_VIDEO = "output/output_sub.mp4"
 DUB_VIDEO = "output/output_dub.mp4"

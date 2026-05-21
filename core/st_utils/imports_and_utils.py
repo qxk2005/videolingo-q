@@ -225,5 +225,12 @@ footer::after {
     top: 2px !important;
 }
 
+/* 4. Hide unnecessary framework menu items */
+/* Hides "Record a screencast", "Clear cache", etc. to simplify */
+ul[role="menu"] li:nth-child(2), 
+ul[role="menu"] li:nth-child(4) {
+    display: none !important;
+}
+
 </style>
 """
