@@ -374,8 +374,10 @@ def file_browser():
             st.markdown(f"<p style='margin: 0; padding: 2px 5px; font-size: 0.9em; color: #555;'>{indent}📄 {f}</p>", unsafe_allow_html=True)
 
     # Scrollable container for the tree
+    st.markdown('<div class="windows-file-tree">', unsafe_allow_html=True)
     with st.container(height=600, border=True):
         render_tree_node(output_dir)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def main():
     st.markdown(button_style, unsafe_allow_html=True)

@@ -76,7 +76,7 @@ div.stButton > button:hover {
 }
 
 /* Windows-style Tree Buttons Specificity */
-div[data-testid="column"] div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] div.stButton > button {
+.windows-file-tree div.stButton > button {
     border: none !important;
     background-color: transparent !important;
     text-align: left !important;
@@ -90,7 +90,7 @@ div[data-testid="column"] div[data-testid="stVerticalBlock"] div[data-testid="st
     line-height: 1.2 !important;
     border-radius: 4px !important;
 }
-div[data-testid="column"] div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] div.stButton > button:hover {
+.windows-file-tree div.stButton > button:hover {
     background-color: #e8f0fe !important;
     color: #144070 !important;
 }
