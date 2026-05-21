@@ -320,7 +320,7 @@ def process_audio():
     st.balloons()
 
 def file_browser():
-    """Interactive file browser for the output directory with click-to-expand."""
+    """Windows-style interactive file browser for the output directory."""
     st.markdown(f"### 📂 {t('Output Files')}")
     output_dir = "output"
     if not os.path.exists(output_dir):
@@ -331,7 +331,7 @@ def file_browser():
     if "expanded_dirs" not in st.session_state:
         st.session_state.expanded_dirs = set()
 
-    # Refresh and Collapse All buttons
+    # Toolbar
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
         if st.button("🔄 " + t("Refresh"), key="refresh_files", use_container_width=True):
@@ -353,11 +353,13 @@ def file_browser():
         for d in dirs:
             full_path = os.path.join(current_path, d)
             is_expanded = full_path in st.session_state.expanded_dirs
-            icon = "📂" if is_expanded else "📁"
             
-            # Use custom button styling for folder clicks
-            indent = "&nbsp;" * level * 4
-            if st.button(f"{indent}{icon} {d}", key=f"btn_{full_path}", use_container_width=True):
+            # Windows style: Arrow + Folder Icon + Name
+            arrow = "▼" if is_expanded else "▶"
+            folder_icon = "📂" if is_expanded else "📁"
+            indent = "　" * level # Ideographic Space for visual structure
+            
+            if st.button(f"{indent}{arrow} {folder_icon} {d}", key=f"btn_{full_path}"):
                 if is_expanded:
                     st.session_state.expanded_dirs.remove(full_path)
                 else:
@@ -368,8 +370,8 @@ def file_browser():
                 render_tree_node(full_path, level + 1)
 
         for f in files:
-            indent = "&nbsp;" * (level + 1) * 4
-            st.markdown(f"<span style='font-family: monospace;'>{indent}📄 {f}</span>", unsafe_allow_html=True)
+            indent = "　" * level + "　　" # Align with folder text
+            st.markdown(f"<p style='margin: 0; padding: 2px 5px; font-size: 0.9em; color: #555;'>{indent}📄 {f}</p>", unsafe_allow_html=True)
 
     # Scrollable container for the tree
     with st.container(height=600, border=True):

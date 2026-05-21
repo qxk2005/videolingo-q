@@ -51,10 +51,9 @@ give_star_button = """
         Star on GitHub 🌟
     </div>
 </a>
-"""
-
 button_style = """
 <style>
+/* Global Button Style */
 div.stButton > button:first-child {
     display: block;
     padding: 0.5em 1em;
@@ -73,19 +72,30 @@ div.stButton > button:hover {
     color: #144070;
     border-color: #144070;
 }
-div.stButton > button:active, div.stButton > button:focus {
+
+/* Windows-style Tree Buttons Specificity */
+div[data-testid="column"] div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] div.stButton > button {
+    border: none !important;
     background-color: transparent !important;
-    color: #144070 !important;
-    border-color: #144070 !important;
-    box-shadow: none !important;
+    text-align: left !important;
+    padding: 2px 5px !important;
+    font-size: 0.95em !important;
+    font-weight: normal !important;
+    color: #333 !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
+    min-height: unset !important;
+    line-height: 1.2 !important;
+    border-radius: 4px !important;
 }
-div.stButton > button:active:hover, div.stButton > button:focus:hover {
-    background-color: transparent !important;
+div[data-testid="column"] div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] div.stButton > button:hover {
+    background-color: #e8f0fe !important;
     color: #144070 !important;
-    border-color: #144070 !important;
-    box-shadow: none !important;
 }
+
 div.stDownloadButton > button:first-child {
+...
+"""
     display: block;
     padding: 0.5em 1em;
     color: #144070;
