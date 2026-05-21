@@ -152,6 +152,8 @@
     "Refresh": "刷新列表",
     "TTS Batch Size": "TTS 批量转换数量",
     "Number of audio files to generate in parallel. Increase for faster processing, but be aware of API limits.": "并行生成的音频文件数量。增加此值可加快处理速度，但请注意 API 限制。",
-    "Encoding Comparison": "视频编码对比"
+    "Encoding Comparison": "视频编码对比",
+    "Large video detected": "检测到大尺寸视频",
+    "Using stream mode for better performance.": "已切换为流式加载以优化性能。"
 }
 

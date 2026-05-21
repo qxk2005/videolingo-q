@@ -79,6 +79,12 @@ def merge_subtitles_to_video():
     if encoder:
         rprint(f"[bold green]Using hardware video encoder: {encoder}[/bold green]")
         ffmpeg_cmd.extend(['-c:v', encoder])
+        if encoder == 'h264_videotoolbox':
+            ffmpeg_cmd.extend(['-b:v', '3000k']) # Limit bitrate on Mac to prevent massive files
+        elif encoder == 'h264_nvenc':
+            ffmpeg_cmd.extend(['-cq', '28'])
+    else:
+        ffmpeg_cmd.extend(['-c:v', 'libx264', '-crf', '23'])
     
     # 🌐 Add web-compatible parameters
     ffmpeg_cmd.extend([

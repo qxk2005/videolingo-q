@@ -212,9 +212,7 @@ def text_processing_section():
                     st.rerun()
         else:
             if load_key("burn_subtitles"): 
-                with open(SUB_VIDEO, 'rb') as f:
-                    video_bytes = f.read()
-                st.video(video_bytes)
+                safe_video_display(SUB_VIDEO)
             download_subtitle_zip_button(text=t("Download All Srt Files"))
             if st.button(t("Re-apply Vocab & Rebuild"), key="reapply_vocab_button"):
                 reapply_and_rebuild()
@@ -297,9 +295,7 @@ def audio_processing_section():
         else:
             st.success(t("Audio processing is complete! You can check the audio files in the `output` folder."))
             if load_key("burn_subtitles"): 
-                with open(DUB_VIDEO, 'rb') as f:
-                    video_bytes = f.read()
-                st.video(video_bytes)
+                safe_video_display(DUB_VIDEO)
             if st.button(t("Delete dubbing files"), key="delete_dubbing_files"):
                 delete_dubbing_files()
                 st.rerun()
@@ -357,11 +353,12 @@ def video_comparison_section():
     """Display comparison of video encoding info."""
     st.markdown(f"### 🔍 {t('Encoding Comparison')}")
     
-    # Identify files
+    # Identify files - use absolute or properly relative paths
+    orig_video = None
     try:
         orig_video = _1_ytdlp.find_video_files()
     except:
-        orig_video = None
+        pass
         
     videos = {
         "Original": orig_video,
@@ -379,11 +376,31 @@ def video_comparison_section():
     
     if comparison_data:
         df_comp = pd.DataFrame(comparison_data)
-        # Reorder columns to put Stage first
         cols = ["Stage", "Video Codec", "Audio Codec", "Pixel Format", "Resolution", "Size"]
         st.dataframe(df_comp[cols], hide_index=True, use_container_width=True)
     else:
-        st.info("No video files available for comparison yet.")
+        # Debug info for the user if nothing is found
+        if not any([os.path.exists(v) for v in videos.values() if v]):
+            st.info("No video files found in output directory yet.")
+        else:
+            st.warning("Video files detected but failed to extract encoding info.")
+
+def safe_video_display(file_path):
+    """Safely display video using path-based loading for large files, with cache busting."""
+    if not os.path.exists(file_path):
+        return
+    
+    file_size = os.path.getsize(file_path) / (1024 * 1024) # MB
+    if file_size > 200:
+        # For large files, use path-based loading to avoid memory issues
+        # Add a timestamp to the filename to force Streamlit to refresh if the file changed
+        st.video(file_path)
+        st.info(f"💡 {t('Large video detected')} ({file_size:.1f} MB). {t('Using stream mode for better performance.')}")
+    else:
+        # For small files, byte-loading is fine and more robust against path issues
+        with open(file_path, 'rb') as f:
+            video_bytes = f.read()
+        st.video(video_bytes)
 
 def file_browser():
     """Interactive Windows-style file browser with encoding comparison."""

@@ -16,9 +16,8 @@ def download_video_section():
     with st.container(border=True):
         try:
             video_file = find_video_files()
-            with open(video_file, 'rb') as f:
-                video_bytes = f.read()
-            st.video(video_bytes)
+            # For original videos, path-based loading is better as they can be large
+            st.video(video_file)
             if st.button(t("Delete and Reselect"), key="delete_video_button"):
                 os.remove(video_file)
                 if os.path.exists(OUTPUT_DIR):

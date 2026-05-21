@@ -95,8 +95,12 @@ def merge_video_audio():
     if encoder:
         rprint(f"[bold green]Using hardware video encoder: {encoder}[/bold green]")
         cmd.extend(['-map', '[v]', '-map', '[a]', '-c:v', encoder])
+        if encoder == 'h264_videotoolbox':
+            cmd.extend(['-b:v', '3000k'])
+        elif encoder == 'h264_nvenc':
+            cmd.extend(['-cq', '28'])
     else:
-        cmd.extend(['-map', '[v]', '-map', '[a]'])
+        cmd.extend(['-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-crf', '23'])
     
     # 🌐 Add web-compatible parameters
     cmd.extend([
