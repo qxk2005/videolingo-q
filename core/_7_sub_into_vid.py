@@ -79,7 +79,14 @@ def merge_subtitles_to_video():
     if encoder:
         rprint(f"[bold green]Using hardware video encoder: {encoder}[/bold green]")
         ffmpeg_cmd.extend(['-c:v', encoder])
-    ffmpeg_cmd.extend(['-y', OUTPUT_VIDEO])
+    
+    # 🌐 Add web-compatible parameters
+    ffmpeg_cmd.extend([
+        '-pix_fmt', 'yuv420p',    # Essential for browser compatibility
+        '-c:a', 'aac',            # Ensure audio is AAC
+        '-movflags', 'faststart', # Allow video to start playing before fully downloaded
+        '-y', OUTPUT_VIDEO
+    ])
 
     rprint("🎬 Start merging subtitles to video...")
     start_time = time.time()

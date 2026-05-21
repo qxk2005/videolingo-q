@@ -98,7 +98,12 @@ def merge_video_audio():
     else:
         cmd.extend(['-map', '[v]', '-map', '[a]'])
     
-    cmd.extend(['-c:a', 'aac', '-b:a', '96k', DUB_VIDEO])
+    # 🌐 Add web-compatible parameters
+    cmd.extend([
+        '-pix_fmt', 'yuv420p',    # Essential for browser compatibility
+        '-movflags', 'faststart', # Allow video to start playing before fully downloaded
+        '-c:a', 'aac', '-b:a', '96k', DUB_VIDEO
+    ])
     
     subprocess.run(cmd)
     rprint(f"[bold green]Video and audio successfully merged into {DUB_VIDEO}[/bold green]")
