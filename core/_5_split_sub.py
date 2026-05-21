@@ -104,11 +104,20 @@ def split_align_subs(src_lines: List[str], tr_lines: List[str]):
 
     efficiency_mode = load_key("efficiency_mode")
 
+    from core.utils.progress_utils import get_progress, update_st_progress
+    progress = get_progress()
+    is_internal = not progress.live.is_started
+    if is_internal: progress.start()
+
     if efficiency_mode and to_split:
+        task_desc = "📏 正在批量分割和对齐长字幕..."
+        task = progress.add_task(task_desc, total=2) # 2 steps: split and align
+        
         console.print(f"[cyan]⚡ Efficiency mode: batch-processing {len(to_split)} lines in 2 LLM calls[/cyan]")
         word_limit = load_key("max_split_length")
 
         # Step 1: Batch split all source sentences (1 LLM call)
+        update_st_progress(0, 2, f"{task_desc} (1/2)")
         split_src_map = {}
         split_items = [(str(src_lines[i]), 2, word_limit) for i in to_split]
         split_prompt = get_batch_split_prompt(split_items)
@@ -135,6 +144,9 @@ def split_align_subs(src_lines: List[str], tr_lines: List[str]):
             console.print(f"[yellow]⚠️ Batch split for align failed: {e}. Falling back to individual splits.[/yellow]")
             for orig_i in to_split:
                 split_src_map[orig_i] = split_sentence(str(src_lines[orig_i]), num_parts=2).strip()
+        
+        progress.update(task, advance=1)
+        update_st_progress(1, 2, f"{task_desc} (2/2)")
 
         # Step 2: Batch align all pairs (1 LLM call)
         align_items = [(str(src_lines[i]), str(tr_lines[i]), split_src_map[i]) for i in to_split]
@@ -158,20 +170,18 @@ def split_align_subs(src_lines: List[str], tr_lines: List[str]):
                 src_lines[orig_i] = src_parts
                 tr_lines[orig_i] = tr_parts
                 remerged_tr_lines[orig_i] = tr_remerged
-    else:
+        
+        progress.update(task, advance=1)
+        update_st_progress(2, 2, task_desc)
+        if not is_internal: progress.remove_task(task)
+
+    elif to_split:
         @except_handler("Error in split_align_subs")
         def process(i):
             split_src = split_sentence(src_lines[i], num_parts=2).strip()
             src_parts, tr_parts, tr_remerged = align_subs(src_lines[i], tr_lines[i], split_src)
             return i, src_parts, tr_parts, tr_remerged
 
-        from core.utils.progress_utils import get_progress, update_st_progress
-        progress = get_progress()
-        is_internal = not progress.live.is_started
-        
-        if is_internal:
-            progress.start()
-            
         task_desc = "📏 正在分割过长字幕..."
         task = progress.add_task(task_desc, total=len(to_split))
         with concurrent.futures.ThreadPoolExecutor(max_workers=load_key("max_workers")) as executor:
@@ -184,10 +194,9 @@ def split_align_subs(src_lines: List[str], tr_lines: List[str]):
                 progress.update(task, advance=1)
                 update_st_progress(i + 1, len(to_split), task_desc)
                 
-        if is_internal:
-            progress.stop()
-        else:
-            progress.remove_task(task)
+        if not is_internal: progress.remove_task(task)
+
+    if is_internal: progress.stop()
 
     # Flatten `src_lines` and `tr_lines`
     src_lines = [item for sublist in src_lines for item in (sublist if isinstance(sublist, list) else [sublist])]
