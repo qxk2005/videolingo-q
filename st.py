@@ -491,7 +491,11 @@ def main():
 
     with col_center:
         welcome_text = t("Welcome to VideoLingo Q")
-        st.markdown(f"<p style='font-size: 32px; font-weight: bold; color: #144070; margin-bottom: 20px;'>{welcome_text}</p>", unsafe_allow_html=True)
+        st.markdown(f"""
+            <div class="top-header">
+                <p class="top-header-text">{welcome_text}</p>
+            </div>
+        """, unsafe_allow_html=True)
 
         # add settings (Left part is st.sidebar)
         with st.sidebar:

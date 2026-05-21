@@ -148,5 +148,23 @@ div.stDownloadButton > button:active:hover, div.stDownloadButton > button:focus:
     border-color: #144070 !important;
     box-shadow: none !important;
 }
+
+/* Top Header Bar Styling */
+.top-header {
+    background: linear-gradient(90deg, #144070 0%, #2a6db0 100%);
+    padding: 12px 25px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    box-shadow: 0 4px 15px rgba(20, 64, 112, 0.15);
+}
+.top-header-text {
+    color: white !important;
+    margin: 0 !important;
+    font-size: 26px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.8px;
+}
 </style>
 """
