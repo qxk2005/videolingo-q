@@ -33,6 +33,16 @@ VideoLingo Q 是一款一体化的视频搬运神器，旨在生成高质量的 
 
 VideoLingo Q 采用了专为生产力设计的 **“汉堡工作站”** 布局，分为三个核心区域：
 
+```mermaid
+layout BT
+    subgraph UI界面布局示意图
+        direction LR
+        L[<b>左侧：配置面板</b><br/>Tab页切换<br/>LLM/字幕/配音]
+        C[<b>中间：主工作流</b><br/>Logo/欢迎语<br/>任务列表<br/>实时进度条]
+        R[<b>右侧：文件管理</b><br/>编码对比<br/>Windows树形树]
+    end
+```
+
 1. **左侧：功能配置区 (Sidebar Tabs)**
    - 采用标签页 (Tabs) 切换：**LLM**、**字幕**、**配音**。
    - 每一个选项卡都包裹在精致的圆角卡片中，并强化了输入框的边框识别度。
