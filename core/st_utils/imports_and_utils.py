@@ -26,33 +26,6 @@ def download_subtitle_zip_button(text: str):
     )
 
 # st.markdown
-give_star_button = """
-<style>
-    .github-button {
-        display: block;
-        width: 100%;
-        padding: 0.5em 1em;
-        color: #144070;
-        background-color: #d0e0f2;
-        border-radius: 6px;
-        text-decoration: none;
-        font-weight: bold;
-        text-align: center;
-        transition: background-color 0.3s ease, color 0.3s ease;
-        box-sizing: border-box;
-    }
-    .github-button:hover {
-        background-color: #ffffff;
-        color: #144070;
-    }
-</style>
-<a href="https://github.com/Huanshere/VideoLingo" target="_blank" style="text-decoration: none;">
-    <div class="github-button">
-        Star on GitHub 🌟
-    </div>
-</a>
-"""
-
 button_style = """
 <style>
 /* Global Button Style */

@@ -16,7 +16,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 os.environ['PATH'] += os.pathsep + current_dir
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-st.set_page_config(page_title="VideoLingo", page_icon="docs/logo.svg", layout="wide")
+st.set_page_config(page_title="VideoLingo Q", page_icon="docs/logo.svg", layout="wide")
 
 SUB_VIDEO = "output/output_sub.mp4"
 DUB_VIDEO = "output/output_dub.mp4"
@@ -490,12 +490,8 @@ def main():
         file_browser()
 
     with col_center:
-        # Logo and Welcome moved here
-        logo_col, _ = st.columns([1,1])
-        with logo_col:
-            st.image("docs/logo.png", use_column_width=True)
-        welcome_text = "欢迎使用 VideoLingo Q"
-        st.markdown(f"<p style='font-size: 24px; font-weight: bold; color: #144070;'>{welcome_text}</p>", unsafe_allow_html=True)
+        welcome_text = t("Welcome to VideoLingo Q")
+        st.markdown(f"<p style='font-size: 32px; font-weight: bold; color: #144070; margin-bottom: 20px;'>{welcome_text}</p>", unsafe_allow_html=True)
 
         # add settings (Left part is st.sidebar)
         with st.sidebar:
