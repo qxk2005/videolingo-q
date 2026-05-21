@@ -217,6 +217,11 @@ def page_setting():
             if select_tts != load_key("tts_method"):
                 update_key("tts_method", select_tts)
 
+            # TTS Concurrency (Batch Size)
+            tts_max_workers = st.slider(t("TTS Batch Size"), min_value=1, max_value=10, value=load_key("tts_max_workers"), help=t("Number of audio files to generate in parallel. Increase for faster processing, but be aware of API limits."))
+            if tts_max_workers != load_key("tts_max_workers"):
+                update_key("tts_max_workers", tts_max_workers)
+
             # sub settings for each tts method
             if select_tts == "sf_fish_tts":
                 config_input(t("SiliconFlow API Key"), "sf_fish_tts.api_key")

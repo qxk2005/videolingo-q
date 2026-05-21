@@ -86,6 +86,9 @@ pause_before_translate: false
 # TTS selection [sf_fish_tts, openai_tts, gpt_sovits, azure_tts, fish_tts, edge_tts, custom_tts]
 tts_method: 'edge_tts'
 
+# Number of concurrent TTS tasks
+tts_max_workers: 1
+
 # SiliconFlow FishTTS
 sf_fish_tts:
   # SiliconFlow API key

@@ -177,30 +177,31 @@ def generate_tts_audio(tasks_df: pd.DataFrame) -> pd.DataFrame:
     task_desc = "🔄 正在生成 TTS 配音音频..."
     task = progress.add_task(task_desc, total=len(tasks_df))
     
-    # warm up for first 5 rows
-    warmup_size = min(WARMUP_SIZE, len(tasks_df))
-    for i, (_, row) in enumerate(tasks_df.head(warmup_size).iterrows()):
-        try:
-            number, real_dur = process_row(row, tasks_df)
-            tasks_df.loc[tasks_df['number'] == number, 'real_dur'] = real_dur
-            progress.advance(task)
-            update_st_progress(i + 1, len(tasks_df), task_desc)
-        except Exception as e:
-            rprint(f"[red]❌ Error in warmup: {str(e)}[/red]")
-            raise e
+    # Use user-defined tts_max_workers. For gpt_sovits, force 1 to avoid conflicts.
+    tts_max_workers = load_key("tts_max_workers")
+    if load_key("tts_method") == "gpt_sovits":
+        tts_max_workers = 1
     
-    # for gpt_sovits, do not use parallel to avoid mistakes
-    max_workers = load_key("max_workers") if load_key("tts_method") != "gpt_sovits" else 1
-    # parallel processing for remaining tasks
-    if len(tasks_df) > warmup_size:
-        remaining_tasks = tasks_df.iloc[warmup_size:].copy()
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    if tts_max_workers == 1:
+        # Sequential processing
+        for i, (_, row) in enumerate(tasks_df.iterrows()):
+            try:
+                number, real_dur = process_row(row, tasks_df)
+                tasks_df.loc[tasks_df['number'] == number, 'real_dur'] = real_dur
+                progress.advance(task)
+                update_st_progress(i + 1, len(tasks_df), task_desc)
+            except Exception as e:
+                rprint(f"[red]❌ Error in sequential TTS: {str(e)}[/red]")
+                raise e
+    else:
+        # Parallel processing using the specified batch size (max_workers)
+        with ThreadPoolExecutor(max_workers=tts_max_workers) as executor:
             futures = [
                 executor.submit(process_row, row, tasks_df.copy())
-                for _, row in remaining_tasks.iterrows()
+                for _, row in tasks_df.iterrows()
             ]
             
-            completed_count = warmup_size
+            completed_count = 0
             for future in as_completed(futures):
                 try:
                     number, real_dur = future.result()
@@ -209,7 +210,7 @@ def generate_tts_audio(tasks_df: pd.DataFrame) -> pd.DataFrame:
                     completed_count += 1
                     update_st_progress(completed_count, len(tasks_df), task_desc)
                 except Exception as e:
-                    rprint(f"[red]❌ Error: {str(e)}[/red]")
+                    rprint(f"[red]❌ Error in parallel TTS: {str(e)}[/red]")
                     raise e
 
     if is_internal:
