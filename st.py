@@ -320,7 +320,7 @@ def process_audio():
     st.balloons()
 
 def file_browser():
-    """Collapsible file browser for the output directory."""
+    """Flat file browser for the output directory to avoid nested expander issues."""
     st.markdown(f"### 📂 {t('Output Files')}")
     output_dir = "output"
     if not os.path.exists(output_dir):
@@ -331,21 +331,35 @@ def file_browser():
     if st.button("🔄 " + t("Refresh"), key="refresh_files", use_container_width=True):
         st.rerun()
 
-    def render_tree(directory):
-        items = os.listdir(directory)
-        # Separate files and directories
-        dirs = sorted([d for d in items if os.path.isdir(os.path.join(directory, d)) and not d.startswith('.') and d != '__pycache__'])
-        files = sorted([f for f in items if os.path.isfile(os.path.join(directory, f)) and not f.startswith('.')])
-        
-        for d in dirs:
-            with st.expander(f"📁 {d}", expanded=False):
-                render_tree(os.path.join(directory, d))
-        
-        for f in files:
-            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;📄 {f}")
-
     try:
-        render_tree(output_dir)
+        all_items = []
+        for root, dirs, files in os.walk(output_dir):
+            # Ignore hidden files and __pycache__
+            files = [f for f in files if not f.startswith('.') and f != 'desktop.ini']
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__']
+            
+            rel_path = os.path.relpath(root, output_dir)
+            level = 0 if rel_path == "." else rel_path.count(os.sep) + 1
+            indent = "&nbsp;&nbsp;" * level * 2
+            
+            if rel_path != ".":
+                folder_name = os.path.basename(root)
+                all_items.append(f"{indent}📁 **{folder_name}/**")
+            
+            sub_indent = "&nbsp;&nbsp;" * (level + 1) * 2
+            for f in sorted(files):
+                all_items.append(f"{sub_indent}📄 {f}")
+        
+        if not all_items:
+            st.write("No files found.")
+        else:
+            # Wrap items in a scrollable container if it gets too long
+            st.markdown(
+                f'<div style="max-height: 500px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 5px; background-color: #f9f9f9;">'
+                f'{"<br>".join(all_items)}'
+                f'</div>',
+                unsafe_allow_html=True
+            )
     except Exception as e:
         st.error(f"Error listing files: {e}")
 
