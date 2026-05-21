@@ -51,6 +51,8 @@ give_star_button = """
         Star on GitHub 🌟
     </div>
 </a>
+"""
+
 button_style = """
 <style>
 /* Global Button Style */
@@ -94,8 +96,6 @@ div[data-testid="column"] div[data-testid="stVerticalBlock"] div[data-testid="st
 }
 
 div.stDownloadButton > button:first-child {
-...
-"""
     display: block;
     padding: 0.5em 1em;
     color: #144070;
