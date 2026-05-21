@@ -322,31 +322,40 @@ def process_audio():
     st.balloons()
 
 def get_video_info(file_path):
-    """Get video encoding info using ffprobe."""
-    if not os.path.exists(file_path):
+    """Get video encoding info using ffprobe with robust error handling."""
+    if not file_path or not os.path.exists(file_path):
         return None
     try:
         import json
+        # Ensure we use absolute path to avoid confusion
+        abs_path = os.path.abspath(file_path)
         cmd = [
             'ffprobe', '-v', 'quiet', '-print_format', 'json',
-            '-show_streams', '-show_format', file_path
+            '-show_streams', '-show_format', abs_path
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+        if result.returncode != 0:
+            return None
+            
         data = json.loads(result.stdout)
-        
-        v_stream = next((s for s in data['streams'] if s['codec_type'] == 'video'), None)
-        a_stream = next((s for s in data['streams'] if s['codec_type'] == 'audio'), None)
+        if 'streams' not in data:
+            return None
+            
+        v_stream = next((s for s in data['streams'] if s.get('codec_type') == 'video'), {})
+        a_stream = next((s for s in data['streams'] if s.get('codec_type') == 'audio'), {})
         
         info = {
             "File": os.path.basename(file_path),
-            "Video Codec": v_stream.get('codec_name', 'N/A') if v_stream else 'N/A',
-            "Audio Codec": a_stream.get('codec_name', 'N/A') if a_stream else 'N/A',
-            "Resolution": f"{v_stream.get('width')}x{v_stream.get('height')}" if v_stream else 'N/A',
-            "Pixel Format": v_stream.get('pix_fmt', 'N/A') if v_stream else 'N/A',
+            "Video Codec": v_stream.get('codec_name', 'N/A'),
+            "Audio Codec": a_stream.get('codec_name', 'N/A'),
+            "Resolution": f"{v_stream.get('width', 'N/A')}x{v_stream.get('height', 'N/A')}",
+            "Pixel Format": v_stream.get('pix_fmt', 'N/A'),
             "Size": f"{os.path.getsize(file_path) / (1024*1024):.2f} MB"
         }
         return info
-    except Exception:
+    except Exception as e:
+        # Silently fail but log to console for debugging
+        print(f"ffprobe error for {file_path}: {str(e)}")
         return None
 
 def video_comparison_section():
