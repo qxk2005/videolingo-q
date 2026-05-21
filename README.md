@@ -103,11 +103,20 @@ git clone https://github.com/qxk2005/videolingo-q.git
 cd videolingo-q
 ```
 
-2. 创建并激活环境：
+2. 创建并激活虚拟环境：
+
+**Windows:**
 ```bash
-conda create -n videolingo python=3.10.0 -y
-conda activate videolingo
+python -m venv venv
+.\venv\Scripts\activate
 python install.py
+```
+
+**macOS/Linux:**
+```bash
+python3 -m venv venv
+source venv/bin/activate
+python3 install.py
 ```
 
 3. 启动应用：
