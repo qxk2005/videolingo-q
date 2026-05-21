@@ -320,48 +320,60 @@ def process_audio():
     st.balloons()
 
 def file_browser():
-    """Flat file browser for the output directory to avoid nested expander issues."""
+    """Interactive file browser for the output directory with click-to-expand."""
     st.markdown(f"### 📂 {t('Output Files')}")
     output_dir = "output"
     if not os.path.exists(output_dir):
         st.info("No output directory yet.")
         return
     
-    # Add a refresh button
-    if st.button("🔄 " + t("Refresh"), key="refresh_files", use_container_width=True):
-        st.rerun()
+    # Initialize expanded paths in session state
+    if "expanded_dirs" not in st.session_state:
+        st.session_state.expanded_dirs = set()
 
-    try:
-        all_items = []
-        for root, dirs, files in os.walk(output_dir):
-            # Ignore hidden files and __pycache__
-            files = [f for f in files if not f.startswith('.') and f != 'desktop.ini']
-            dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__']
+    # Refresh and Collapse All buttons
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("🔄 " + t("Refresh"), key="refresh_files", use_container_width=True):
+            st.rerun()
+    with col_btn2:
+        if st.button("📁 " + "全部收起", key="collapse_all", use_container_width=True):
+            st.session_state.expanded_dirs = set()
+            st.rerun()
+
+    def render_tree_node(current_path, level=0):
+        try:
+            items = sorted(os.listdir(current_path))
+        except Exception:
+            return
+
+        dirs = [d for d in items if os.path.isdir(os.path.join(current_path, d)) and not d.startswith('.') and d != '__pycache__']
+        files = [f for f in items if os.path.isfile(os.path.join(current_path, f)) and not f.startswith('.')]
+
+        for d in dirs:
+            full_path = os.path.join(current_path, d)
+            is_expanded = full_path in st.session_state.expanded_dirs
+            icon = "📂" if is_expanded else "📁"
             
-            rel_path = os.path.relpath(root, output_dir)
-            level = 0 if rel_path == "." else rel_path.count(os.sep) + 1
-            indent = "&nbsp;&nbsp;" * level * 2
+            # Use custom button styling for folder clicks
+            indent = "&nbsp;" * level * 4
+            if st.button(f"{indent}{icon} {d}", key=f"btn_{full_path}", use_container_width=True):
+                if is_expanded:
+                    st.session_state.expanded_dirs.remove(full_path)
+                else:
+                    st.session_state.expanded_dirs.add(full_path)
+                st.rerun()
             
-            if rel_path != ".":
-                folder_name = os.path.basename(root)
-                all_items.append(f"{indent}📁 **{folder_name}/**")
-            
-            sub_indent = "&nbsp;&nbsp;" * (level + 1) * 2
-            for f in sorted(files):
-                all_items.append(f"{sub_indent}📄 {f}")
-        
-        if not all_items:
-            st.write("No files found.")
-        else:
-            # Wrap items in a scrollable container if it gets too long
-            st.markdown(
-                f'<div style="max-height: 500px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 5px; background-color: #f9f9f9;">'
-                f'{"<br>".join(all_items)}'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-    except Exception as e:
-        st.error(f"Error listing files: {e}")
+            if is_expanded:
+                render_tree_node(full_path, level + 1)
+
+        for f in files:
+            indent = "&nbsp;" * (level + 1) * 4
+            st.markdown(f"<span style='font-family: monospace;'>{indent}📄 {f}</span>", unsafe_allow_html=True)
+
+    # Scrollable container for the tree
+    with st.container(height=600, border=True):
+        render_tree_node(output_dir)
 
 def main():
     st.markdown(button_style, unsafe_allow_html=True)
