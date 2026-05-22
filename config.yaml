@@ -13,7 +13,7 @@ display_language: "zh-CN"
 api:
   key: 'YOUR_API_KEY'
   base_url: 'YOUR_BASE_URL'
-  model: 'GLM-4.7'
+  model: 'YOUR_MODEL'
   llm_support_json: false
   use_gemini_cli: true
 # *Number of LLM multi-threaded accesses, set to 1 if using local LLM
