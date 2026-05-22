@@ -19,14 +19,30 @@ def delete_dubbing_files():
             except Exception as e:
                 print(f"Error deleting {file_path}: {str(e)}")
 
-    # Entire audio folder (includes refers, segs, tmp, tasks, and mp3s)
+    # Specific folders and files inside audio folder to delete
     audio_folder = os.path.join("output", "audio")
     if os.path.exists(audio_folder):
-        try:
-            shutil.rmtree(audio_folder)
-            print(f"Deleted entire audio folder: {audio_folder}")
-        except Exception as e:
-            print(f"Error deleting folder {audio_folder}: {str(e)}")
+        sub_items = os.listdir(audio_folder)
+        for item in sub_items:
+            # Preserve essential source files and subtitle files
+            if item in [
+                "raw.mp3", 
+                "vocal.mp3", 
+                "background.mp3", 
+                "src_subs_for_audio.srt", 
+                "trans_subs_for_audio.srt"
+            ]:
+                continue
+            
+            item_path = os.path.join(audio_folder, item)
+            try:
+                if os.path.isfile(item_path):
+                    os.remove(item_path)
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                print(f"Deleted: {item_path}")
+            except Exception as e:
+                print(f"Error deleting {item_path}: {str(e)}")
     else:
         print(f"Audio folder not found: {audio_folder}")
 

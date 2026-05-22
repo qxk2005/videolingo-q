@@ -178,11 +178,39 @@ def generate_tts_audio(tasks_df: pd.DataFrame) -> pd.DataFrame:
     task = progress.add_task(task_desc, total=len(tasks_df))
     
     # Use user-defined tts_max_workers. For gpt_sovits, force 1 to avoid conflicts.
+    tts_method = load_key("tts_method")
     tts_max_workers = load_key("tts_max_workers")
-    if load_key("tts_method") == "gpt_sovits":
+    
+    if tts_method == "gpt_sovits":
         tts_max_workers = 1
     
-    if tts_max_workers == 1:
+    # Specialized handling for Gemini TTS to prevent rate limits
+    if tts_method == "gemini_tts":
+        rprint(f"[yellow]⏳ Gemini TTS mode: Using batch-sequential processing (Batch size: {tts_max_workers}) to prevent rate limits...[/yellow]")
+        # Process in batches of tts_max_workers
+        for i in range(0, len(tasks_df), tts_max_workers):
+            batch = tasks_df.iloc[i:i + tts_max_workers]
+            with ThreadPoolExecutor(max_workers=tts_max_workers) as executor:
+                futures = [
+                    executor.submit(process_row, row, tasks_df.copy())
+                    for _, row in batch.iterrows()
+                ]
+                for future in as_completed(futures):
+                    try:
+                        number, real_dur = future.result()
+                        tasks_df.loc[tasks_df['number'] == number, 'real_dur'] = real_dur
+                        progress.advance(task)
+                    except Exception as e:
+                        rprint(f"[red]❌ Error in Gemini batch TTS: {str(e)}[/red]")
+                        raise e
+            # Small wait between batches if not the last batch
+            if i + tts_max_workers < len(tasks_df):
+                wait_time = 2  # Adjust wait time as needed
+                rprint(f"[dim]Waiting {wait_time}s for next Gemini batch...[/dim]")
+                time.sleep(wait_time)
+            update_st_progress(min(i + tts_max_workers, len(tasks_df)), len(tasks_df), task_desc)
+    
+    elif tts_max_workers == 1:
         # Sequential processing
         for i, (_, row) in enumerate(tasks_df.iterrows()):
             try:

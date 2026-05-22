@@ -153,6 +153,9 @@
     "Refresh": "刷新列表",
     "TTS Batch Size": "TTS 批量转换数量",
     "Number of audio files to generate in parallel. Increase for faster processing, but be aware of API limits.": "并行生成的音频文件数量。增加此值可加快处理速度，但请注意 API 限制。",
+    "Gemini Voice": "Gemini 音色",
+    "Skip Reference Audio": "跳过提取参考音频",
+    "Skip extracting reference audio from the original video. Useful when using fixed TTS voices.": "跳过从原始视频中提取参考音频。当使用固定 TTS 音色时非常有用。",
     "Encoding Comparison": "视频编码对比",
     "Large video detected": "检测到大尺寸视频",
     "Using stream mode for better performance.": "已切换为流式加载以优化性能。"

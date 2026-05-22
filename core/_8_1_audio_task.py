@@ -98,6 +98,15 @@ def time_diff_seconds(t1, t2, base_date):
 def process_srt():
     """Process srt file, generate audio tasks"""
     
+    # Defensive check: if subtitle files are missing, try to regenerate them
+    if not os.path.exists(TRANS_SUBS_FOR_AUDIO_FILE) or not os.path.exists(SRC_SUBS_FOR_AUDIO_FILE):
+        print(f"Subtitle files missing, attempting to regenerate...")
+        try:
+            from core._6_gen_sub import align_timestamp_main
+            align_timestamp_main()
+        except Exception as e:
+            raise FileNotFoundError(f"Subtitle files missing and regeneration failed: {e}")
+
     with open(TRANS_SUBS_FOR_AUDIO_FILE, 'r', encoding='utf-8') as file:
         content = file.read()
     

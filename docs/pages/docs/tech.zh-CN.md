@@ -66,7 +66,7 @@ Videolingo 是一个高度集成的视频翻译系统，能够自动执行一系
     *   `core/tts_backend/tts_main.py`: 中央 TTS 调度器。清理输入文本，根据配置 (`load_key("tts_method")`) 选择适当的 TTS 后端，调用相应的 TTS 函数，使用重试和基于 GPT 的文本纠正来处理错误，验证音频时长，并保存输出 WAV 文件。
 *   `core/_10_gen_audio.py`: 使用选定的 TTS 后端通过 `tts_main.py` 生成单独的音频片段。基于计算的因子调整生成的音频速度 (`ffmpeg`) 以适应任务文件中指定的目标时长，并将片段合并为块。使用 `ThreadPoolExecutor` 处理并行处理。
 *   `core/_11_merge_audio.py`: 将生成的和速度调整的音频片段（来自 `output/audio_segments/` 的 `.wav` 文件）合并为单个连续的配音音轨 (`output/dub.wav`)，根据字幕时序添加静音。 还生成相应的 SRT 文件 (`output/dub.srt`)。
-*   `core/_12_dub_to_vid.py`: 配音的最终合成步骤。使用 `ffmpeg` 合并原始视频、生成的配音音轨 (`output/dub.wav`) 和分离的背景音乐 (`output/background.mp3`，如果使用了 Demucs)。可选择在此过程中烧录字幕。包括音频标准化。
+*   `core/_12_dub_to_vid.py`: 配音的最终合成步骤。使用 `ffmpeg` 合并原始视频、生成的配音音轨 (`output/dub.wav`) 和分离的背景音乐 (`output/audio/background.mp3`，如果使用了 Demucs)。可选择在此过程中烧录字幕。包括音频标准化。
 
 **7. 核心实用程序和配置 (`core/utils`):**
 

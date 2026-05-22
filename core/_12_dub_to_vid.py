@@ -1,3 +1,4 @@
+import os
 import platform
 import subprocess
 
@@ -6,7 +7,8 @@ import numpy as np
 from rich.console import Console
 
 from core._1_ytdlp import find_video_files
-from core.asr_backend.audio_preprocess import normalize_audio_volume
+from core.asr_backend.audio_preprocess import normalize_audio_volume, convert_video_to_audio
+from core.asr_backend.demucs_vl import demucs_audio
 from core.utils import *
 from core.utils.models import *
 
@@ -46,10 +48,37 @@ def merge_video_audio():
         rprint("[bold green]Placeholder video has been generated.[/bold green]")
         return
 
+    # Check if dub audio exists
+    if not os.path.exists(DUB_AUDIO):
+        rprint(f"[bold red]Error: Dub audio file {DUB_AUDIO} not found. Please ensure the audio generation step completed successfully.[/bold red]")
+        return
+
     # Normalize dub audio
     normalized_dub_audio = 'output/normalized_dub.wav'
     normalize_audio_volume(DUB_AUDIO, normalized_dub_audio)
     
+    # Check if background audio exists, fallback to raw audio if missing
+    if not os.path.exists(background_file):
+        if load_key("demucs"):
+            rprint(f"[bold yellow]Warning: Background audio {background_file} not found but Demucs is enabled. Attempting to reconstruct...[/bold yellow]")
+            if not os.path.exists(_RAW_AUDIO_FILE):
+                convert_video_to_audio(VIDEO_FILE)
+            try:
+                demucs_audio()
+            except Exception as e:
+                rprint(f"[bold red]Error running Demucs: {e}[/bold red]")
+        
+        # Re-check after possible reconstruction
+        if not os.path.exists(background_file):
+            rprint(f"[bold yellow]Warning: Background audio {background_file} still not found. Falling back to original audio.[/bold yellow]")
+            background_file = _RAW_AUDIO_FILE
+            if not os.path.exists(background_file):
+                rprint(f"[bold yellow]Warning: Original audio {background_file} not found. Reconstructing from video...[/bold yellow]")
+                convert_video_to_audio(VIDEO_FILE)
+                if not os.path.exists(background_file):
+                    rprint(f"[bold red]Error: Failed to reconstruct original audio {background_file}.[/bold red]")
+                    return
+
     # Merge video and audio with translated subtitles
     video = cv2.VideoCapture(VIDEO_FILE)
     TARGET_WIDTH = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -109,8 +138,16 @@ def merge_video_audio():
         '-c:a', 'aac', '-b:a', '96k', DUB_VIDEO
     ])
     
-    subprocess.run(cmd)
-    rprint(f"[bold green]Video and audio successfully merged into {DUB_VIDEO}[/bold green]")
+    try:
+        subprocess.run(cmd, check=True, stderr=subprocess.PIPE)
+        rprint(f"[bold green]Video and audio successfully merged into {DUB_VIDEO}[/bold green]")
+    except subprocess.CalledProcessError as e:
+        rprint(f"[bold red]Error: FFmpeg process failed with return code {e.returncode}[/bold red]")
+        if e.stderr:
+            rprint(f"[red]{e.stderr.decode('utf-8', errors='ignore')}[/red]")
+    except Exception as e:
+        rprint(f"[bold red]An unexpected error occurred: {e}[/bold red]")
+
 
 if __name__ == '__main__':
     merge_video_audio()

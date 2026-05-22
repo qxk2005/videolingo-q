@@ -66,7 +66,7 @@ The following outlines the core technical modules and workflows:
     *   `core/tts_backend/tts_main.py`: Central TTS dispatcher. Cleans input text, selects the appropriate TTS backend based on configuration (`load_key("tts_method")`), calls the corresponding TTS function, handles errors using retries and GPT-based text correction, validates audio duration, and saves the output WAV file.
 *   `core/_10_gen_audio.py`: Generates individual audio segments using the selected TTS backend via `tts_main.py`. Adjusts the speed of the generated audio using a computed factor (`ffmpeg`) to match target durations specified in the task file, and concatenates segments into chunks. Uses `ThreadPoolExecutor` for parallel processing.
 *   `core/_11_merge_audio.py`: Merges the generated and speed-adjusted audio segments (`.wav` files from `output/audio_segments/`) into a single, continuous dubbed audio track (`output/dub.wav`), adding silences according to subtitle timings. Also generates a corresponding SRT file (`output/dub.srt`).
-*   `core/_12_dub_to_vid.py`: The final synthesis step for dubbing. Merges the original video, the generated dubbed audio track (`output/dub.wav`), and the separated background music (`output/background.mp3`, if Demucs was used) using `ffmpeg`. Optionally burns subtitles during this process. Includes audio normalization.
+*   `core/_12_dub_to_vid.py`: The final synthesis step for dubbing. Merges the original video, the generated dubbed audio track (`output/dub.wav`), and the separated background music (`output/audio/background.mp3`, if Demucs was used) using `ffmpeg`. Optionally burns subtitles during this process. Includes audio normalization.
 
 **7. Core Utilities and Configuration (`core/utils`):**
 

@@ -212,7 +212,7 @@ def page_setting():
                 update_key("efficiency_mode", efficiency_mode)
 
         with tab_dub:
-            tts_methods = ["azure_tts", "openai_tts", "fish_tts", "sf_fish_tts", "edge_tts", "gpt_sovits", "custom_tts", "sf_cosyvoice2", "f5tts"]
+            tts_methods = ["azure_tts", "openai_tts", "gemini_tts", "fish_tts", "sf_fish_tts", "edge_tts", "gpt_sovits", "custom_tts", "sf_cosyvoice2", "f5tts"]
             select_tts = st.selectbox(t("TTS Method"), options=tts_methods, index=tts_methods.index(load_key("tts_method")))
             if select_tts != load_key("tts_method"):
                 update_key("tts_method", select_tts)
@@ -221,6 +221,11 @@ def page_setting():
             tts_max_workers = st.slider(t("TTS Batch Size"), min_value=1, max_value=10, value=load_key("tts_max_workers"), help=t("Number of audio files to generate in parallel. Increase for faster processing, but be aware of API limits."))
             if tts_max_workers != load_key("tts_max_workers"):
                 update_key("tts_max_workers", tts_max_workers)
+
+            # Skip Reference Audio Toggle
+            skip_refer = st.toggle(t("Skip Reference Audio"), value=load_key("skip_refer"), help=t("Skip extracting reference audio from the original video. Useful when using fixed TTS voices."))
+            if skip_refer != load_key("skip_refer"):
+                update_key("skip_refer", skip_refer)
 
             # sub settings for each tts method
             if select_tts == "sf_fish_tts":
@@ -246,6 +251,61 @@ def page_setting():
             elif select_tts == "openai_tts":
                 config_input("302ai API", "openai_tts.api_key")
                 config_input(t("OpenAI Voice"), "openai_tts.voice")
+            
+            elif select_tts == "gemini_tts":
+                config_input("Gemini API Key", "gemini_tts.api_key")
+                gemini_voices = {
+                    "Aoede (Female - Professional/女声·专业)": "Aoede",
+                    "Kore (Female - Firm/女声·干练)": "Kore",
+                    "Callirrhoe (Female - Easy-going/女声·亲切)": "Callirrhoe",
+                    "Despina (Female - Warm/女声·温暖)": "Despina",
+                    "Erinome (Female - Resonant/女声·嘹亮)": "Erinome",
+                    "Gacrux (Female - Wise/女声·成熟)": "Gacrux",
+                    "Leda (Female - Youthful/女声·青春)": "Leda",
+                    "Zephyr (Female - Energetic/女声·元气)": "Zephyr",
+                    "Charon (Male - Authoritative/男声·权威)": "Charon",
+                    "Puck (Male - Conversational/男声·随性)": "Puck",
+                    "Fenrir (Male - Energetic/男声·活力)": "Fenrir",
+                    "Algenib (Male - Confident/男声·自信)": "Algenib",
+                    "Algieba (Male - Smooth/男声·圆润)": "Algieba",
+                    "Alnilam (Male - Direct/男声·直爽)": "Alnilam",
+                    "Iapetus (Male - Relatable/男声·邻家)": "Iapetus",
+                    "Zubenelgenubi (Male - Deep/男声·浑厚)": "Zubenelgenubi"
+                }
+                current_gemini_voice = load_key("gemini_tts.voice")
+                current_display = next((k for k, v in gemini_voices.items() if v == current_gemini_voice), list(gemini_voices.keys())[0])
+                selected_display = st.selectbox(
+                    t("Gemini Voice"),
+                    options=list(gemini_voices.keys()),
+                    index=list(gemini_voices.keys()).index(current_display)
+                )
+                selected_voice = gemini_voices[selected_display]
+                if selected_voice != current_gemini_voice:
+                    update_key("gemini_tts.voice", selected_voice)
+                
+                # 🔊 Preview Button for Gemini TTS
+                if st.button(f"🔊 {t('Listen Preview')}", key="preview_gemini_tts", use_container_width=True):
+                    preview_text = "这是您的 Gemini 配音预览，听起来不错吧？" if load_key("display_language") == "zh-CN" else "This is your Gemini voice preview, sounds good, right?"
+                    import tempfile
+                    from core.tts_backend.gemini_tts import gemini_tts as gen_gemini_tts
+                    with st.spinner(t("Generating preview...")):
+                        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                            tmp_path = tmp_file.name
+                        try:
+                            # We don't have an easy way to get mime_type back from the function 
+                            # unless we modify its return value. Let's do that.
+                            gen_gemini_tts(preview_text, tmp_path)
+                            with open(tmp_path, "rb") as f:
+                                audio_bytes = f.read()
+                            # Streamlit's st.audio is smart, but let's be safe. 
+                            # Most Gemini TTS responses are WAV or MP3.
+                            st.audio(audio_bytes)
+                        except Exception as e:
+                            st.error(f"Preview failed: {str(e)}")
+                        finally:
+                            if os.path.exists(tmp_path):
+                                try: os.remove(tmp_path)
+                                except: pass
 
             elif select_tts == "fish_tts":
                 config_input("302ai API", "fish_tts.api_key")

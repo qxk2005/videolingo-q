@@ -271,7 +271,8 @@ def audio_processing_section():
                 st.session_state.audio_processing_step = 2
                 st.rerun()
             elif step == 2:
-                with st.spinner(t("Extract refer audio")): _9_refer_audio.extract_refer_audio_main()
+                if not load_key("skip_refer"):
+                    with st.spinner(t("Extract refer audio")): _9_refer_audio.extract_refer_audio_main()
                 st.session_state.audio_processing_step = 3
                 st.rerun()
             elif step == 3:

@@ -172,3 +172,8 @@ config.backup.yaml
 runtime/
 dev/
 installer_files/
+
+# config files containing keys
+config.yaml
+llm_profiles.json
+*.pen
