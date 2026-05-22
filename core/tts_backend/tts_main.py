@@ -4,6 +4,7 @@ import time
 from pydub import AudioSegment
 
 from core.asr_backend.audio_preprocess import get_audio_duration
+from core.tts_backend.doubao_tts import doubao_tts
 from core.tts_backend.gemini_tts import gemini_tts
 from core.tts_backend.gpt_sovits_tts import gpt_sovits_tts_for_videolingo
 from core.tts_backend.sf_fishtts import siliconflow_fish_tts_for_videolingo
@@ -51,6 +52,8 @@ def tts_main(text, save_as, number, task_df):
                 text = correct_text['text']
             if TTS_METHOD == 'openai_tts':
                 openai_tts(text, save_as)
+            elif TTS_METHOD == 'doubao_tts':
+                doubao_tts(text, save_as)
             elif TTS_METHOD == 'gemini_tts':
                 gemini_tts(text, save_as)
             elif TTS_METHOD == 'gpt_sovits':

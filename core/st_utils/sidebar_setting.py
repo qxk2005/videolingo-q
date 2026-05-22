@@ -212,7 +212,7 @@ def page_setting():
                 update_key("efficiency_mode", efficiency_mode)
 
         with tab_dub:
-            tts_methods = ["azure_tts", "openai_tts", "gemini_tts", "fish_tts", "sf_fish_tts", "edge_tts", "gpt_sovits", "custom_tts", "sf_cosyvoice2", "f5tts"]
+            tts_methods = ["azure_tts", "openai_tts", "doubao_tts", "gemini_tts", "fish_tts", "sf_fish_tts", "edge_tts", "gpt_sovits", "custom_tts", "sf_cosyvoice2", "f5tts"]
             select_tts = st.selectbox(t("TTS Method"), options=tts_methods, index=tts_methods.index(load_key("tts_method")))
             if select_tts != load_key("tts_method"):
                 update_key("tts_method", select_tts)
@@ -251,6 +251,62 @@ def page_setting():
             elif select_tts == "openai_tts":
                 config_input("302ai API", "openai_tts.api_key")
                 config_input(t("OpenAI Voice"), "openai_tts.voice")
+
+            elif select_tts == "doubao_tts":
+                config_input("Volcengine AppID", "doubao_tts.appid")
+                config_input("Volcengine Access Token", "doubao_tts.access_token")
+                doubao_voices = {
+                    "vivi 2.0 (中女·旗舰)": "zh_female_vv_uranus_bigtts",
+                    "流畅女声 2.0 (视频配音)": "zh_female_liuchangnv_uranus_bigtts",
+                    "儒雅逸辰 2.0 (视频配音)": "zh_male_ruyayichen_uranus_bigtts",
+                    "温柔妈妈 2.0 (通用)": "zh_female_wenroumama_uranus_bigtts",
+                    "解说小明 2.0 (通用)": "zh_male_jieshuoxiaoming_uranus_bigtts",
+                    "TVB女声 2.0 (通用)": "zh_female_tvbnv_uranus_bigtts",
+                    "译制片男 2.0 (通用)": "zh_male_yizhipiannan_uranus_bigtts",
+                    "俏皮女声 2.0 (通用)": "zh_female_qiaopinv_uranus_bigtts",
+                    "直率英子 2.0 (通用)": "zh_female_zhishuaiyingzi_uranus_bigtts",
+                    "邻家男孩 2.0 (通用)": "zh_male_linjiananhai_uranus_bigtts",
+                    "四郎 2.0 (通用)": "zh_male_silang_uranus_bigtts",
+                    "小何 (中女·旗舰)": "zh_female_xiaohe_uranus_bigtts",
+                    "云舟 (中男·旗舰)": "zh_male_m191_uranus_bigtts",
+                    "小天 (中男·旗舰)": "zh_male_taocheng_uranus_bigtts",
+                    "Tim (英男·旗舰)": "en_male_tim_uranus_bigtts",
+                    "知性灿灿 (中女·Saturn)": "saturn_zh_female_cancan_tob",
+                    "可爱女生 (中女·Saturn)": "saturn_zh_female_keainvsheng_tob",
+                    "调皮公主 (中女·Saturn)": "saturn_zh_female_tiaopigongzhu_tob",
+                    "爽朗少年 (中男·Saturn)": "saturn_zh_male_shuanglangshaonian_tob",
+                    "天才同桌 (中男·Saturn)": "saturn_zh_male_tiancaitongzhu_tob",
+                }
+                current_doubao_voice = load_key("doubao_tts.voice")
+                current_display = next((k for k, v in doubao_voices.items() if v == current_doubao_voice), list(doubao_voices.keys())[0])
+                selected_display = st.selectbox(
+                    t("Doubao Voice"),
+                    options=list(doubao_voices.keys()),
+                    index=list(doubao_voices.keys()).index(current_display)
+                )
+                selected_voice = doubao_voices[selected_display]
+                if selected_voice != current_doubao_voice:
+                    update_key("doubao_tts.voice", selected_voice)
+                
+                # 🔊 Preview Button for Doubao TTS
+                if st.button(f"🔊 {t('Listen Preview')}", key="preview_doubao_tts", use_container_width=True):
+                    preview_text = "这是您的豆包2.0配音预览，听起来不错吧？" if load_key("display_language") == "zh-CN" else "This is your Doubao 2.0 voice preview, sounds good, right?"
+                    import tempfile
+                    from core.tts_backend.doubao_tts import doubao_tts as gen_doubao_tts
+                    with st.spinner(t("Generating preview...")):
+                        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
+                            tmp_path = tmp_file.name
+                        try:
+                            gen_doubao_tts(preview_text, tmp_path)
+                            with open(tmp_path, "rb") as f:
+                                audio_bytes = f.read()
+                            st.audio(audio_bytes, format="audio/mp3")
+                        except Exception as e:
+                            st.error(f"Preview failed: {str(e)}")
+                        finally:
+                            if os.path.exists(tmp_path):
+                                try: os.remove(tmp_path)
+                                except: pass
             
             elif select_tts == "gemini_tts":
                 config_input("Gemini API Key", "gemini_tts.api_key")

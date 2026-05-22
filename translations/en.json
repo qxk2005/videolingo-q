@@ -149,6 +149,11 @@
     "TTS Batch Size": "TTS Batch Size",
     "Number of audio files to generate in parallel. Increase for faster processing, but be aware of API limits.": "Number of audio files to generate in parallel. Increase for faster processing, but be aware of API limits.",
     "Gemini Voice": "Gemini Voice",
+    "Doubao Voice": "Doubao Voice",
+    "Doubao API Key": "Doubao API Key",
+    "Legacy Auth (Optional)": "Legacy Auth (Optional)",
+    "Volcengine AppID": "Volcengine AppID",
+    "Volcengine Access Token": "Volcengine Access Token",
     "Skip Reference Audio": "Skip Reference Audio",
     "Skip extracting reference audio from the original video. Useful when using fixed TTS voices.": "Skip extracting reference audio from the original video. Useful when using fixed TTS voices."
 }

@@ -139,12 +139,12 @@ def merge_video_audio():
     ])
     
     try:
-        subprocess.run(cmd, check=True, stderr=subprocess.PIPE)
+        # Remove stderr=subprocess.PIPE to avoid buffer deadlock for long-running FFmpeg processes
+        # This allows you to see the encoding progress in the console.
+        subprocess.run(cmd, check=True)
         rprint(f"[bold green]Video and audio successfully merged into {DUB_VIDEO}[/bold green]")
     except subprocess.CalledProcessError as e:
         rprint(f"[bold red]Error: FFmpeg process failed with return code {e.returncode}[/bold red]")
-        if e.stderr:
-            rprint(f"[red]{e.stderr.decode('utf-8', errors='ignore')}[/red]")
     except Exception as e:
         rprint(f"[bold red]An unexpected error occurred: {e}[/bold red]")
 

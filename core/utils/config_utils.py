@@ -22,7 +22,8 @@ def load_key(key):
         if isinstance(value, dict) and k in value:
             value = value[k]
         else:
-            raise KeyError(f"Key '{k}' not found in configuration")
+            # Return None instead of raising KeyError to allow graceful handling in UI
+            return None
     return value
 
 def update_key(key, new_value):
@@ -33,18 +34,14 @@ def update_key(key, new_value):
         keys = key.split('.')
         current = data
         for k in keys[:-1]:
-            if isinstance(current, dict) and k in current:
-                current = current[k]
-            else:
-                return False
+            if k not in current or not isinstance(current[k], dict):
+                current[k] = {}
+            current = current[k]
 
-        if isinstance(current, dict) and keys[-1] in current:
-            current[keys[-1]] = new_value
-            with open(CONFIG_PATH, 'w', encoding='utf-8') as file:
-                yaml.dump(data, file)
-            return True
-        else:
-            raise KeyError(f"Key '{keys[-1]}' not found in configuration")
+        current[keys[-1]] = new_value
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as file:
+            yaml.dump(data, file)
+        return True
         
 # basic utils
 def get_joiner(language):
