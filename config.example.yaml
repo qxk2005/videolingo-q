@@ -135,6 +135,12 @@ gpt_sovits:
 f5tts:
   302_api: 'YOUR_302_API_KEY'
 
+# Volcengine Doubao TTS configuration
+doubao_tts:
+  appid: 'YOUR_APPID'
+  access_token: 'YOUR_ACCESS_TOKEN'
+  voice: 'zh_female_vv_uranus_bigtts'
+
 # *Audio speed range
 speed_factor:
   min: 1.0
