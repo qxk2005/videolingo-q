@@ -7,10 +7,18 @@ from core.utils import *
 
 # ── LLM Profile helpers ──────────────────────────────────────────────────────
 LLM_PROFILES_PATH = "llm_profiles.json"
+LLM_PROFILES_EXAMPLE_PATH = "llm_profiles.example.json"
 
 def _load_profiles():
     if not os.path.exists(LLM_PROFILES_PATH):
-        return {}
+        if os.path.exists(LLM_PROFILES_EXAMPLE_PATH):
+            try:
+                import shutil
+                shutil.copy(LLM_PROFILES_EXAMPLE_PATH, LLM_PROFILES_PATH)
+            except Exception:
+                return {}
+        else:
+            return {}
     try:
         with open(LLM_PROFILES_PATH, "r", encoding="utf-8") as f:
             return json.load(f)

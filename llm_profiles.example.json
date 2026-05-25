@@ -1,0 +1,40 @@
+{
+  "FCloud-glm47": {
+    "key": "YOUR_API_KEY",
+    "base_url": "https://model.cnfcloud.com/GLM-4.7-FP8/v1",
+    "model": "GLM-4.7-FP8",
+    "llm_support_json": false
+  },
+  "Qwen3.5-397B-A17B-FP8": {
+    "key": "YOUR_API_KEY",
+    "base_url": "https://model.cnfcloud.com/Qwen3.5-397B-A17B-FP8/v1",
+    "model": "Qwen3.5-397B-A17B-FP8",
+    "llm_support_json": false
+  },
+  "lmstudio_gemma-4-26b-a4b": {
+    "key": "YOUR_API_KEY",
+    "base_url": "http://127.0.0.1:1234/v1",
+    "model": "google/gemma-4-26b-a4b",
+    "llm_support_json": false
+  },
+  "lmstudio_gemma-4-e4b": {
+    "key": "YOUR_API_KEY",
+    "base_url": "http://127.0.0.1:1234/v1",
+    "model": "google/gemma-4-26b-a4b",
+    "llm_support_json": true
+  },
+  "FCloud-GLM4.7_newkey": {
+    "key": "YOUR_API_KEY",
+    "base_url": "https://model.cnfcloud.com/GLM-4.7/v1",
+    "model": "GLM-4.7",
+    "llm_support_json": false,
+    "use_gemini_cli": false
+  },
+  "fcloud_glm4.7_new": {
+    "key": "YOUR_API_KEY",
+    "base_url": "YOUR_BASE_URL",
+    "model": "GLM-4.7",
+    "llm_support_json": false,
+    "use_gemini_cli": false
+  }
+}

@@ -1,7 +1,16 @@
 from ruamel.yaml import YAML
 import threading
 
+import os
+import shutil
+
 CONFIG_PATH = 'config.yaml'
+CONFIG_EXAMPLE_PATH = 'config.example.yaml'
+
+# Automatically initialize config.yaml from config.example.yaml if missing
+if not os.path.exists(CONFIG_PATH) and os.path.exists(CONFIG_EXAMPLE_PATH):
+    shutil.copy(CONFIG_EXAMPLE_PATH, CONFIG_PATH)
+
 lock = threading.Lock()
 
 yaml = YAML()
