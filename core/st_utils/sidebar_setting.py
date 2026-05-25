@@ -220,8 +220,12 @@ def page_setting():
                 update_key("efficiency_mode", efficiency_mode)
 
         with tab_dub:
-            tts_methods = ["azure_tts", "openai_tts", "doubao_tts", "gemini_tts", "fish_tts", "sf_fish_tts", "edge_tts", "gpt_sovits", "custom_tts", "sf_cosyvoice2", "f5tts"]
-            select_tts = st.selectbox(t("TTS Method"), options=tts_methods, index=tts_methods.index(load_key("tts_method")))
+            tts_methods = ["edge_tts", "doubao_tts"]
+            current_tts = load_key("tts_method")
+            if current_tts not in tts_methods:
+                current_tts = "edge_tts"
+                update_key("tts_method", "edge_tts")
+            select_tts = st.selectbox(t("TTS Method"), options=tts_methods, index=tts_methods.index(current_tts))
             if select_tts != load_key("tts_method"):
                 update_key("tts_method", select_tts)
 
@@ -236,31 +240,7 @@ def page_setting():
                 update_key("skip_refer", skip_refer)
 
             # sub settings for each tts method
-            if select_tts == "sf_fish_tts":
-                config_input(t("SiliconFlow API Key"), "sf_fish_tts.api_key")
-                
-                # Add mode selection dropdown
-                mode_options = {
-                    "preset": t("Preset"),
-                    "custom": t("Refer_stable"),
-                    "dynamic": t("Refer_dynamic")
-                }
-                selected_mode = st.selectbox(
-                    t("Mode Selection"),
-                    options=list(mode_options.keys()),
-                    format_func=lambda x: mode_options[x],
-                    index=list(mode_options.keys()).index(load_key("sf_fish_tts.mode")) if load_key("sf_fish_tts.mode") in mode_options.keys() else 0
-                )
-                if selected_mode != load_key("sf_fish_tts.mode"):
-                    update_key("sf_fish_tts.mode", selected_mode)
-                if selected_mode == "preset":
-                    config_input("Voice", "sf_fish_tts.voice")
-
-            elif select_tts == "openai_tts":
-                config_input("302ai API", "openai_tts.api_key")
-                config_input(t("OpenAI Voice"), "openai_tts.voice")
-
-            elif select_tts == "doubao_tts":
+            if select_tts == "doubao_tts":
                 config_input("Volcengine AppID", "doubao_tts.appid")
                 config_input("Volcengine Access Token", "doubao_tts.access_token")
                 doubao_voices = {
@@ -316,86 +296,6 @@ def page_setting():
                                 try: os.remove(tmp_path)
                                 except: pass
             
-            elif select_tts == "gemini_tts":
-                config_input("Gemini API Key", "gemini_tts.api_key")
-                gemini_voices = {
-                    "Aoede (Female - Professional/女声·专业)": "Aoede",
-                    "Kore (Female - Firm/女声·干练)": "Kore",
-                    "Callirrhoe (Female - Easy-going/女声·亲切)": "Callirrhoe",
-                    "Despina (Female - Warm/女声·温暖)": "Despina",
-                    "Erinome (Female - Resonant/女声·嘹亮)": "Erinome",
-                    "Gacrux (Female - Wise/女声·成熟)": "Gacrux",
-                    "Leda (Female - Youthful/女声·青春)": "Leda",
-                    "Zephyr (Female - Energetic/女声·元气)": "Zephyr",
-                    "Charon (Male - Authoritative/男声·权威)": "Charon",
-                    "Puck (Male - Conversational/男声·随性)": "Puck",
-                    "Fenrir (Male - Energetic/男声·活力)": "Fenrir",
-                    "Algenib (Male - Confident/男声·自信)": "Algenib",
-                    "Algieba (Male - Smooth/男声·圆润)": "Algieba",
-                    "Alnilam (Male - Direct/男声·直爽)": "Alnilam",
-                    "Iapetus (Male - Relatable/男声·邻家)": "Iapetus",
-                    "Zubenelgenubi (Male - Deep/男声·浑厚)": "Zubenelgenubi"
-                }
-                current_gemini_voice = load_key("gemini_tts.voice")
-                current_display = next((k for k, v in gemini_voices.items() if v == current_gemini_voice), list(gemini_voices.keys())[0])
-                selected_display = st.selectbox(
-                    t("Gemini Voice"),
-                    options=list(gemini_voices.keys()),
-                    index=list(gemini_voices.keys()).index(current_display)
-                )
-                selected_voice = gemini_voices[selected_display]
-                if selected_voice != current_gemini_voice:
-                    update_key("gemini_tts.voice", selected_voice)
-                
-                # 🔊 Preview Button for Gemini TTS
-                if st.button(f"🔊 {t('Listen Preview')}", key="preview_gemini_tts", use_container_width=True):
-                    preview_text = "这是您的 Gemini 配音预览，听起来不错吧？" if load_key("display_language") == "zh-CN" else "This is your Gemini voice preview, sounds good, right?"
-                    import tempfile
-                    from core.tts_backend.gemini_tts import gemini_tts as gen_gemini_tts
-                    with st.spinner(t("Generating preview...")):
-                        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-                            tmp_path = tmp_file.name
-                        try:
-                            # We don't have an easy way to get mime_type back from the function 
-                            # unless we modify its return value. Let's do that.
-                            gen_gemini_tts(preview_text, tmp_path)
-                            with open(tmp_path, "rb") as f:
-                                audio_bytes = f.read()
-                            # Streamlit's st.audio is smart, but let's be safe. 
-                            # Most Gemini TTS responses are WAV or MP3.
-                            st.audio(audio_bytes)
-                        except Exception as e:
-                            st.error(f"Preview failed: {str(e)}")
-                        finally:
-                            if os.path.exists(tmp_path):
-                                try: os.remove(tmp_path)
-                                except: pass
-
-            elif select_tts == "fish_tts":
-                config_input("302ai API", "fish_tts.api_key")
-                fish_tts_character = st.selectbox(t("Fish TTS Character"), options=list(load_key("fish_tts.character_id_dict").keys()), index=list(load_key("fish_tts.character_id_dict").keys()).index(load_key("fish_tts.character")))
-                if fish_tts_character != load_key("fish_tts.character"):
-                    update_key("fish_tts.character", fish_tts_character)
-
-            elif select_tts == "azure_tts":
-                config_input("302ai API", "azure_tts.api_key")
-                config_input(t("Azure Voice"), "azure_tts.voice")
-            
-            elif select_tts == "gpt_sovits":
-                st.info(t("Please refer to Github homepage for GPT_SoVITS configuration"))
-                config_input(t("SoVITS Character"), "gpt_sovits.character")
-                
-                refer_mode_options = {1: t("Mode 1: Use provided reference audio only"), 2: t("Mode 2: Use first audio from video as reference"), 3: t("Mode 3: Use each audio from video as reference")}
-                selected_refer_mode = st.selectbox(
-                    t("Refer Mode"),
-                    options=list(refer_mode_options.keys()),
-                    format_func=lambda x: refer_mode_options[x],
-                    index=list(refer_mode_options.keys()).index(load_key("gpt_sovits.refer_mode")),
-                    help=t("Configure reference audio mode for GPT-SoVITS")
-                )
-                if selected_refer_mode != load_key("gpt_sovits.refer_mode"):
-                    update_key("gpt_sovits.refer_mode", selected_refer_mode)
-                    
             elif select_tts == "edge_tts":
                 edge_tts_voices = {
                     "zh-CN-XiaoxiaoNeural (晓晓·女声·新闻)": "zh-CN-XiaoxiaoNeural",
@@ -449,12 +349,6 @@ def page_setting():
                             if os.path.exists(tmp_path):
                                 try: os.remove(tmp_path)
                                 except: pass
-
-            elif select_tts == "sf_cosyvoice2":
-                config_input(t("SiliconFlow API Key"), "sf_cosyvoice2.api_key")
-            
-            elif select_tts == "f5tts":
-                config_input("302ai API", "f5tts.302_api")
 
     _render_sidebar()
         
