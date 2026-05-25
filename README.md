@@ -123,7 +123,7 @@ graph TD
         
         subgraph 执行引擎
             L1[OpenAI/Claude API]
-            L2[Gemini CLI]
+            L2[Antigravity CLI]
         end
         G -. 调度 .-> L1
         G -. 调度 .-> L2
@@ -138,8 +138,8 @@ graph TD
 ### 2. 灵活的执行路径
 - **字幕上传模式 (Subtitle Bypass)**：
   如果您已经拥有高质量的官方字幕，可以在界面中直接上传。系统将**自动跳过**耗时的音频分离和 WhisperX 转录阶段，直接进入语义分句和翻译环节，大幅提升处理效率。
-- **Gemini CLI 极致加速**：
-  除了传统的 API 调用，本项目深度集成了 **Gemini CLI**。启用后，系统将通过命令行工具直接调用大模型，无需配置复杂的 API 代理或 Base URL，且在处理长文本分块时具有更强的稳定性和吞吐量。
+- **Antigravity CLI 极致加速**：
+  除了传统的 API 调用，本项目深度集成了 **Antigravity CLI** (`agy`)。启用后，系统将通过命令行工具直接调用大模型，无需配置复杂的 API 代理或 Base URL，且在处理长文本分块时具有更强的稳定性和吞吐量。
 
 ### 3. 精妙的字幕处理技术
 - **语义分句 (Split by Meaning)**：
@@ -195,7 +195,7 @@ streamlit run st.py
 
 ### LLM 配置
 VideoLingo Q 支持多种大模型方案：
-- **Gemini CLI**：启用后可获得最精简的配置界面，一键调用。
+- **Antigravity CLI**：启用后可获得最精简的配置界面，一键调用。
 - **OpenAI 兼容接口**：支持 Claude 3.5, GPT-4, DeepSeek V3 等主流模型。
 - **配置文件管理**：支持保存多个 LLM 配置模板，一键切换。
 

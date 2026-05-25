@@ -35,7 +35,7 @@ def _current_api_values():
         "base_url":         load_key("api.base_url"),
         "model":            load_key("api.model"),
         "llm_support_json": load_key("api.llm_support_json"),
-        "use_gemini_cli":   load_key("api.use_gemini_cli"),
+        "use_antigravity_cli": load_key("api.use_antigravity_cli"),
     }
 
 def config_input(label, key, help=None):
@@ -73,12 +73,12 @@ def page_setting():
         ])
 
         with tab_llm:
-            # ── Gemini CLI Toggle (Now at the top) ────────────────────────
-            use_gemini_cli = st.toggle(t("Use Gemini CLI"), value=load_key("api.use_gemini_cli"), help=t("If enabled, use gemini-cli to call LLM, ignoring above settings"))
-            if use_gemini_cli != load_key("api.use_gemini_cli"):
-                update_key("api.use_gemini_cli", use_gemini_cli)
+            # ── Antigravity CLI Toggle (Now at the top) ────────────────────────
+            use_antigravity_cli = st.toggle(t("Use Antigravity CLI"), value=load_key("api.use_antigravity_cli"), help=t("If enabled, use antigravity-cli to call LLM, ignoring above settings"))
+            if use_antigravity_cli != load_key("api.use_antigravity_cli"):
+                update_key("api.use_antigravity_cli", use_antigravity_cli)
             
-            if not use_gemini_cli:
+            if not use_antigravity_cli:
                 # ── Profile selector (only when profiles exist) ──────────────────
                 profiles = _load_profiles()
                 if profiles:
@@ -98,8 +98,10 @@ def page_setting():
                             update_key("api.base_url",         p["base_url"])
                             update_key("api.model",            p["model"])
                             update_key("api.llm_support_json", p["llm_support_json"])
-                            if "use_gemini_cli" in p:
-                                update_key("api.use_gemini_cli", p["use_gemini_cli"])
+                            if "use_antigravity_cli" in p:
+                                update_key("api.use_antigravity_cli", p["use_antigravity_cli"])
+                            elif "use_gemini_cli" in p:
+                                update_key("api.use_antigravity_cli", p["use_gemini_cli"])
                             st.toast(t("Profile loaded"), icon="✅")
                             st.rerun()
                     with col_del:

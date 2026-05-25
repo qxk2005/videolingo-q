@@ -15,7 +15,7 @@ api:
   base_url: 'YOUR_BASE_URL'
   model: 'YOUR_MODEL'
   llm_support_json: false
-  use_gemini_cli: true
+  use_antigravity_cli: true
 # *Number of LLM multi-threaded accesses, set to 1 if using local LLM
 max_workers: 1
 

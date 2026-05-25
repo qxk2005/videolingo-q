@@ -28,13 +28,13 @@
     "base_url": "https://model.cnfcloud.com/GLM-4.7/v1",
     "model": "GLM-4.7",
     "llm_support_json": false,
-    "use_gemini_cli": false
+    "use_antigravity_cli": false
   },
   "fcloud_glm4.7_new": {
     "key": "YOUR_API_KEY",
     "base_url": "YOUR_BASE_URL",
     "model": "GLM-4.7",
     "llm_support_json": false,
-    "use_gemini_cli": false
+    "use_antigravity_cli": false
   }
 }

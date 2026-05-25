@@ -386,7 +386,7 @@ def _truncate_chunk_tail(tasks_df: pd.DataFrame, index: int, chunk_end_time: flo
     last_file = OUTPUT_FILE_TEMPLATE.format(f"{last_number}_{len(last_lines) - 1}")
     audio = AudioSegment.from_wav(last_file)
     cur_end = tasks_df.at[index, 'new_sub_times'][-1][1]
-    keep_ms = max(0, (len(audio) / 1000 - (cur_end - chunk_end_time)) * 1000)
+    keep_ms = max(100, (len(audio) / 1000 - (cur_end - chunk_end_time)) * 1000)
     audio[:keep_ms].export(last_file, format="wav")
     last_times = tasks_df.at[index, 'new_sub_times']
     last_times[-1][1] = chunk_end_time

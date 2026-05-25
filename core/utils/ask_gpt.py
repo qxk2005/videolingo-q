@@ -42,18 +42,26 @@ def _load_cache(prompt, resp_type, log_title):
 # ask gpt once
 # ------------
 
-def ask_gemini_cli(prompt):
+def ask_antigravity_cli(prompt):
     try:
-        # Use gemini -p "<prompt>" -o text
+        # Use agy -p "<prompt>"
         result = subprocess.run(
-            ["gemini", "-p", prompt, "-o", "text"],
+            ["agy", "-p", prompt],
             capture_output=True,
             text=True,
             check=True
         )
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
-        raise ValueError(f"Gemini CLI call failed: {e.stderr}")
+        raise ValueError(f"Antigravity CLI call failed: {e.stderr}")
+
+def _normalize_keys_to_strings(data):
+    if isinstance(data, dict):
+        return {str(k): _normalize_keys_to_strings(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [_normalize_keys_to_strings(item) for item in data]
+    else:
+        return data
 
 @except_handler("GPT request failed", retry=3, delay=0.5)
 def ask_gpt(prompt, resp_type=None, valid_def=None, log_title="default"):
@@ -63,9 +71,9 @@ def ask_gpt(prompt, resp_type=None, valid_def=None, log_title="default"):
         rprint("use cache response")
         return cached
 
-    if load_key("api.use_gemini_cli"):
-        model = "gemini-cli"
-        resp_content = ask_gemini_cli(prompt)
+    if load_key("api.use_antigravity_cli") or load_key("api.use_gemini_cli"):
+        model = "antigravity-cli"
+        resp_content = ask_antigravity_cli(prompt)
     else:
         if not load_key("api.key"):
             raise ValueError("API key is not set")
@@ -108,6 +116,7 @@ def ask_gpt(prompt, resp_type=None, valid_def=None, log_title="default"):
                 resp = json_repair.loads(obj_match.group())
             if isinstance(resp, str):
                 resp = {}  # force validation failure so the retry kicks in
+        resp = _normalize_keys_to_strings(resp)
     else:
         # Strip <think> blocks for plain text responses
         resp = re.sub(r'<think>.*?</think>', '', resp_content, flags=re.DOTALL).strip()

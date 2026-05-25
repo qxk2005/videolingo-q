@@ -37,6 +37,11 @@ def get_audio_files(df):
 
 def process_audio_segment(audio_file):
     """Process a single audio segment with MP3 compression"""
+    # Check if the file is empty or too small (e.g. 44-byte empty WAV header) to bypass directly to silence
+    if os.path.exists(audio_file) and os.path.getsize(audio_file) < 100:
+        console.print(f"[yellow]⚠️ Audio file {audio_file} is empty/too small, creating silent segment[/yellow]")
+        return AudioSegment.silent(duration=100, frame_rate=16000)
+        
     # First check if the audio file is valid by trying to get its info
     try:
         # Quick check using ffmpeg to see if file is readable

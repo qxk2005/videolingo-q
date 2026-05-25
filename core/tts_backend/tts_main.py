@@ -26,8 +26,8 @@ def tts_main(text, save_as, number, task_df):
         rprint(f"Created silent audio for empty/single-char text: {save_as}")
         return
     
-    # Skip if file exists
-    if os.path.exists(save_as):
+    # Skip if file exists and is non-empty
+    if os.path.exists(save_as) and os.path.getsize(save_as) > 0:
         return
     
     print(f"Generating <{text}...>")
