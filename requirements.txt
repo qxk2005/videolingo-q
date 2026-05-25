@@ -23,6 +23,11 @@ autocorrect-py
 ctranslate2==4.4.0
 edge-tts
 
+# Platform-specific dependencies
+rich
+mlx-whisper; sys_platform == 'darwin' and platform_machine == 'arm64'
+pynvml; sys_platform != 'darwin'
+
 demucs[dev] @ git+https://github.com/adefossez/demucs
 whisperx @ git+https://github.com/m-bain/whisperx.git@7307306a9d8dd0d261e588cc933322454f853853
 
@@ -30,4 +35,5 @@ syllables
 pypinyin
 g2p-en
 xmltodict
+
 
