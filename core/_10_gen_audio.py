@@ -147,21 +147,94 @@ def trim_tts_silence(input_file: str) -> None:
 
 
 def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
-    """Helper function for processing single row data"""
+    """Helper function for processing single row data with continuous dubbing optimization"""
     number = row['number']
     lines = eval(row['lines']) if isinstance(row['lines'], str) else row['lines']
     real_dur = 0
-    for line_index, line in enumerate(lines):
-        temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
-        tts_main(line, temp_file, number, tasks_df)
-        trim_tts_silence(temp_file)  # Remove TTS leading/trailing silence before measuring
-        dur = get_audio_duration(temp_file)
-        if dur <= 0 and os.path.exists(temp_file):
-            os.remove(temp_file)
+    
+    tts_method = load_key("tts_method")
+    success_continuous = False
+    
+    # Apply continuous dubbing optimization for multi-line chunks in doubao_tts
+    if len(lines) > 1 and tts_method == "doubao_tts":
+        try:
+            import tempfile
+            from pydub.silence import detect_nonsilent
+            
+            # Combine sentences with terminal punctuation and double spaces for natural speech pauses
+            joined_lines = []
+            display_lang = load_key("display_language")
+            for l in lines:
+                l_strip = l.strip()
+                if not l_strip:
+                    continue
+                # Ensure each line ends with a sentence terminator for natural prosody
+                if l_strip[-1] not in ['.', '!', '?', '。', '！', '？', ',', '，']:
+                    l_strip += '。' if display_lang == "zh-CN" else '.'
+                joined_lines.append(l_strip)
+                
+            combined_text = "  ".join(joined_lines)
+            
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
+                combined_temp_path = tmp_file.name
+            
+            # Generate continuous paragraph audio
+            tts_main(combined_text, combined_temp_path, number, tasks_df)
+            
+            # Load the continuous audio
+            combined_audio = AudioSegment.from_file(combined_temp_path)
+            
+            # Adaptive threshold scan to identify exactly len(lines) nonsilent segments
+            best_ranges = None
+            for thresh in range(-45, -15, 2):
+                ranges = detect_nonsilent(combined_audio, min_silence_len=200, silence_thresh=thresh)
+                # Filter out extremely short nonsilent chunks (e.g. less than 100ms) which might be noise
+                ranges = [r for r in ranges if (r[1] - r[0]) > 100]
+                if len(ranges) == len(lines):
+                    best_ranges = ranges
+                    break
+            
+            if best_ranges is not None:
+                # Successfully identified and split all sentence segments!
+                rprint(f"[bold green]✨ Continuous Dubbing Success: Chunk {number} with {len(lines)} lines successfully aligned and split on silence![/bold green]")
+                for line_index, (start_ms, end_ms) in enumerate(best_ranges):
+                    temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
+                    # Extract segment with 100ms padding for smooth start/end transition
+                    pad = 100
+                    start_pad = max(0, start_ms - pad)
+                    end_pad = min(len(combined_audio), end_ms + pad)
+                    segment = combined_audio[start_pad:end_pad]
+                    segment.export(temp_file, format="wav")
+                    
+                    trim_tts_silence(temp_file)
+                    dur = get_audio_duration(temp_file)
+                    real_dur += dur
+                
+                success_continuous = True
+            else:
+                rprint(f"[yellow]⚠️ Continuous split fallback: Expected {len(lines)} segments but found different counts. Falling back to individual generation.[/yellow]")
+            
+            if os.path.exists(combined_temp_path):
+                os.remove(combined_temp_path)
+                
+        except Exception as e:
+            rprint(f"[yellow]⚠️ Continuous Dubbing failed: {e}. Falling back to standard sentence-by-sentence generation.[/yellow]")
+            
+    # Fallback to original sentence-by-sentence generation
+    if not success_continuous:
+        real_dur = 0
+        for line_index, line in enumerate(lines):
+            temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
             tts_main(line, temp_file, number, tasks_df)
-            trim_tts_silence(temp_file)
+            trim_tts_silence(temp_file)  # Remove TTS leading/trailing silence before measuring
             dur = get_audio_duration(temp_file)
-        real_dur += dur
+            if dur <= 0 and os.path.exists(temp_file):
+                os.remove(temp_file)
+                tts_main(line, temp_file, number, tasks_df)
+                trim_tts_silence(temp_file)
+                dur = get_audio_duration(temp_file)
+            real_dur += dur
+            
     return number, real_dur
 
 def generate_tts_audio(tasks_df: pd.DataFrame) -> pd.DataFrame:
