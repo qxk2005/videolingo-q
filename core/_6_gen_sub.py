@@ -92,12 +92,68 @@ def get_sentence_timestamps(df_words, df_sentences):
             current_pos += 1
             
         if not match_found:
-            print(f"\n⚠️ Warning: No exact match found for sentence: {sentence}")
-            show_difference(clean_sentence, 
-                          full_words_str[current_pos:current_pos+len(clean_sentence)])
-            print("\nOriginal sentence:", df_sentences['Source'][idx])
-            raise ValueError("❎ No match found for sentence.")
-    
+            # 1. First Fallback: Adaptive Fuzzy Match near the current position
+            import difflib
+            search_window = full_words_str[current_pos : current_pos + sentence_len * 2 + 50]
+            
+            best_ratio = 0.0
+            best_match_start = -1
+            best_match_len = -1
+            matcher = difflib.SequenceMatcher(None, clean_sentence)
+            
+            # Scan positions in search_window allowing length variation
+            for length in range(max(1, sentence_len - 15), min(len(search_window), sentence_len + 15) + 1):
+                for start in range(len(search_window) - length + 1):
+                    sub_str = search_window[start:start+length]
+                    matcher.set_seq2(sub_str)
+                    ratio = matcher.quick_ratio()
+                    if ratio > best_ratio:
+                        ratio = matcher.ratio()
+                        if ratio > best_ratio:
+                            best_ratio = ratio
+                            best_match_start = start
+                            best_match_len = length
+                            
+            if best_ratio > 0.6 and best_match_start != -1:
+                matched_pos_in_full = current_pos + best_match_start
+                start_word_idx = position_to_word_idx.get(matched_pos_in_full, len(df_words) - 1)
+                end_word_idx = position_to_word_idx.get(matched_pos_in_full + best_match_len - 1, len(df_words) - 1)
+                
+                time_stamp_list.append((
+                    float(df_words['start'][start_word_idx]),
+                    float(df_words['end'][end_word_idx])
+                ))
+                
+                current_pos = matched_pos_in_full + best_match_len
+                match_found = True
+                print(f"✨ Fuzzy Match Success! Sentence '{sentence}' matched with similarity {best_ratio:.2f}")
+                
+        if not match_found:
+            # 2. Second Fallback: Sequential word fallback to ensure 100% crash prevention
+            start_word_idx = position_to_word_idx.get(min(current_pos, len(full_words_str) - 1), len(df_words) - 1)
+            estimated_word_count = len(sentence.split())
+            if estimated_word_count == 0:
+                estimated_word_count = max(1, len(sentence) // 5)
+                
+            end_word_idx = min(start_word_idx + estimated_word_count - 1, len(df_words) - 1)
+            
+            start_time = float(df_words['start'][start_word_idx])
+            end_time = float(df_words['end'][end_word_idx])
+            
+            time_stamp_list.append((start_time, end_time))
+            
+            char_len = 0
+            for w_idx in range(start_word_idx, end_word_idx + 1):
+                char_len += len(remove_punctuation(df_words['text'][w_idx].lower()))
+            
+            current_pos = min(current_pos + char_len, len(full_words_str))
+            if current_pos >= len(full_words_str):
+                current_pos = len(full_words_str)
+            else:
+                current_pos += 1
+                
+            print(f"⚠️ Warning: Using sequential word fallback for '{sentence}' at timestamp {start_time:.2f}s - {end_time:.2f}s")
+            
     return time_stamp_list
 
 def align_timestamp(df_text, df_translate, subtitle_output_configs: list, output_dir: str, for_display: bool = True):
