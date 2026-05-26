@@ -210,7 +210,27 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
                     dur = get_audio_duration(temp_file)
                     real_dur += dur
                 
-                success_continuous = True
+                # 🎯 Deep sanity check: verify if the split slices are actually healthy and valid
+                from core.tts_backend.tts_main import is_audio_valid
+                all_slices_valid = True
+                for line_index, line in enumerate(lines):
+                    temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
+                    if not is_audio_valid(temp_file, line):
+                        rprint(f"[yellow]⚠️ Continuous split produced corrupted/truncated slice for chunk {number} (line: '{line}'). Invalidating continuous success and falling back...[/yellow]")
+                        all_slices_valid = False
+                        break
+                        
+                if all_slices_valid:
+                    success_continuous = True
+                else:
+                    success_continuous = False
+                    # Remove the bad temporary files to avoid blocking subsequent generation
+                    for line_index in range(len(lines)):
+                        temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
+                        if os.path.exists(temp_file):
+                            try: os.remove(temp_file)
+                            except Exception: pass
+                    real_dur = 0
             else:
                 rprint(f"[yellow]⚠️ Continuous split fallback: Expected {len(lines)} segments but found different counts. Falling back to individual generation.[/yellow]")
             
@@ -222,6 +242,14 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
             
     # Fallback to original sentence-by-sentence generation
     if not success_continuous:
+        rprint(f"[yellow]⚠️ Continuous dubbing split failed for chunk {number}, cleaning up temporary slices and falling back to individual sentence generation...[/yellow]")
+        for line_index in range(len(lines)):
+            temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except Exception:
+                    pass
         real_dur = 0
         for line_index, line in enumerate(lines):
             temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")

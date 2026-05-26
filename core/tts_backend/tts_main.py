@@ -1,9 +1,11 @@
 import os
 import re
 import time
+import subprocess
 from pydub import AudioSegment
 
 from core.asr_backend.audio_preprocess import get_audio_duration
+from core.utils import rprint
 from core.tts_backend.doubao_tts import doubao_tts
 from core.tts_backend.edge_tts import edge_tts
 from core.prompts import get_correct_text_prompt
@@ -16,6 +18,43 @@ def clean_text_for_tts(text):
         text = text.replace(char, '')
     return text.strip()
 
+def is_audio_valid(file_path: str, text: str) -> bool:
+    """Validate if the generated audio is healthy and valid."""
+    cleaned_text = re.sub(r'[^\w\s]', '', text).strip()
+    # For very short texts or single characters, it may generate tiny audio or silence
+    if not cleaned_text or len(cleaned_text) <= 1:
+        return True
+        
+    if not os.path.exists(file_path):
+        return False
+        
+    if os.path.getsize(file_path) <= 100:
+        return False
+        
+    duration = get_audio_duration(file_path)
+    if duration <= 0:
+        return False
+        
+    # Critical sanity check: if the text is long but the audio is extremely short, it is truncated/corrupted.
+    # 28 Chinese characters in 0.4s is physically impossible.
+    # As a safe threshold: if the cleaned text length is >= 3, duration must be > 0.5 seconds.
+    if len(cleaned_text) >= 3 and duration <= 0.5:
+        rprint(f"[yellow]⚠️ Audio sanity check failed: text length {len(cleaned_text)} is long but duration is only {duration:.2f}s for <{file_path}>[/yellow]")
+        return False
+        
+    # Decoding validation: verify if ffmpeg can decode it without errors
+    try:
+        cmd = ['ffmpeg', '-y', '-i', file_path, '-f', 'null', '-']
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
+        if result.returncode != 0:
+            rprint(f"[yellow]⚠️ Audio validation failed: ffmpeg decode error for <{file_path}>[/yellow]")
+            return False
+    except Exception as e:
+        rprint(f"[yellow]⚠️ Audio validation failed: ffmpeg validation timed out or crashed for <{file_path}>: {e}[/yellow]")
+        return False
+        
+    return True
+
 def tts_main(text, save_as, number, task_df):
     text = clean_text_for_tts(text)
     # Check if text is empty or single character, single character voiceovers are prone to bugs
@@ -26,9 +65,16 @@ def tts_main(text, save_as, number, task_df):
         rprint(f"Created silent audio for empty/single-char text: {save_as}")
         return
     
-    # Skip if file exists and is non-empty
+    # Skip if file exists, is non-empty and is valid
     if os.path.exists(save_as) and os.path.getsize(save_as) > 0:
-        return
+        if is_audio_valid(save_as, text):
+            return
+        else:
+            rprint(f"[yellow]⚠️ Detected invalid/corrupted audio cache <{save_as}> for text: '{text}'. Removing and regenerating...[/yellow]")
+            try:
+                os.remove(save_as)
+            except Exception:
+                pass
     
     print(f"Generating <{text}...>")
     TTS_METHOD = load_key("tts_method")

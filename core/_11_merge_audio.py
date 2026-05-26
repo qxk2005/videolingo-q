@@ -6,6 +6,9 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 from rich.console import Console
 from core.utils import *
 from core.utils.models import *
+from core.tts_backend.tts_main import tts_main, is_audio_valid
+from core._10_gen_audio import adjust_audio_speed, TEMP_FILE_TEMPLATE
+from core.asr_backend.audio_preprocess import get_audio_duration
 console = Console()
 
 DUB_VOCAL_FILE = 'output/dub.mp3'
@@ -135,6 +138,73 @@ def create_srt_subtitle():
     
     rprint(f"[bold green]✅ Subtitle file created: {DUB_SUB_FILE}[/bold green]")
 
+def verify_and_fix_audios(df, audios):
+    """Scan all output audio segments in segs/, validate them, and self-heal any missing or invalid files."""
+    console.print("[bold cyan]🔍 [Integrity Check] Verifying all audio segments...[/bold cyan]")
+    fixed_count = 0
+    checked_count = 0
+    
+    for index, row in df.iterrows():
+        number = row['number']
+        lines = eval(row['lines']) if isinstance(row['lines'], str) else row['lines']
+        new_sub_times = eval(row['new_sub_times']) if isinstance(row['new_sub_times'], str) else row['new_sub_times']
+        
+        for line_index, line in enumerate(lines):
+            checked_count += 1
+            output_file = OUTPUT_FILE_TEMPLATE.format(f"{number}_{line_index}")
+            
+            # Check if this segment audio is valid
+            is_valid = False
+            if os.path.exists(output_file):
+                is_valid = is_audio_valid(output_file, line)
+                
+            if not is_valid:
+                console.print(f"[yellow]⚠️ [Corrupted/Missing Segment] Audio '{output_file}' is invalid or missing. Triggering self-healing...[/yellow]")
+                
+                # Step 1: Clean up existing corrupted output file if it exists
+                if os.path.exists(output_file):
+                    try: os.remove(output_file)
+                    except Exception: pass
+                    
+                # Step 2: Ensure we have a healthy raw temp wav file first
+                temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
+                if os.path.exists(temp_file):
+                    if not is_audio_valid(temp_file, line):
+                        try: os.remove(temp_file)
+                        except Exception: pass
+                
+                # Step 3: Re-generate the raw temp WAV audio via tts_main
+                tts_main(line, temp_file, number, df)
+                
+                # Step 4: Re-apply the speed adjustment dynamically
+                if os.path.exists(temp_file):
+                    raw_dur = get_audio_duration(temp_file)
+                    start_time, end_time = new_sub_times[line_index]
+                    target_dur = end_time - start_time
+                    
+                    if target_dur <= 0:
+                        target_dur = 2.0  # Fallback duration to prevent divide-by-zero
+                        
+                    sf = raw_dur / target_dur
+                    sf = max(0.5, min(sf, 4.0)) # Clamp to FFmpeg safe bounds
+                    
+                    try:
+                        adjust_audio_speed(temp_file, output_file, sf)
+                        if is_audio_valid(output_file, line):
+                            console.print(f"[bold green]✨ [Self-Healed Success] Successfully reconstructed and speed-adjusted <{output_file}> (sf={sf:.3f})[/bold green]")
+                            fixed_count += 1
+                        else:
+                            console.print(f"[red]❌ [Self-Healed Failed] Re-generated audio <{output_file}> still failed validity check![/red]")
+                    except Exception as e:
+                        console.print(f"[red]❌ [Self-Healed Failed] Failed to adjust speed for re-generated audio: {e}[/red]")
+                else:
+                    console.print(f"[red]❌ [Self-Healed Failed] Failed to generate raw WAV for <{temp_file}>![/red]")
+                    
+    if fixed_count > 0:
+        console.print(f"[bold green]🎉 [Integrity Checked] Scanned {checked_count} segments, successfully self-healed {fixed_count} corrupted/missing audio files![/bold green]")
+    else:
+        console.print(f"[bold green]✅ [Integrity Checked] Scanned {checked_count} segments. All audio files are 100% healthy and valid.[/bold green]")
+
 def merge_full_audio():
     """Main function: Process the complete audio merging process"""
     console.print("\n[bold cyan]🎬 Starting audio merging process...[/bold cyan]")
@@ -149,6 +219,9 @@ def merge_full_audio():
     
     with console.status("[bold cyan]📝 Generating subtitle file...[/bold cyan]"):
         create_srt_subtitle()
+        
+    # 🎯 Check audio segments integrity and auto-repair any invalid files before merging
+    verify_and_fix_audios(df, audios)
     
     if not os.path.exists(audios[0]):
         console.print(f"[bold red]❌ Error: First audio file {audios[0]} does not exist![/bold red]")
