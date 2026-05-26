@@ -1,3 +1,9 @@
+# ==========================================
+# VideoLingo Python Environment Settings
+# ==========================================
+# STRICT REQUIREMENT: Python 3.10.x is strictly required.
+# (Recommended: Python 3.10.0 to 3.10.15)
+
 librosa==0.10.2.post1
 pytorch-lightning==2.3.3
 lightning==2.3.3
@@ -22,18 +28,26 @@ InquirerPy
 autocorrect-py
 ctranslate2==4.4.0
 edge-tts
-
-# Platform-specific dependencies
 rich
-mlx-whisper; sys_platform == 'darwin' and platform_machine == 'arm64'
-pynvml; sys_platform != 'darwin'
-
-demucs[dev] @ git+https://github.com/adefossez/demucs
-whisperx @ git+https://github.com/m-bain/whisperx.git@7307306a9d8dd0d261e588cc933322454f853853
-
 syllables
 pypinyin
 g2p-en
 xmltodict
 
+# ==========================================
+# macOS (Apple Silicon / Intel) Dependencies
+# ==========================================
+# mlx-whisper provides metal-accelerated transcription on macOS ARM64 (M1/M2/M3)
+mlx-whisper; sys_platform == 'darwin' and platform_machine == 'arm64'
 
+# ==========================================
+# Windows 11 & Linux Dependencies
+# ==========================================
+# pynvml is strictly required to fetch NVIDIA GPU configurations on Windows/Linux
+pynvml; sys_platform != 'darwin'
+
+# ==========================================
+# Specialized Git Dependencies
+# ==========================================
+demucs[dev] @ git+https://github.com/adefossez/demucs
+whisperx @ git+https://github.com/m-bain/whisperx.git@7307306a9d8dd0d261e588cc933322454f853853
