@@ -446,7 +446,7 @@ def file_browser():
 
     # 显示封面
     if os.path.exists(cover_path):
-        st.image(cover_path, use_container_width=True)
+        st.image(cover_path, use_column_width=True)
     else:
         # 显示一个带空白虚线边框的高颜值占位符
         st.markdown(
