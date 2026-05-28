@@ -529,6 +529,7 @@ def file_browser():
             for f in files:
                 indent = "　" * level + "　　" # Align with folder text
                 full_path = os.path.join(current_path, f)
+                safe_key = f"dl_{full_path.replace('/', '_').replace('.', '_').replace('-', '_').replace(' ', '_')}"
                 
                 # Determine MIME type for download compatibility
                 mime_type = "application/octet-stream"
@@ -543,40 +544,17 @@ def file_browser():
                     mime_type = "audio/mpeg"
                 
                 try:
-                    # Check file size
-                    file_size = os.path.getsize(full_path)
-                    # If file is under 35MB, use perfect native HTML <a> anchor with Base64 to bypass all Streamlit button styling
-                    if file_size < 35 * 1024 * 1024:
-                        import base64
-                        with open(full_path, "rb") as file_data:
-                            b64_data = base64.b64encode(file_data.read()).decode("utf-8")
-                        data_uri = f"data:{mime_type};base64,{b64_data}"
-                        
-                        # Native HTML link with inline styles for absolute visual control (Mimicking Windows Explorer text styling)
-                        st.markdown(
-                            f"""
-                            <a href="{data_uri}" download="{f}" style="
-                                text-decoration: none;
-                                color: #333;
-                                font-size: 0.95em;
-                                font-family: inherit;
-                                padding: 2px 5px;
-                                display: inline-block;
-                                width: calc(100% - 15px);
-                                border-radius: 4px;
-                                transition: background-color 0.2s ease, color 0.2s ease;
-                                line-height: 1.2;
-                                margin: 1px 0;
-                            " onmouseover="this.style.backgroundColor='#e8f0fe'; this.style.color='#144070';" 
-                              onmouseout="this.style.backgroundColor='transparent'; this.style.color='#333';">
-                                {indent}📄 {f}
-                            </a>
-                            """,
-                            unsafe_allow_html=True
-                        )
-                    else:
-                        # Fallback for extremely large files (>35MB) to prevent browser HTML payload overflow
-                        safe_key = f"dl_{full_path.replace('/', '_').replace('.', '_').replace('-', '_').replace(' ', '_')}"
+                    # 🚀 优先：使用惰性加载数据，若 Streamlit 版本支持，能极大地提升性能
+                    st.download_button(
+                        label=f"{indent}📄 {f}",
+                        data=lambda path=full_path: open(path, "rb").read(),
+                        file_name=f,
+                        mime=mime_type,
+                        key=safe_key
+                    )
+                except Exception:
+                    try:
+                        # 🔄 兜底：如果旧版 Streamlit 不支持 lambda，则同步读取文件内容以确保下载功能仍然可用
                         with open(full_path, "rb") as file_data:
                             data_bytes = file_data.read()
                         st.download_button(
@@ -586,9 +564,9 @@ def file_browser():
                             mime=mime_type,
                             key=safe_key
                         )
-                except Exception:
-                    # 🛡️ Fallback: Display as plain read-only text if any error occurs
-                    st.markdown(f"<p style='margin: 0; padding: 2px 5px; font-size: 0.9em; color: #555;'>{indent}📄 {f}</p>", unsafe_allow_html=True)
+                    except Exception:
+                        # 🛡️ 降级：如果遇到其他未知错误，则退化回只读文本显示
+                        st.markdown(f"<p style='margin: 0; padding: 2px 5px; font-size: 0.9em; color: #555;'>{indent}📄 {f}</p>", unsafe_allow_html=True)
 
         # Scrollable container for the tree with custom class for styling
         st.markdown('<div class="windows-file-tree">', unsafe_allow_html=True)

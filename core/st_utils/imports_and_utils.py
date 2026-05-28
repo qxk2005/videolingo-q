@@ -49,12 +49,7 @@ div.stButton > button:hover {
 }
 
 /* Windows-style Tree Buttons Specificity */
-.windows-file-tree div.stButton button,
-.windows-file-tree div.stButton a,
-.windows-file-tree div.stDownloadButton button,
-.windows-file-tree div.stDownloadButton a,
-.windows-file-tree [data-testid="stDownloadButton"] button,
-.windows-file-tree [data-testid="stDownloadButton"] a {
+.windows-file-tree button {
     border: none !important;
     background-color: transparent !important;
     text-align: left !important;
@@ -72,12 +67,7 @@ div.stButton > button:hover {
     align-items: center !important;
     text-decoration: none !important;
 }
-.windows-file-tree div.stButton button:hover,
-.windows-file-tree div.stButton a:hover,
-.windows-file-tree div.stDownloadButton button:hover,
-.windows-file-tree div.stDownloadButton a:hover,
-.windows-file-tree [data-testid="stDownloadButton"] button:hover,
-.windows-file-tree [data-testid="stDownloadButton"] a:hover {
+.windows-file-tree button:hover {
     background-color: #e8f0fe !important;
     color: #144070 !important;
     text-decoration: none !important;
