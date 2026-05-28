@@ -113,10 +113,10 @@ graph TD
 
     subgraph 语音处理
         B --> B1{有官方英文字幕?}
-        B1 -- 是 (自动提取) -- 跳过转录 --> F
-        B1 -- 否 --> C{人声增强?}
-        C -- 是 --> D[Demucs 语音分离]
-        C -- 否 --> E[WhisperX 语音转录]
+        B1 -->|是, 自动提取并跳过转录| F
+        B1 -->|否| C{人声增强?}
+        C -->|是| D[Demucs 语音分离]
+        C -->|否| E[WhisperX 语音转录]
         D --> E
         E --> F[NLP + LLM 语义分句]
     end
