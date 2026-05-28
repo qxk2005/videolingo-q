@@ -544,7 +544,7 @@ def file_browser():
                     mime_type = "audio/mpeg"
                 
                 try:
-                    # Lazy loaded file read to prevent loading large video files unless clicked
+                    # 🚀 优先：使用惰性加载（Lazy loading）数据，如果 Streamlit 版本支持，能极大地提升性能
                     st.download_button(
                         label=f"{indent}📄 {f}",
                         data=lambda path=full_path: open(path, "rb").read(),
@@ -553,7 +553,20 @@ def file_browser():
                         key=safe_key
                     )
                 except Exception:
-                    st.markdown(f"<p style='margin: 0; padding: 2px 5px; font-size: 0.9em; color: #555;'>{indent}📄 {f}</p>", unsafe_allow_html=True)
+                    try:
+                        # 🔄 兜底：如果旧版 Streamlit 不支持 lambda/callable，则同步读取文件内容以确保下载功能仍然可用
+                        with open(full_path, "rb") as file_data:
+                            data_bytes = file_data.read()
+                        st.download_button(
+                            label=f"{indent}📄 {f}",
+                            data=data_bytes,
+                            file_name=f,
+                            mime=mime_type,
+                            key=safe_key
+                        )
+                    except Exception:
+                        # 🛡️ 降级：如果遇到其他未知错误，则退化回只读文本显示
+                        st.markdown(f"<p style='margin: 0; padding: 2px 5px; font-size: 0.9em; color: #555;'>{indent}📄 {f}</p>", unsafe_allow_html=True)
 
         # Scrollable container for the tree with custom class for styling
         st.markdown('<div class="windows-file-tree">', unsafe_allow_html=True)
