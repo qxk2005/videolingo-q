@@ -40,6 +40,29 @@ def download_video_ytdlp(url, save_path='output', resolution='1080'):
 
     # Get YoutubeDL class after updating
     YoutubeDL = update_ytdlp()
+
+    # Fetch and save metadata (title and cover) first
+    try:
+        ydl_opts_info = {'skip_download': True, 'noplaylist': True}
+        if os.path.exists(cookies_path):
+            ydl_opts_info["cookiefile"] = str(cookies_path)
+        with YoutubeDL(ydl_opts_info) as ydl_info:
+            info = ydl_info.extract_info(url, download=False)
+            title = info.get('title', 'video')
+            thumbnail_url = info.get('thumbnail')
+            
+            with open(os.path.join(save_path, 'video_title.txt'), 'w', encoding='utf-8') as f:
+                f.write(title)
+                
+            if thumbnail_url:
+                import requests
+                res = requests.get(thumbnail_url, timeout=10)
+                if res.status_code == 200:
+                    with open(os.path.join(save_path, 'video_cover.jpg'), 'wb') as f:
+                        f.write(res.content)
+    except Exception as e:
+        print(f"Warning: Failed to fetch metadata in download_video: {e}")
+
     with YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
     
@@ -82,6 +105,126 @@ def find_video_files(save_path='output'):
     # If we have multiple original videos or no videos at all, raise the original error
     all_videos = original_videos if original_videos else video_files
     raise ValueError(f"Number of videos found {len(all_videos)} is not unique. Please check.")
+
+def download_subtitle_ytdlp(url, save_path='output'):
+    """
+    Downloads English subtitles for the given YouTube URL.
+    Prefers manual/original English subtitles, falls back to auto-generated English subtitles.
+    If neither is found, returns None.
+    Otherwise, returns a tuple (subtitle_file_path, subtitle_type).
+    """
+    os.makedirs(save_path, exist_ok=True)
+    
+    # Get YoutubeDL class
+    YoutubeDL = update_ytdlp()
+    
+    ydl_opts_info = {
+        'skip_download': True,
+        'noplaylist': True,
+    }
+    cookies_path = load_key("youtube.cookies_path")
+    if os.path.exists(cookies_path):
+        ydl_opts_info["cookiefile"] = str(cookies_path)
+        
+    with YoutubeDL(ydl_opts_info) as ydl:
+        try:
+            info = ydl.extract_info(url, download=False)
+        except Exception as e:
+            rprint(f"[red]Failed to extract video info: {e}[/red]")
+            return None, "extract_failed"
+
+    # Save video title and cover
+    try:
+        title = info.get('title', 'video')
+        thumbnail_url = info.get('thumbnail')
+        
+        with open(os.path.join(save_path, 'video_title.txt'), 'w', encoding='utf-8') as f:
+            f.write(title)
+            
+        if thumbnail_url:
+            import requests
+            res = requests.get(thumbnail_url, timeout=10)
+            if res.status_code == 200:
+                with open(os.path.join(save_path, 'video_cover.jpg'), 'wb') as f:
+                    f.write(res.content)
+    except Exception as e:
+        rprint(f"[yellow]Warning: Failed to save metadata: {e}[/yellow]")
+
+    subtitles = info.get('subtitles', {}) or {}
+    automatic_captions = info.get('automatic_captions', {}) or {}
+
+    selected_lang = None
+    is_original = False
+
+    # Prefer 'en' exactly, then anything starting with 'en-' or 'en_'
+    def get_best_en_lang(langs_keys):
+        langs = list(langs_keys)
+        if 'en' in langs:
+            return 'en'
+        en_langs = [l for l in langs if l.lower().startswith('en-') or l.lower().startswith('en_')]
+        if en_langs:
+            return en_langs[0]
+        return None
+
+    selected_lang = get_best_en_lang(subtitles.keys())
+    if selected_lang:
+        is_original = True
+    else:
+        selected_lang = get_best_en_lang(automatic_captions.keys())
+        if selected_lang:
+            is_original = False
+
+    if not selected_lang:
+        rprint("[yellow]No English subtitles (original or auto-generated) found.[/yellow]")
+        return None, "no_subtitles"
+
+    sub_type_str = "original" if is_original else "auto-generated"
+    rprint(f"[green]Found {sub_type_str} English subtitle with language code: {selected_lang}[/green]")
+
+    # Download options
+    ydl_opts_download = {
+        'skip_download': True,
+        'writesubtitles': is_original,
+        'writeautomaticsub': not is_original,
+        'subtitleslangs': [selected_lang],
+        'outtmpl': f'{save_path}/youtube_subtitle.%(ext)s',
+        'noplaylist': True,
+    }
+    if os.path.exists(cookies_path):
+        ydl_opts_download["cookiefile"] = str(cookies_path)
+
+    # Clean existing temp subtitle files to avoid collision
+    for f in glob.glob(f"{save_path}/youtube_subtitle.*"):
+        try:
+            os.remove(f)
+        except Exception:
+            pass
+
+    with YoutubeDL(ydl_opts_download) as ydl:
+        try:
+            ydl.download([url])
+        except Exception as e:
+            rprint(f"[red]Failed to download subtitle: {e}[/red]")
+            return None, "download_failed"
+
+    # Find the downloaded file
+    downloaded_files = glob.glob(f"{save_path}/youtube_subtitle.*")
+    if not downloaded_files:
+        rprint("[red]Subtitle downloaded but file not found on disk.[/red]")
+        return None, "file_not_found"
+
+    sub_file = downloaded_files[0]
+    ext = os.path.splitext(sub_file)[1].lower() # .vtt or .srt
+    
+    # Rename to a standard name
+    target_path = f"{save_path}/youtube_subtitle{ext}"
+    if os.path.exists(target_path):
+        os.remove(target_path)
+    os.rename(sub_file, target_path)
+
+    rprint(f"[green]Subtitle successfully saved to: {target_path}[/green]")
+    return target_path, sub_type_str
+
 
 if __name__ == '__main__':
     # Example usage

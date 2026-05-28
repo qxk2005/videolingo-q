@@ -161,6 +161,14 @@
     "Skip extracting reference audio from the original video. Useful when using fixed TTS voices.": "跳过从原始视频中提取参考音频。当使用固定 TTS 音色时非常有用。",
     "Encoding Comparison": "视频编码对比",
     "Large video detected": "检测到大尺寸视频",
-    "Using stream mode for better performance.": "已切换为流式加载以优化性能。"
+    "Using stream mode for better performance.": "已切换为流式加载以优化性能。",
+    "Download Subtitle Only": "仅下载字幕",
+    "Successfully downloaded and applied official subtitles (type: {type}), WhisperX will be bypassed!": "成功下载并应用官方英文字幕（类型：{type}），将跳过 WhisperX 转写！",
+    "Downloaded subtitles but failed to parse them.": "已下载字幕，但解析失败。",
+    "No English subtitles found (WhisperX will be used).": "未找到英文字幕（将采用 WhisperX 进行转写）。",
+    "No English subtitles found (original or auto-generated) for this link.": "该链接未找到任何原生或自动生成的英文字幕。",
+    "Video Cover & Title": "视频封面与标题",
+    "未下载封面": "未下载封面",
+    "暂未获取到视频标题": "暂未获取到视频标题"
 }
 

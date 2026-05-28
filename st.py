@@ -430,67 +430,122 @@ def safe_video_display(file_path):
 
 def file_browser():
     """Interactive Windows-style file browser with encoding comparison."""
-    video_comparison_section()
+    # ── 1. 视频封面和标题展示区域 (放置于最上方) ──
+    st.markdown(f"### 🖼️ {t('Video Cover & Title')}")
+    
+    cover_path = "output/video_cover.jpg"
+    title_path = "output/video_title.txt"
+    
+    video_title = t("暂未获取到视频标题")
+    if os.path.exists(title_path):
+        try:
+            with open(title_path, 'r', encoding='utf-8') as f:
+                video_title = f.read().strip()
+        except Exception:
+            pass
+
+    # 显示封面
+    if os.path.exists(cover_path):
+        st.image(cover_path, use_container_width=True)
+    else:
+        # 显示一个带空白虚线边框的高颜值占位符
+        st.markdown(
+            f"""
+            <div style="
+                border: 2px dashed #999;
+                border-radius: 12px;
+                height: 180px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                color: #999;
+                font-size: 15px;
+                background: linear-gradient(135deg, rgba(238,238,238,0.4) 0%, rgba(220,220,220,0.4) 100%);
+                box-shadow: inset 0 0 10px rgba(0,0,0,0.05);
+                margin-bottom: 10px;
+            ">
+                <span style="font-size: 28px; margin-bottom: 8px;">🖼️</span>
+                <span>{t('未下载封面')}</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    
+    # 显示标题
+    st.markdown(f"<p style='font-size: 15px; font-weight: bold; text-align: center; margin-top: 8px; margin-bottom: 15px; color: #333; line-height: 1.4;'>{video_title}</p>", unsafe_allow_html=True)
+    # ──────────────────────────────
+    
+    # ── 2. 文件浏览区域 (Output Files) ──
     st.divider()
     st.markdown(f"### 📂 {t('Output Files')}")
     output_dir = "output"
+    
     if not os.path.exists(output_dir):
         st.info("No output directory yet.")
-        return
-    
-    # Initialize expanded paths in session state
-    if "expanded_dirs" not in st.session_state:
-        st.session_state.expanded_dirs = set()
-
-    # Toolbar
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        if st.button("🔄 " + t("Refresh"), key="refresh_files", use_container_width=True):
-            st.rerun()
-    with col_btn2:
-        if st.button("📁 " + "全部收起", key="collapse_all", use_container_width=True):
+    else:
+        # Initialize expanded paths in session state
+        if "expanded_dirs" not in st.session_state:
             st.session_state.expanded_dirs = set()
-            st.rerun()
 
-    def render_tree_node(current_path, level=0):
-        try:
-            items = sorted(os.listdir(current_path))
-        except Exception:
-            return
-
-        dirs = [d for d in items if os.path.isdir(os.path.join(current_path, d)) and not d.startswith('.') and d != '__pycache__']
-        files = [f for f in items if os.path.isfile(os.path.join(current_path, f)) and not f.startswith('.')]
-
-        for d in dirs:
-            full_path = os.path.join(current_path, d)
-            is_expanded = full_path in st.session_state.expanded_dirs
-            
-            # Windows style: Arrow + Folder Icon + Name
-            arrow = "▼" if is_expanded else "▶"
-            folder_icon = "📂" if is_expanded else "📁"
-            indent = "　" * level # Ideographic Space for visual structure
-            
-            if st.button(f"{indent}{arrow} {folder_icon} {d}", key=f"btn_{full_path}"):
-                if is_expanded:
-                    st.session_state.expanded_dirs.remove(full_path)
-                else:
-                    st.session_state.expanded_dirs.add(full_path)
+        # Toolbar
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("🔄 " + t("Refresh"), key="refresh_files", use_container_width=True):
                 st.rerun()
-            
-            if is_expanded:
-                render_tree_node(full_path, level + 1)
+        with col_btn2:
+            if st.button("📁 " + "全部收起", key="collapse_all", use_container_width=True):
+                st.session_state.expanded_dirs = set()
+                st.rerun()
 
-        for f in files:
-            indent = "　" * level + "　　" # Align with folder text
-            st.markdown(f"<p style='margin: 0; padding: 2px 5px; font-size: 0.9em; color: #555;'>{indent}📄 {f}</p>", unsafe_allow_html=True)
+        def render_tree_node(current_path, level=0):
+            try:
+                items = sorted(os.listdir(current_path))
+            except Exception:
+                return
 
-    # Scrollable container for the tree with custom class for styling
-    st.markdown('<div class="windows-file-tree">', unsafe_allow_html=True)
-    with st.container(height=600, border=True):
-        render_tree_node(output_dir)
-    st.markdown('</div>', unsafe_allow_html=True)
+            dirs = [d for d in items if os.path.isdir(os.path.join(current_path, d)) and not d.startswith('.') and d != '__pycache__']
+            files = [f for f in items if os.path.isfile(os.path.join(current_path, f)) and not f.startswith('.')]
+
+            for d in dirs:
+                full_path = os.path.join(current_path, d)
+                is_expanded = full_path in st.session_state.expanded_dirs
+                
+                # Windows style: Arrow + Folder Icon + Name
+                arrow = "▼" if is_expanded else "▶"
+                folder_icon = "📂" if is_expanded else "📁"
+                indent = "　" * level # Ideographic Space for visual structure
+                
+                if st.button(f"{indent}{arrow} {folder_icon} {d}", key=f"btn_{full_path}"):
+                    if is_expanded:
+                        st.session_state.expanded_dirs.remove(full_path)
+                    else:
+                        st.session_state.expanded_dirs.add(full_path)
+                    st.rerun()
+                
+                if is_expanded:
+                    render_tree_node(full_path, level + 1)
+
+            for f in files:
+                indent = "　" * level + "　　" # Align with folder text
+                st.markdown(f"<p style='margin: 0; padding: 2px 5px; font-size: 0.9em; color: #555;'>{indent}📄 {f}</p>", unsafe_allow_html=True)
+
+        # Scrollable container for the tree with custom class for styling
+        st.markdown('<div class="windows-file-tree">', unsafe_allow_html=True)
+        with st.container(height=600, border=True):
+            render_tree_node(output_dir)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── 3. 视频编码对比表格 (整体放到最下方) ──
+    st.divider()
+    video_comparison_section()
 
 def main():
+    if "download_status_toast" in st.session_state:
+        toast_msg, toast_icon = st.session_state.download_status_toast
+        st.toast(toast_msg, icon=toast_icon)
+        del st.session_state.download_status_toast
+
     st.markdown(button_style, unsafe_allow_html=True)
     
     # ── Split Main Body into Center and Right ──

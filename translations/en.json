@@ -155,5 +155,13 @@
     "Volcengine AppID": "Volcengine AppID",
     "Volcengine Access Token": "Volcengine Access Token",
     "Skip Reference Audio": "Skip Reference Audio",
-    "Skip extracting reference audio from the original video. Useful when using fixed TTS voices.": "Skip extracting reference audio from the original video. Useful when using fixed TTS voices."
+    "Skip extracting reference audio from the original video. Useful when using fixed TTS voices.": "Skip extracting reference audio from the original video. Useful when using fixed TTS voices.",
+    "Download Subtitle Only": "Download Subtitle Only",
+    "Successfully downloaded and applied official subtitles (type: {type}), WhisperX will be bypassed!": "Successfully downloaded and applied official subtitles (type: {type}), WhisperX will be bypassed!",
+    "Downloaded subtitles but failed to parse them.": "Downloaded subtitles but failed to parse them.",
+    "No English subtitles found (WhisperX will be used).": "No English subtitles found (WhisperX will be used).",
+    "No English subtitles found (original or auto-generated) for this link.": "No English subtitles found (original or auto-generated) for this link.",
+    "Video Cover & Title": "Video Cover & Title",
+    "未下载封面": "No Cover Downloaded",
+    "暂未获取到视频标题": "No Video Title Available Yet"
 }
