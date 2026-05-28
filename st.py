@@ -528,7 +528,32 @@ def file_browser():
 
             for f in files:
                 indent = "　" * level + "　　" # Align with folder text
-                st.markdown(f"<p style='margin: 0; padding: 2px 5px; font-size: 0.9em; color: #555;'>{indent}📄 {f}</p>", unsafe_allow_html=True)
+                full_path = os.path.join(current_path, f)
+                safe_key = f"dl_{full_path.replace('/', '_').replace('.', '_').replace('-', '_').replace(' ', '_')}"
+                
+                # Determine MIME type for download compatibility
+                mime_type = "application/octet-stream"
+                ext = os.path.splitext(f)[1].lower()
+                if ext in ['.srt', '.vtt', '.txt']:
+                    mime_type = "text/plain"
+                elif ext == '.json':
+                    mime_type = "application/json"
+                elif ext == '.mp4':
+                    mime_type = "video/mp4"
+                elif ext == '.mp3':
+                    mime_type = "audio/mpeg"
+                
+                try:
+                    # Lazy loaded file read to prevent loading large video files unless clicked
+                    st.download_button(
+                        label=f"{indent}📄 {f}",
+                        data=lambda path=full_path: open(path, "rb").read(),
+                        file_name=f,
+                        mime=mime_type,
+                        key=safe_key
+                    )
+                except Exception:
+                    st.markdown(f"<p style='margin: 0; padding: 2px 5px; font-size: 0.9em; color: #555;'>{indent}📄 {f}</p>", unsafe_allow_html=True)
 
         # Scrollable container for the tree with custom class for styling
         st.markdown('<div class="windows-file-tree">', unsafe_allow_html=True)

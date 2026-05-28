@@ -49,7 +49,8 @@ div.stButton > button:hover {
 }
 
 /* Windows-style Tree Buttons Specificity */
-.windows-file-tree div.stButton > button {
+.windows-file-tree div.stButton > button,
+.windows-file-tree div.stDownloadButton > button {
     border: none !important;
     background-color: transparent !important;
     text-align: left !important;
@@ -62,8 +63,12 @@ div.stButton > button:hover {
     min-height: unset !important;
     line-height: 1.2 !important;
     border-radius: 4px !important;
+    box-shadow: none !important;
+    display: flex !important;
+    align-items: center !important;
 }
-.windows-file-tree div.stButton > button:hover {
+.windows-file-tree div.stButton > button:hover,
+.windows-file-tree div.stDownloadButton > button:hover {
     background-color: #e8f0fe !important;
     color: #144070 !important;
 }
