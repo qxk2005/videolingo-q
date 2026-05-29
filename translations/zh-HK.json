@@ -110,5 +110,7 @@
     "LLM JSON Format Support": "LLM JSON格式支持",
     "Enable if your LLM supports JSON mode output": "如果選用的LLM支持JSON模式輸出，請啟用",
     "Efficiency Mode": "Efficiency Mode",
-    "Send all subtitle data to LLM in large batches to reduce API calls. Automatically falls back to standard mode on failure.": "Send all subtitle data to LLM in large batches to reduce API calls. Automatically falls back to standard mode on failure."
+    "Send all subtitle data to LLM in large batches to reduce API calls. Automatically falls back to standard mode on failure.": "Send all subtitle data to LLM in large batches to reduce API calls. Automatically falls back to standard mode on failure.",
+    "Batch Split Size": "效率模式批量分割數",
+    "Maximum number of sentences sent to LLM in one batch. Set to 0 to send all sentences at once. Reduce this value if you experience model context or timeout errors.": "單次提交給大模型的最大句子數。設為 0 代表一次性提交所有句子。如果您在處理長視頻時遇到超時或大模型上下文溢出報錯，請降低此數值。"
 }

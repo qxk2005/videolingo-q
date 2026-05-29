@@ -166,5 +166,7 @@
     "暂未获取到视频标题": "No Video Title Available Yet",
     "Task Processing Failed ❌": "Task Processing Failed ❌",
     "Dubbing Processing Failed ❌": "Dubbing Processing Failed ❌",
-    "Clear Error & Retry": "Clear Error & Retry"
+    "Clear Error & Retry": "Clear Error & Retry",
+    "Batch Split Size": "Batch Split Size",
+    "Maximum number of sentences sent to LLM in one batch. Set to 0 to send all sentences at once. Reduce this value if you experience model context or timeout errors.": "Maximum number of sentences sent to LLM in one batch. Set to 0 to send all sentences at once. Reduce this value if you experience model context or timeout errors."
 }

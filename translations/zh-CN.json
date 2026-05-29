@@ -172,6 +172,8 @@
     "暂未获取到视频标题": "暂未获取到视频标题",
     "Task Processing Failed ❌": "任务处理失败 ❌",
     "Dubbing Processing Failed ❌": "配音处理失败 ❌",
-    "Clear Error & Retry": "清除错误并重试"
+    "Clear Error & Retry": "清除错误并重试",
+    "Batch Split Size": "效率模式批量分割数",
+    "Maximum number of sentences sent to LLM in one batch. Set to 0 to send all sentences at once. Reduce this value if you experience model context or timeout errors.": "单次提交给大模型的最大句子数。设为 0 代表一次性提交所有句子。如果您在处理长视频时遇到超时或大模型上下文溢出报错，请降低此数值。"
 }
 
