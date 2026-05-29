@@ -169,6 +169,9 @@
     "No English subtitles found (original or auto-generated) for this link.": "该链接未找到任何原生或自动生成的英文字幕。",
     "Video Cover & Title": "视频封面与标题",
     "未下载封面": "未下载封面",
-    "暂未获取到视频标题": "暂未获取到视频标题"
+    "暂未获取到视频标题": "暂未获取到视频标题",
+    "Task Processing Failed ❌": "任务处理失败 ❌",
+    "Dubbing Processing Failed ❌": "配音处理失败 ❌",
+    "Clear Error & Retry": "清除错误并重试"
 }
 

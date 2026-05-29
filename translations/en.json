@@ -163,5 +163,8 @@
     "No English subtitles found (original or auto-generated) for this link.": "No English subtitles found (original or auto-generated) for this link.",
     "Video Cover & Title": "Video Cover & Title",
     "未下载封面": "No Cover Downloaded",
-    "暂未获取到视频标题": "No Video Title Available Yet"
+    "暂未获取到视频标题": "No Video Title Available Yet",
+    "Task Processing Failed ❌": "Task Processing Failed ❌",
+    "Dubbing Processing Failed ❌": "Dubbing Processing Failed ❌",
+    "Clear Error & Retry": "Clear Error & Retry"
 }
