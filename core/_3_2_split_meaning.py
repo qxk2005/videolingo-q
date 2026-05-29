@@ -99,7 +99,7 @@ def _apply_split(sentence, split_str_with_br):
 
 
 def batch_split_sentences(sentences, max_length, nlp, retry_attempt=0):
-    """Batch all long sentences into a single LLM call.
+    """Batch long sentences into safe-sized chunks for LLM call.
     Returns flat sentence list on success, or None on LLM failure (signal to fall back).
     """
     new_sentences = [[s] for s in sentences]
@@ -114,40 +114,50 @@ def batch_split_sentences(sentences, max_length, nlp, retry_attempt=0):
     if not items_to_split:
         return [s for sublist in new_sentences for s in sublist]
 
-    console.print(f"[cyan]⚡ Efficiency mode: batch-splitting {len(items_to_split)} sentences in 1 LLM call[/cyan]")
+    # 获取分批大小配置，0 代表一次性提交全部，默认 40
+    batch_size = load_key("batch_split_size")
+    if batch_size is None:
+        batch_size = 40
+    elif batch_size == 0:
+        batch_size = len(items_to_split)
 
-    prompt_items = [(s, n, max_length) for _, s, n in items_to_split]
-    batch_prompt = get_batch_split_prompt(prompt_items) + " " * retry_attempt
+    chunks = [items_to_split[i:i + batch_size] for i in range(0, len(items_to_split), batch_size)]
+    console.print(f"[cyan]⚡ Efficiency mode: batch-splitting {len(items_to_split)} sentences in {len(chunks)} LLM chunks (chunk size: {batch_size})[/cyan]")
 
-    def valid_batch(response_data):
-        if not isinstance(response_data, dict):
-            return {"status": "error", "message": "Not a dict"}
-        for li in range(1, len(items_to_split) + 1):
-            k = str(li)
-            if k not in response_data:
-                return {"status": "error", "message": f"Missing key '{k}'"}
-            if not isinstance(response_data.get(k), dict) or "split" not in response_data[k]:
-                return {"status": "error", "message": f"Key '{k}' missing 'split'"}
-        return {"status": "success", "message": "Batch split completed"}
+    for chunk_idx, chunk in enumerate(chunks, 1):
+        prompt_items = [(s, n, max_length) for _, s, n in chunk]
+        batch_prompt = get_batch_split_prompt(prompt_items) + " " * retry_attempt
 
-    try:
-        response = ask_gpt(batch_prompt, resp_type='json', valid_def=valid_batch, log_title='batch_split_by_meaning')
-    except Exception as e:
-        console.print(f"[yellow]⚠️ Batch split LLM call failed: {e}. Will fall back to individual splits.[/yellow]")
-        return None
+        c_len = len(chunk)
+        def valid_batch(response_data, current_len=c_len):
+            if not isinstance(response_data, dict):
+                return {"status": "error", "message": "Not a dict"}
+            for li in range(1, current_len + 1):
+                k = str(li)
+                if k not in response_data:
+                    return {"status": "error", "message": f"Missing key '{k}'"}
+                if not isinstance(response_data.get(k), dict) or "split" not in response_data[k]:
+                    return {"status": "error", "message": f"Key '{k}' missing 'split'"}
+            return {"status": "success", "message": "Batch split completed"}
 
-    for local_i, (orig_idx, sentence, num_parts) in enumerate(items_to_split, 1):
-        split_val = response.get(str(local_i), {}).get("split", "")
-        if split_val and "[br]" in split_val:
-            try:
-                result_str = _apply_split(sentence, split_val)
-                split_lines = [line.strip() for line in result_str.strip().split('\n') if line.strip()]
-                new_sentences[orig_idx] = split_lines
-                console.print(f"[green]✅ Batch split sentence {orig_idx}[/green]")
-            except Exception as e:
-                console.print(f"[yellow]⚠️ apply_split failed for sentence {orig_idx}: {e}[/yellow]")
-        else:
-            console.print(f"[yellow]⚠️ No [br] in batch response for sentence {orig_idx}[/yellow]")
+        try:
+            response = ask_gpt(batch_prompt, resp_type='json', valid_def=valid_batch, log_title=f'batch_split_chunk_{chunk_idx}')
+        except Exception as e:
+            console.print(f"[yellow]⚠️ Batch split LLM call failed for chunk {chunk_idx}: {e}. Will fall back to individual splits.[/yellow]")
+            return None
+
+        for local_i, (orig_idx, sentence, num_parts) in enumerate(chunk, 1):
+            split_val = response.get(str(local_i), {}).get("split", "")
+            if split_val and "[br]" in split_val:
+                try:
+                    result_str = _apply_split(sentence, split_val)
+                    split_lines = [line.strip() for line in result_str.strip().split('\n') if line.strip()]
+                    new_sentences[orig_idx] = split_lines
+                    console.print(f"[green]✅ Batch split sentence {orig_idx}[/green]")
+                except Exception as e:
+                    console.print(f"[yellow]⚠️ apply_split failed for sentence {orig_idx}: {e}[/yellow]")
+            else:
+                console.print(f"[yellow]⚠️ No [br] in batch response for sentence {orig_idx}[/yellow]")
 
     return [s for sublist in new_sentences for s in sublist]
 

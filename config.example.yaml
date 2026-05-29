@@ -49,9 +49,9 @@ auto_burn_subtitles: true
 # Example: "Claude Cowork, AISTACK, VideoLingo"
 domain_vocab: ""
 
-# Efficiency mode: send all subtitle data to LLM in large batches to reduce API call count
-# Automatically falls back to standard mode on failure
 efficiency_mode: true
+# *Efficiency mode batch split size: maximum sentences sent to LLM in one batch, set to 0 for unlimited (all at once)
+batch_split_size: 40
 
 ## ======================== Advanced Settings ======================== ##
 # *🔬 FFmpeg hardware video encoding acceleration. On macOS uses h264_videotoolbox (Apple Silicon/VideoToolbox), on other platforms uses h264_nvenc (NVIDIA). Set to true to enable.
