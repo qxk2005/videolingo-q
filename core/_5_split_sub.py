@@ -113,63 +113,74 @@ def split_align_subs(src_lines: List[str], tr_lines: List[str]):
         task_desc = "📏 正在批量分割和对齐长字幕..."
         task = progress.add_task(task_desc, total=2) # 2 steps: split and align
         
-        console.print(f"[cyan]⚡ Efficiency mode: batch-processing {len(to_split)} lines in 2 LLM calls[/cyan]")
         word_limit = load_key("max_split_length")
+        chunk_size = 40  # 💡 黄金安全分批大小，彻底预防长输出爆 Token 截断或丢失 key
+        
+        # 对待切分列表实施精细分块
+        chunks = [to_split[i:i + chunk_size] for i in range(0, len(to_split), chunk_size)]
+        console.print(f"[cyan]⚡ Efficiency mode: splitting {len(to_split)} lines in {len(chunks)} LLM chunks (chunk size: {chunk_size})[/cyan]")
 
-        # Step 1: Batch split all source sentences (1 LLM call)
+        # Step 1: Batch split all source sentences in safe mini-batches
         update_st_progress(0, 2, f"{task_desc} (1/2)")
         split_src_map = {}
-        split_items = [(str(src_lines[i]), 2, word_limit) for i in to_split]
-        split_prompt = get_batch_split_prompt(split_items)
+        
+        for chunk_idx, chunk in enumerate(chunks, 1):
+            chunk_items = [(str(src_lines[i]), 2, word_limit) for i in chunk]
+            split_prompt = get_batch_split_prompt(chunk_items)
 
-        def valid_bs(rd):
-            if not isinstance(rd, dict):
-                return {"status": "error", "message": "Not a dict"}
-            for li in range(1, len(to_split) + 1):
-                k = str(li)
-                if k not in rd or "split" not in rd.get(k, {}):
-                    return {"status": "error", "message": f"Missing '{k}'"}
-            return {"status": "success", "message": "OK"}
+            def valid_bs(rd, c_len=len(chunk)):
+                if not isinstance(rd, dict):
+                    return {"status": "error", "message": "Not a dict"}
+                for li in range(1, c_len + 1):
+                    k = str(li)
+                    if k not in rd or "split" not in rd.get(k, {}):
+                        return {"status": "error", "message": f"Missing '{k}'"}
+                return {"status": "success", "message": "OK"}
 
-        try:
-            split_resp = ask_gpt(split_prompt, resp_type='json', valid_def=valid_bs, log_title='batch_split_for_align')
-            for local_i, orig_i in enumerate(to_split, 1):
-                split_val = split_resp.get(str(local_i), {}).get("split", "")
-                if split_val and "[br]" in split_val:
-                    split_src_map[orig_i] = _apply_split(str(src_lines[orig_i]), split_val).strip()
-                else:
-                    console.print(f"[yellow]⚠️ Batch split missing [br] for line {orig_i}, using individual split[/yellow]")
+            try:
+                split_resp = ask_gpt(split_prompt, resp_type='json', valid_def=valid_bs, log_title=f'batch_split_chunk_{chunk_idx}')
+                for local_i, orig_i in enumerate(chunk, 1):
+                    split_val = split_resp.get(str(local_i), {}).get("split", "")
+                    if split_val and "[br]" in split_val:
+                        split_src_map[orig_i] = _apply_split(str(src_lines[orig_i]), split_val).strip()
+                    else:
+                        console.print(f"[yellow]⚠️ Batch split missing [br] for line {orig_i}, using individual split[/yellow]")
+                        split_src_map[orig_i] = split_sentence(str(src_lines[orig_i]), num_parts=2).strip()
+            except Exception as e:
+                console.print(f"[yellow]⚠️ Batch split chunk {chunk_idx} failed: {e}. Falling back to individual splits for this chunk.[/yellow]")
+                for orig_i in chunk:
                     split_src_map[orig_i] = split_sentence(str(src_lines[orig_i]), num_parts=2).strip()
-        except Exception as e:
-            console.print(f"[yellow]⚠️ Batch split for align failed: {e}. Falling back to individual splits.[/yellow]")
-            for orig_i in to_split:
-                split_src_map[orig_i] = split_sentence(str(src_lines[orig_i]), num_parts=2).strip()
         
         progress.update(task, advance=1)
+        
+        # Step 2: Batch align all pairs in safe mini-batches (2/2)
         update_st_progress(1, 2, f"{task_desc} (2/2)")
-
-        # Step 2: Batch align all pairs (1 LLM call)
-        align_items = [(str(src_lines[i]), str(tr_lines[i]), split_src_map[i]) for i in to_split]
-        batch_resp = _batch_align_subs(align_items)
-
+        
         whisper_language = load_key("whisper.language")
         language = load_key("whisper.detected_language") if whisper_language == 'auto' else whisper_language
         joiner = get_joiner(language)
 
-        for local_i, orig_i in enumerate(to_split, 1):
-            if batch_resp and str(local_i) in batch_resp:
-                align_data = batch_resp[str(local_i)]["align"]
-                src_parts = split_src_map[orig_i].split('\n')
-                tr_parts = [item[f'target_part_{j+1}'].strip() for j, item in enumerate(align_data)]
-                src_lines[orig_i] = src_parts
-                tr_lines[orig_i] = tr_parts
-                remerged_tr_lines[orig_i] = joiner.join(tr_parts)
-            else:
-                console.print(f"[yellow]⚠️ Batch align missing result for line {orig_i}, using individual align[/yellow]")
-                src_parts, tr_parts, tr_remerged = align_subs(str(src_lines[orig_i]), str(tr_lines[orig_i]), split_src_map[orig_i])
-                src_lines[orig_i] = src_parts
-                tr_lines[orig_i] = tr_parts
-                remerged_tr_lines[orig_i] = tr_remerged
+        align_chunks = [to_split[i:i + chunk_size] for i in range(0, len(to_split), chunk_size)]
+        console.print(f"[cyan]⚡ Efficiency mode: aligning {len(to_split)} lines in {len(align_chunks)} LLM chunks (chunk size: {chunk_size})[/cyan]")
+
+        for chunk_idx, chunk in enumerate(align_chunks, 1):
+            chunk_items = [(str(src_lines[i]), str(tr_lines[i]), split_src_map[i]) for i in chunk]
+            batch_resp = _batch_align_subs(chunk_items)
+
+            for local_i, orig_i in enumerate(chunk, 1):
+                if batch_resp and str(local_i) in batch_resp:
+                    align_data = batch_resp[str(local_i)]["align"]
+                    src_parts = split_src_map[orig_i].split('\n')
+                    tr_parts = [item[f'target_part_{j+1}'].strip() for j, item in enumerate(align_data)]
+                    src_lines[orig_i] = src_parts
+                    tr_lines[orig_i] = tr_parts
+                    remerged_tr_lines[orig_i] = joiner.join(tr_parts)
+                else:
+                    console.print(f"[yellow]⚠️ Batch align chunk {chunk_idx} missing result for line {orig_i}, using individual align[/yellow]")
+                    src_parts, tr_parts, tr_remerged = align_subs(str(src_lines[orig_i]), str(tr_lines[orig_i]), split_src_map[orig_i])
+                    src_lines[orig_i] = src_parts
+                    tr_lines[orig_i] = tr_parts
+                    remerged_tr_lines[orig_i] = tr_remerged
         
         progress.update(task, advance=1)
         update_st_progress(2, 2, task_desc)
