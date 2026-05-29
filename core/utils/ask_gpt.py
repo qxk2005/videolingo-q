@@ -64,28 +64,7 @@ def login_antigravity_cli(token_code):
         return False, str(e)
 
 def ask_antigravity_cli(prompt):
-    # ── 1. 尝试使用前台传入的 Token Code 在后台执行授权登录 ──
-    token_code = load_key("api.antigravity_token_code")
-    if token_code and token_code.strip():
-        rprint("[cyan]🔑 检测到已输入 Antigravity Token Code，正在后台自动激活登录授权...[/cyan]")
-        success, info = login_antigravity_cli(token_code.strip())
-        if success:
-            rprint("[green]✅ Antigravity CLI 登录授权激活成功！[/green]")
-            # 授权成功后清空 token_code 键以防止后续重复登录
-            try:
-                from core.utils.config_utils import update_key
-                update_key("api.antigravity_token_code", "")
-            except Exception:
-                pass
-        else:
-            rprint(f"[red]❌ Antigravity CLI 登录授权激活失败: {info}[/red]")
-            raise ValueError(
-                f"使用您提供的 Token Code 激活登录失败！\n"
-                f"错误详情：{info.strip()}\n\n"
-                f"💡 请检查您在左侧侧边栏填入的「Antigravity Token Code」是否正确，然后重新点击「清除错误并重试」。"
-            )
-
-    # ── 2. 执行常规 API 调用 ──
+    # ── 1. 执行常规 API 调用 ──
     try:
         # Use agy -p "<prompt>"
         result = subprocess.run(
@@ -93,38 +72,56 @@ def ask_antigravity_cli(prompt):
             capture_output=True,
             text=True,
             check=True,
-            stdin=subprocess.DEVNULL  # ⚡ 彻底消除未登录时 agy 卡死 30 秒等待输入的弊端，使其瞬间报错返回！
+            stdin=subprocess.DEVNULL
         )
         stdout = result.stdout.strip()
-        # 🛡️ 拦截未登录或授权过期的提示
-        if "Authentication required" in stdout or "accounts.google.com" in stdout or "authorization code" in stdout:
-            auth_url = extract_auth_url(stdout)
-            url_msg = f"🔗 <b>授权链接 (Google OAuth URL)：</b><br/><a href='{auth_url}' target='_blank'>{auth_url}</a><br/><br/>" if auth_url else ""
-            raise ValueError(
-                "检测到您的 Antigravity 命令行工具 (agy) 尚未登录或登录已过期！❌\n\n"
-                f"{url_msg}"
-                "💡 <b>三步无缝恢复任务步骤：</b>\n"
-                "1. <b>获取 Code</b>：点击上方授权链接（或在浏览器中登录 Google 账号），复制返回的 Authorization Code。\n"
-                "2. <b>填入配置</b>：将 Code 粘贴到左侧 LLM 配置的「Antigravity Token Code」输入框中。\n"
-                "3. <b>恢复任务</b>：点击下方的「清除错误并重试」，任务即可无缝继续运行，不需要重新开始！"
-            )
-        return stdout
+        # 探测是否确实未登录
+        if not ("Authentication required" in stdout or "accounts.google.com" in stdout or "authorization code" in stdout):
+            return stdout
+        auth_output = stdout
     except subprocess.CalledProcessError as e:
         stderr = e.stderr or ""
         stdout = e.stdout or ""
-        combined_output = stderr + "\n" + stdout
-        if "Authentication required" in combined_output or "accounts.google.com" in combined_output:
-            auth_url = extract_auth_url(combined_output)
-            url_msg = f"🔗 <b>授权链接 (Google OAuth URL)：</b><br/><a href='{auth_url}' target='_blank'>{auth_url}</a><br/><br/>" if auth_url else ""
-            raise ValueError(
-                "检测到您的 Antigravity 命令行工具 (agy) 尚未登录或登录已过期！❌\n\n"
-                f"{url_msg}"
-                "💡 <b>三步无缝恢复任务步骤：</b>\n"
-                "1. <b>获取 Code</b>：点击上方授权链接（或在浏览器中登录 Google 账号），复制返回的 Authorization Code。\n"
-                "2. <b>填入配置</b>：将 Code 粘贴到左侧 LLM 配置的「Antigravity Token Code」输入框中。\n"
-                "3. <b>恢复任务</b>：点击下方的「清除错误并重试」，任务即可无缝继续运行，不需要重新开始！"
-            )
-        raise ValueError(f"Antigravity CLI call failed: {stderr or stdout}")
+        auth_output = stderr + "\n" + stdout
+        if not ("Authentication required" in auth_output or "accounts.google.com" in auth_output):
+            raise ValueError(f"Antigravity CLI call failed: {stderr or stdout}")
+
+    # ── 2. 若执行到此处说明 agy 报了“未登录”错误，我们尝试在后台静默自动登录 ──
+    token_code = load_key("api.antigravity_token_code")
+    if token_code and token_code.strip():
+        rprint("[cyan]🔑 探测到 CLI 未登录/过期，正在使用侧边栏已保存的 Token Code 尝试静默激活授权...[/cyan]")
+        success, info = login_antigravity_cli(token_code.strip())
+        if success:
+            rprint("[green]✅ 后台静默授权激活成功！正在重新执行 API 请求...[/green]")
+            try:
+                # 重新执行刚才失败的 API 调用
+                retry_result = subprocess.run(
+                    ["agy", "-p", prompt],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    stdin=subprocess.DEVNULL
+                )
+                retry_stdout = retry_result.stdout.strip()
+                if not ("Authentication required" in retry_stdout or "accounts.google.com" in retry_stdout):
+                    return retry_stdout
+                auth_output = retry_stdout
+            except subprocess.CalledProcessError as err:
+                raise ValueError(f"Antigravity CLI call failed after re-auth: {err.stderr or err.stdout}")
+        else:
+            rprint(f"[red]❌ 使用保存的 Token Code 后台静默激活失败: {info.strip()}[/red]")
+
+    # ── 3. 若未填 Token Code 或后台静默登录失败，则向用户抛出含有 OAuth 链接的友好错误指引 ──
+    auth_url = extract_auth_url(auth_output)
+    url_msg = f"🔗 <b>授权链接 (Google OAuth URL)：</b><br/><a href='{auth_url}' target='_blank'>{auth_url}</a><br/><br/>" if auth_url else ""
+    raise ValueError(
+        "检测到您的 Antigravity 命令行工具 (agy) 尚未登录或登录已过期！❌\n\n"
+        f"{url_msg}"
+        "💡 <b>三步无缝恢复任务步骤：</b>\n"
+        "1. <b>获取 Code</b>：点击上方授权链接（或在浏览器中登录 Google 账号），复制返回的 Authorization Code。\n"
+        "2. <b>填入配置</b>：将 Code 粘贴到左侧 LLM 配置的「Antigravity Token Code」输入框中（后续系统会妥善用其自动重连，无需反复输入）。\n"
+        "3. <b>恢复任务</b>：点击下方的「清除错误并重试」，任务即可无缝继续运行，不需要重新开始！"
+    )
 
 def _normalize_keys_to_strings(data):
     if isinstance(data, dict):
