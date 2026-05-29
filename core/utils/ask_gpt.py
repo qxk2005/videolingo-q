@@ -92,7 +92,8 @@ def ask_antigravity_cli(prompt):
             ["agy", "-p", prompt],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            stdin=subprocess.DEVNULL  # ⚡ 彻底消除未登录时 agy 卡死 30 秒等待输入的弊端，使其瞬间报错返回！
         )
         stdout = result.stdout.strip()
         # 🛡️ 拦截未登录或授权过期的提示
