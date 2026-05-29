@@ -279,6 +279,38 @@ def text_processing_section():
 def audio_processing_section():
     st.header(t("c. Dubbing"))
     with st.container(border=True):
+        # ── 友好报错提示区域 ──
+        if "dubbing_error" in st.session_state:
+            st.error(t("Dubbing Processing Failed ❌"))
+            st.markdown(
+                f"""
+                <div style="
+                    border-left: 5px solid #ff4b4b;
+                    background-color: #ffeef0;
+                    padding: 12px 18px;
+                    border-radius: 6px;
+                    color: #d11a2a;
+                    font-size: 14px;
+                    margin-bottom: 15px;
+                    font-weight: 500;
+                    line-height: 1.5;
+                ">
+                    <b>错误详情 (Error Detail)：</b><br/>
+                    <code>{st.session_state.dubbing_error}</code>
+                </div>
+                <div style="font-size: 14px; color: #555; margin-bottom: 15px; line-height: 1.6;">
+                    💡 <b>建议排查步骤 (Troubleshooting Tips)：</b><br/>
+                    1. <b>字幕文件缺失</b>：如果报错中提到 <code>FileNotFoundError: Subtitle files missing</code>，这是因为您可能没有成功执行完 <b>“b. 翻译并生成字幕”</b> 步骤。请确保第二阶段的步骤全部打勾完成（已成功生成字幕文件）后再进行配音。<br/>
+                    2. <b>TTS 接口故障</b>：如果您选择的是 <b>Edge TTS</b> 或 <b>豆包 TTS</b>，请确保对应的 AppID、Access Token 或本地网络连通，且没有在配音生成时发生连接或鉴权报错。
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            if st.button(t("Clear Error & Retry"), key="clear_dubbing_error_btn", use_container_width=True):
+                del st.session_state.dubbing_error
+                st.rerun()
+            st.divider()
+
         st.markdown(f"<p style='font-size: 20px;'>{t('This stage includes the following steps:')}</p>", unsafe_allow_html=True)
         
         # ── Progress Bar Placeholder for Audio Stage ──
@@ -304,30 +336,36 @@ def audio_processing_section():
 
         if st.session_state.get("audio_processing_step"):
             step = st.session_state.audio_processing_step
-            if step == 1:
-                with st.spinner(t("Generate audio tasks")):
-                    video_file = _1_ytdlp.find_video_files()
-                    convert_video_to_audio(video_file)
-                    _8_1_audio_task.gen_audio_task_main()
-                    _8_2_dub_chunks.gen_dub_chunks()
-                st.session_state.audio_processing_step = 2
-                st.rerun()
-            elif step == 2:
-                if not load_key("skip_refer"):
-                    with st.spinner(t("Extract refer audio")): _9_refer_audio.extract_refer_audio_main()
-                st.session_state.audio_processing_step = 3
-                st.rerun()
-            elif step == 3:
-                with st.spinner(t("Generate and merge audio files")):
-                    _10_gen_audio.gen_audio()
-                    _11_merge_audio.merge_full_audio()
-                st.session_state.audio_processing_step = 4
-                st.rerun()
-            elif step == 4:
-                with st.spinner(t("Merge dubbing to the video")): _12_dub_to_vid.merge_video_audio()
+            try:
+                if step == 1:
+                    with st.spinner(t("Generate audio tasks")):
+                        video_file = _1_ytdlp.find_video_files()
+                        convert_video_to_audio(video_file)
+                        _8_1_audio_task.gen_audio_task_main()
+                        _8_2_dub_chunks.gen_dub_chunks()
+                    st.session_state.audio_processing_step = 2
+                    st.rerun()
+                elif step == 2:
+                    if not load_key("skip_refer"):
+                        with st.spinner(t("Extract refer audio")): _9_refer_audio.extract_refer_audio_main()
+                    st.session_state.audio_processing_step = 3
+                    st.rerun()
+                elif step == 3:
+                    with st.spinner(t("Generate and merge audio files")):
+                        _10_gen_audio.gen_audio()
+                        _11_merge_audio.merge_full_audio()
+                    st.session_state.audio_processing_step = 4
+                    st.rerun()
+                elif step == 4:
+                    with st.spinner(t("Merge dubbing to the video")): _12_dub_to_vid.merge_video_audio()
+                    st.session_state.audio_processing_step = None
+                    st.success(t("Audio processing complete! 🎇"))
+                    st.balloons()
+                    st.rerun()
+            except Exception as e:
+                # Catch exception, save to state, and gracefully halt progress
+                st.session_state.dubbing_error = str(e)
                 st.session_state.audio_processing_step = None
-                st.success(t("Audio processing complete! 🎇"))
-                st.balloons()
                 st.rerun()
 
         video_file_found = False
