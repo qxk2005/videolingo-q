@@ -45,6 +45,32 @@ def find_split_positions(original, modified):
 
     return split_positions
 
+def split_sentence_locally(sentence, num_parts=2):
+    """本地标点与物理长度结合的兜底切分函数，在 GPT 请求彻底失败时保障系统绝不崩溃。"""
+    words = sentence.split()
+    if len(words) <= 1:
+        return sentence
+    
+    total_words = len(words)
+    mid = total_words // 2
+    
+    # 优先在靠近中点的逗号、分号或冒号位置切分以保证较好的语义可读性
+    best_split_idx = mid
+    for offset in range(min(5, mid)):
+        for check_idx in [mid - offset, mid + offset]:
+            if 0 < check_idx < total_words:
+                prev_word = words[check_idx - 1]
+                if prev_word.endswith(',') or prev_word.endswith(';') or prev_word.endswith(':'):
+                    best_split_idx = check_idx
+                    break
+        else:
+            continue
+        break
+    
+    part1 = " ".join(words[:best_split_idx])
+    part2 = " ".join(words[best_split_idx:])
+    return f"{part1}\n{part2}"
+
 def split_sentence(sentence, num_parts, word_limit=20, index=-1, retry_attempt=0):
     """Split a long sentence using GPT and return the result as a string."""
     split_prompt = get_split_prompt(sentence, num_parts, word_limit)
@@ -58,19 +84,24 @@ def split_sentence(sentence, num_parts, word_limit=20, index=-1, retry_attempt=0
             return {"status": "error", "message": "Split failed, no [br] found"}
         return {"status": "success", "message": "Split completed"}
     
-    response_data = ask_gpt(split_prompt + " " * retry_attempt, resp_type='json', valid_def=valid_split, log_title='split_by_meaning')
-    choice = response_data["choice"]
-    best_split = response_data[f"split{choice}"]
-    split_points = find_split_positions(sentence, best_split)
-    # split the sentence based on the split points
-    for i, split_point in enumerate(split_points):
-        if i == 0:
-            best_split = sentence[:split_point] + '\n' + sentence[split_point:]
-        else:
-            parts = best_split.split('\n')
-            last_part = parts[-1]
-            parts[-1] = last_part[:split_point - split_points[i-1]] + '\n' + last_part[split_point - split_points[i-1]:]
-            best_split = '\n'.join(parts)
+    try:
+        response_data = ask_gpt(split_prompt + " " * retry_attempt, resp_type='json', valid_def=valid_split, log_title='split_by_meaning')
+        choice = response_data["choice"]
+        best_split = response_data[f"split{choice}"]
+        split_points = find_split_positions(sentence, best_split)
+        # split the sentence based on the split points
+        for i, split_point in enumerate(split_points):
+            if i == 0:
+                best_split = sentence[:split_point] + '\n' + sentence[split_point:]
+            else:
+                parts = best_split.split('\n')
+                last_part = parts[-1]
+                parts[-1] = last_part[:split_point - split_points[i-1]] + '\n' + last_part[split_point - split_points[i-1]:]
+                best_split = '\n'.join(parts)
+    except Exception as e:
+        console.print(f"[yellow]⚠️ GPT split failed: {e}. Falling back to local physics-based split.[/yellow]")
+        best_split = split_sentence_locally(sentence, num_parts)
+
     if index != -1:
         console.print(f'[green]✅ Sentence {index} has been successfully split[/green]')
     table = Table(title="")
