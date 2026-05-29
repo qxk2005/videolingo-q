@@ -236,11 +236,21 @@ def page_setting():
                     t("Batch Split Size"),
                     min_value=0,
                     max_value=200,
-                    value=load_key("batch_split_size") if load_key("batch_split_size") is not None else 40,
+                    value=load_key("batch_split_size") if load_key("batch_split_size") is not None else 100,
                     help=t("Maximum number of sentences sent to LLM in one batch. Set to 0 to send all sentences at once. Reduce this value if you experience model context or timeout errors.")
                 )
                 if batch_split_size != load_key("batch_split_size"):
                     update_key("batch_split_size", batch_split_size)
+
+                batch_translate_size = st.number_input(
+                    t("Batch Translate Size"),
+                    min_value=0,
+                    max_value=200,
+                    value=load_key("batch_translate_size") if load_key("batch_translate_size") is not None else 15,
+                    help=t("Maximum number of subtitle lines translated by LLM in one batch. Set to 0 to send all. Reduce this value if translation experiences timeouts.")
+                )
+                if batch_translate_size != load_key("batch_translate_size"):
+                    update_key("batch_translate_size", batch_translate_size)
 
         with tab_dub:
             tts_methods = ["edge_tts", "doubao_tts"]

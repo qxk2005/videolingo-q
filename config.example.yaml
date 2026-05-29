@@ -52,7 +52,9 @@ domain_vocab: ""
 
 efficiency_mode: true
 # *Efficiency mode batch split size: maximum sentences sent to LLM in one batch, set to 0 for unlimited (all at once)
-batch_split_size: 40
+batch_split_size: 100
+# *Efficiency mode batch translate size: maximum subtitle lines sent to LLM in one batch, set to 0 for unlimited
+batch_translate_size: 15
 
 ## ======================== Advanced Settings ======================== ##
 # *🔬 FFmpeg hardware video encoding acceleration. On macOS uses h264_videotoolbox (Apple Silicon/VideoToolbox), on other platforms uses h264_nvenc (NVIDIA). Set to true to enable.

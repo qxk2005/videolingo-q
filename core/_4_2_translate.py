@@ -90,12 +90,12 @@ def translate_all():
 
     efficiency_mode = load_key("efficiency_mode")
     if efficiency_mode:
-        # 💡 读取用户在效率模式下设置的批量最大行数，默认 40
-        batch_size = load_key("batch_split_size")
+        # 💡 读取用户在效率模式下设置的翻译分批最大行数，默认 15
+        batch_size = load_key("batch_translate_size")
         if batch_size is None:
-            batch_size = 40
+            batch_size = 15
         elif batch_size == 0:
-            batch_size = 40 # 翻译任务因提示词与上下文庞大，推荐使用 40 作为安全上限
+            batch_size = 40 # 若用户设置为 0（无限），出于安全与超时防护我们将其限制在 40 句
             
         # 成比例地缩放单批字符上限，最大程度预防超时或截断
         chunk_char_limit = batch_size * 100

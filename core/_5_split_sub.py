@@ -115,8 +115,8 @@ def split_align_subs(src_lines: List[str], tr_lines: List[str]):
         
         word_limit = load_key("max_split_length")
         
-        # 💡 读取用户的批量最大行数（句子数）设置来动态规划分块大小
-        batch_size = load_key("batch_split_size")
+        # 💡 读取用户的翻译分批最大行数设置来动态规划对齐分块大小
+        batch_size = load_key("batch_translate_size")
         if batch_size is None or batch_size == 0:
             chunk_size = 10
         else:
