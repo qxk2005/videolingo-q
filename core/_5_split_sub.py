@@ -114,8 +114,14 @@ def split_align_subs(src_lines: List[str], tr_lines: List[str]):
         task = progress.add_task(task_desc, total=2) # 2 steps: split and align
         
         word_limit = load_key("max_split_length")
-        chunk_size = 10  # 💡 更加安全的黄金分批大小，彻底预防大模型生成超长 JSON 时发生网络超时或内容截断
         
+        # 💡 读取用户的批量最大行数（句子数）设置来动态规划分块大小
+        batch_size = load_key("batch_split_size")
+        if batch_size is None or batch_size == 0:
+            chunk_size = 10
+        else:
+            chunk_size = min(batch_size, 20)  # 对齐阶段对大批量数据极为敏感，最大不超过 20 以确保生成绝对不超时
+            
         # 对待切分列表实施精细分块
         chunks = [to_split[i:i + chunk_size] for i in range(0, len(to_split), chunk_size)]
         console.print(f"[cyan]⚡ Efficiency mode: splitting {len(to_split)} lines in {len(chunks)} LLM chunks (chunk size: {chunk_size})[/cyan]")

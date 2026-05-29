@@ -90,8 +90,18 @@ def translate_all():
 
     efficiency_mode = load_key("efficiency_mode")
     if efficiency_mode:
-        chunks = split_chunks_by_chars(chunk_size=4000, max_i=40)
-        console.print(f"[cyan]⚡ Efficiency mode: {len(chunks)} large chunk(s)[/cyan]")
+        # 💡 读取用户在效率模式下设置的批量最大行数，默认 40
+        batch_size = load_key("batch_split_size")
+        if batch_size is None:
+            batch_size = 40
+        elif batch_size == 0:
+            batch_size = 40 # 翻译任务因提示词与上下文庞大，推荐使用 40 作为安全上限
+            
+        # 成比例地缩放单批字符上限，最大程度预防超时或截断
+        chunk_char_limit = batch_size * 100
+        
+        chunks = split_chunks_by_chars(chunk_size=chunk_char_limit, max_i=batch_size)
+        console.print(f"[cyan]⚡ Efficiency mode: {len(chunks)} large chunk(s) (chunk size: {batch_size}, char limit: {chunk_char_limit})[/cyan]")
         translate_fn = lambda chunk, i: _translate_with_fallback(chunk, chunks, theme_prompt, i)
     else:
         chunks = split_chunks_by_chars(chunk_size=600, max_i=10)
