@@ -118,6 +118,40 @@ def _render_steps(steps, current_step_key, completion_check_func):
 def text_processing_section():
     st.header(t("b. Translate and Generate Subtitles"))
     with st.container(border=True):
+        # ── 友好报错提示区域 ──
+        if "processing_error" in st.session_state:
+            st.error(t("Task Processing Failed ❌"))
+            st.markdown(
+                f"""
+                <div style="
+                    border-left: 5px solid #ff4b4b;
+                    background-color: #ffeef0;
+                    padding: 12px 18px;
+                    border-radius: 6px;
+                    color: #d11a2a;
+                    font-size: 14px;
+                    margin-bottom: 15px;
+                    font-weight: 500;
+                    line-height: 1.5;
+                ">
+                    <b>错误详情 (Error Detail)：</b><br/>
+                    <code>{st.session_state.processing_error}</code>
+                </div>
+                <div style="font-size: 14px; color: #555; margin-bottom: 15px; line-height: 1.6;">
+                    💡 <b>建议排查步骤 (Troubleshooting Tips)：</b><br/>
+                    1. <b>API Key 检查</b>：请检查左侧 LLM 配置里的 API Key 是否正确（以及是否有额度、是否欠费）。<br/>
+                    2. <b>网络与代理</b>：如果您使用的是国外模型 API，请确保您的本地代理或 Base URL 可以稳定连通。<br/>
+                    3. <b>如果是火山引擎/豆包</b>：请确保 AppID 和 Access Token 配置完整有效，且未发生接口限制报错。<br/>
+                    4. <b>本地命令行 (Antigravity CLI)</b>：如果您开启了使用 CLI 选项，请确保 `agy` 在本地命令行中可以正常调用。
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            if st.button(t("Clear Error & Retry"), key="clear_error_and_retry_btn", use_container_width=True):
+                del st.session_state.processing_error
+                st.rerun()
+            st.divider()
+
         st.markdown(f"<p style='font-size: 20px;'>{t('This stage includes the following steps:')}</p>", unsafe_allow_html=True)
         
         # ── Progress Bar Placeholder for Text Stage ──
@@ -148,42 +182,50 @@ def text_processing_section():
         # Handle Sequential Execution
         if st.session_state.get("text_processing_step"):
             step = st.session_state.text_processing_step
-            if step == 1:
-                with st.spinner(t("Using Whisper for transcription...")): _2_asr.transcribe()
-                st.session_state.text_processing_step = 2
-                st.rerun()
-            elif step == 2:
-                with st.spinner(t("Splitting long sentences...")):
-                    _3_1_split_nlp.split_by_spacy()
-                    _3_2_split_meaning.split_sentences_by_meaning()
-                st.session_state.text_processing_step = 3
-                st.rerun()
-            elif step == 3:
-                with st.spinner(t("Summarizing and translating...")):
-                    _4_1_summarize.get_summary()
-                    _4_2_translate.translate_all()
-                st.session_state.text_processing_step = 4
-                st.rerun()
-            elif step == 4:
-                with st.spinner(t("Processing and aligning subtitles...")):
-                    _5_split_sub.split_for_sub_main()
-                st.session_state.text_processing_step = 5
-                st.rerun()
-            elif step == 5:
-                with st.spinner(t("Generating timeline and subtitles...")):
-                    _6_gen_sub.align_timestamp_main()
-                st.session_state.text_processing_step = 6
-                st.rerun()
-            elif step == 6:
-                with st.spinner(t("Merging subtitles to video...")):
-                    _7_sub_into_vid.merge_subtitles_to_video()
+            try:
+                if step == 1:
+                    with st.spinner(t("Using Whisper for transcription...")): _2_asr.transcribe()
+                    st.session_state.text_processing_step = 2
+                    st.rerun()
+                elif step == 2:
+                    with st.spinner(t("Splitting long sentences...")):
+                        _3_1_split_nlp.split_by_spacy()
+                        _3_2_split_meaning.split_sentences_by_meaning()
+                    st.session_state.text_processing_step = 3
+                    st.rerun()
+                elif step == 3:
+                    with st.spinner(t("Summarizing and translating...")):
+                        _4_1_summarize.get_summary()
+                        _4_2_translate.translate_all()
+                    st.session_state.text_processing_step = 4
+                    st.rerun()
+                elif step == 4:
+                    with st.spinner(t("Processing and aligning subtitles...")):
+                        _5_split_sub.split_for_sub_main()
+                    st.session_state.text_processing_step = 5
+                    st.rerun()
+                elif step == 5:
+                    with st.spinner(t("Generating timeline and subtitles...")):
+                        _6_gen_sub.align_timestamp_main()
+                    st.session_state.text_processing_step = 6
+                    st.rerun()
+                elif step == 6:
+                    with st.spinner(t("Merging subtitles to video...")):
+                        _7_sub_into_vid.merge_subtitles_to_video()
+                    st.session_state.text_processing_step = None
+                    st.success(t("Subtitle processing complete! 🎉"))
+                    st.balloons()
+                    st.rerun()
+            except Exception as e:
+                # Catch exception, save to state, and gracefully halt progress
+                st.session_state.processing_error = str(e)
                 st.session_state.text_processing_step = None
-                st.success(t("Subtitle processing complete! 🎉"))
-                st.balloons()
                 st.rerun()
 
         if not os.path.exists(SRC_SRT):
-            if st.button(t("Start Processing Subtitles"), key="text_processing_button"):
+            # If error is present, disable the button until cleared to maintain safety
+            btn_disabled = "processing_error" in st.session_state
+            if st.button(t("Start Processing Subtitles"), key="text_processing_button", disabled=btn_disabled):
                 st.session_state.text_processing_step = 1
                 st.rerun()
 
