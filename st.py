@@ -80,6 +80,102 @@ def reapply_and_rebuild():
     st.toast(t("Vocab correction applied. Click 'Start Processing Subtitles' to rebuild."), icon="✅")
 
 
+def render_friendly_error(error_str, stage_type="text"):
+    import re
+    # 尝试匹配 Google OAuth 的授权链接
+    auth_url_match = re.search(r'(https://accounts\.google\.com/o/oauth2/auth[^\s\'"<>]+)', error_str)
+    
+    if auth_url_match:
+        auth_url = auth_url_match.group(1)
+        st.warning("🔑 **Antigravity CLI (agy) 登录会话过期或尚未授权！**")
+        
+        # 渲染高档卡片式 Google OAuth 说明
+        st.markdown(
+            f"""
+            <div style="
+                border-left: 5px solid #ffa500;
+                background-color: #fff9e6;
+                padding: 15px 20px;
+                border-radius: 8px;
+                color: #b77c00;
+                font-size: 15px;
+                margin-bottom: 20px;
+                line-height: 1.6;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            ">
+                <b>💡 极速登录并恢复任务指南 (Quick Auth Guide)：</b><br/>
+                1. <b>第一步：获取授权码</b>。点击下方的金色登录按钮前往 Google 完成账号授权，并复制返回的 Authorization Code。<br/>
+                2. <b>第二步：保存配置</b>。将 Code 粘贴到左侧 LLM 配置的「<b>Antigravity Token Code</b>」输入框中。后续系统将自动使用它保持登录，免去重复输入！<br/>
+                3. <b>第三步：恢复运行</b>。点击最下方的<b>「清除错误并重试」</b>，后台会自动进行静默激活登录，任务即可瞬间继续执行！
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        # 用 Streamlit 原生的 Link Button 极其高端漂亮地展示，100% 绝对安全
+        st.link_button("🔗 点击在此浏览器页面中登录 Google 并获取 Code", auth_url, use_container_width=True)
+        st.divider()
+    else:
+        st.error(t("Task Processing Failed ❌"))
+        
+        # 用 st.code 安全、规范、不破坏 HTML 地输出具体的错误回溯详情
+        st.markdown("**错误详情 (Error Detail)：**")
+        st.code(error_str, wrap_lines=True)
+        
+        # 提供美观大方的排查建议
+        if stage_type == "text":
+            st.markdown(
+                """
+                <div style="
+                    border-left: 5px solid #ff4b4b;
+                    background-color: #ffeef0;
+                    padding: 12px 18px;
+                    border-radius: 6px;
+                    color: #d11a2a;
+                    font-size: 14px;
+                    margin-bottom: 15px;
+                    font-weight: 500;
+                    line-height: 1.5;
+                ">
+                    💡 <b>建议排查步骤 (Troubleshooting Tips)：</b><br/>
+                    1. <b>API Key 检查</b>：请检查左侧 LLM 配置里的 API Key 是否正确（以及是否有额度、是否欠费）。<br/>
+                    2. <b>网络与代理</b>：如果您使用的是国外模型 API，请确保您的本地代理或 Base URL 可以稳定连通。<br/>
+                    3. <b>如果是火山引擎/豆包</b>：请确保 AppID 和 Access Token 配置完整有效，且未发生接口限制报错。<br/>
+                    4. <b>本地命令行 (Antigravity CLI)</b>：如果您开启了使用 CLI 选项，请确保 `agy` 在本地命令行中可以正常调用。
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        else: # dubbing
+            st.markdown(
+                """
+                <div style="
+                    border-left: 5px solid #ff4b4b;
+                    background-color: #ffeef0;
+                    padding: 12px 18px;
+                    border-radius: 6px;
+                    color: #d11a2a;
+                    font-size: 14px;
+                    margin-bottom: 15px;
+                    font-weight: 500;
+                    line-height: 1.5;
+                ">
+                    💡 <b>建议排查步骤 (Troubleshooting Tips)：</b><br/>
+                    1. <b>字幕文件缺失</b>：如果报错中提到 <code>FileNotFoundError: Subtitle files missing</code>，这是因为您可能没有成功执行完 <b>“b. 翻译并生成字幕”</b> 步骤。请确保第二阶段的步骤全部打勾完成后再进行配音。<br/>
+                    2. <b>TTS 接口故障</b>：如果您选择的是 <b>Edge TTS</b> 或 <b>豆包 TTS</b>，请确保对应的 AppID、Access Token 或本地网络连通，且没有在配音生成时发生连接或鉴权报错。
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+    # 核心：无论何种错误，最下方绝对能安全渲染出来原生的“清除错误并重试”按钮！
+    btn_key = "clear_error_and_retry_btn" if stage_type == "text" else "clear_dubbing_error_btn"
+    err_state_key = "processing_error" if stage_type == "text" else "dubbing_error"
+    if st.button(t("Clear Error & Retry"), key=btn_key, use_container_width=True):
+        del st.session_state[err_state_key]
+        st.rerun()
+    st.divider()
+
+
 def _show_suspicious_terms_section():
     """Display detected unusual/high-freq terms from src.srt for user review."""
     terms = detect_suspicious_terms_from_srt(SRC_SRT)
@@ -120,37 +216,7 @@ def text_processing_section():
     with st.container(border=True):
         # ── 友好报错提示区域 ──
         if "processing_error" in st.session_state:
-            st.error(t("Task Processing Failed ❌"))
-            st.markdown(
-                f"""
-                <div style="
-                    border-left: 5px solid #ff4b4b;
-                    background-color: #ffeef0;
-                    padding: 12px 18px;
-                    border-radius: 6px;
-                    color: #d11a2a;
-                    font-size: 14px;
-                    margin-bottom: 15px;
-                    font-weight: 500;
-                    line-height: 1.5;
-                ">
-                    <b>错误详情 (Error Detail)：</b><br/>
-                    <code>{st.session_state.processing_error}</code>
-                </div>
-                <div style="font-size: 14px; color: #555; margin-bottom: 15px; line-height: 1.6;">
-                    💡 <b>建议排查步骤 (Troubleshooting Tips)：</b><br/>
-                    1. <b>API Key 检查</b>：请检查左侧 LLM 配置里的 API Key 是否正确（以及是否有额度、是否欠费）。<br/>
-                    2. <b>网络与代理</b>：如果您使用的是国外模型 API，请确保您的本地代理或 Base URL 可以稳定连通。<br/>
-                    3. <b>如果是火山引擎/豆包</b>：请确保 AppID 和 Access Token 配置完整有效，且未发生接口限制报错。<br/>
-                    4. <b>本地命令行 (Antigravity CLI)</b>：如果您开启了使用 CLI 选项，请确保 `agy` 在本地命令行中可以正常调用。
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-            if st.button(t("Clear Error & Retry"), key="clear_error_and_retry_btn", use_container_width=True):
-                del st.session_state.processing_error
-                st.rerun()
-            st.divider()
+            render_friendly_error(st.session_state.processing_error, "text")
 
         st.markdown(f"<p style='font-size: 20px;'>{t('This stage includes the following steps:')}</p>", unsafe_allow_html=True)
         
@@ -281,35 +347,7 @@ def audio_processing_section():
     with st.container(border=True):
         # ── 友好报错提示区域 ──
         if "dubbing_error" in st.session_state:
-            st.error(t("Dubbing Processing Failed ❌"))
-            st.markdown(
-                f"""
-                <div style="
-                    border-left: 5px solid #ff4b4b;
-                    background-color: #ffeef0;
-                    padding: 12px 18px;
-                    border-radius: 6px;
-                    color: #d11a2a;
-                    font-size: 14px;
-                    margin-bottom: 15px;
-                    font-weight: 500;
-                    line-height: 1.5;
-                ">
-                    <b>错误详情 (Error Detail)：</b><br/>
-                    <code>{st.session_state.dubbing_error}</code>
-                </div>
-                <div style="font-size: 14px; color: #555; margin-bottom: 15px; line-height: 1.6;">
-                    💡 <b>建议排查步骤 (Troubleshooting Tips)：</b><br/>
-                    1. <b>字幕文件缺失</b>：如果报错中提到 <code>FileNotFoundError: Subtitle files missing</code>，这是因为您可能没有成功执行完 <b>“b. 翻译并生成字幕”</b> 步骤。请确保第二阶段的步骤全部打勾完成（已成功生成字幕文件）后再进行配音。<br/>
-                    2. <b>TTS 接口故障</b>：如果您选择的是 <b>Edge TTS</b> 或 <b>豆包 TTS</b>，请确保对应的 AppID、Access Token 或本地网络连通，且没有在配音生成时发生连接或鉴权报错。
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-            if st.button(t("Clear Error & Retry"), key="clear_dubbing_error_btn", use_container_width=True):
-                del st.session_state.dubbing_error
-                st.rerun()
-            st.divider()
+            render_friendly_error(st.session_state.dubbing_error, "dubbing")
 
         st.markdown(f"<p style='font-size: 20px;'>{t('This stage includes the following steps:')}</p>", unsafe_allow_html=True)
         
