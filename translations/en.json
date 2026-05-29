@@ -168,5 +168,8 @@
     "Dubbing Processing Failed ❌": "Dubbing Processing Failed ❌",
     "Clear Error & Retry": "Clear Error & Retry",
     "Batch Split Size": "Batch Split Size",
-    "Maximum number of sentences sent to LLM in one batch. Set to 0 to send all sentences at once. Reduce this value if you experience model context or timeout errors.": "Maximum number of sentences sent to LLM in one batch. Set to 0 to send all sentences at once. Reduce this value if you experience model context or timeout errors."
+    "Maximum number of sentences sent to LLM in one batch. Set to 0 to send all sentences at once. Reduce this value if you experience model context or timeout errors.": "Maximum number of sentences sent to LLM in one batch. Set to 0 to send all sentences at once. Reduce this value if you experience model context or timeout errors.",
+    "Antigravity Token Code": "Antigravity Token Code",
+    "Enter Authorization Code from browser": "Enter Authorization Code from browser",
+    "When your agy login expires during run, paste the google authorization code here and click retry to automatically authenticate and resume.": "When your agy login expires during run, paste the google authorization code here and click retry to automatically authenticate and resume."
 }

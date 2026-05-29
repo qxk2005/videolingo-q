@@ -42,7 +42,50 @@ def _load_cache(prompt, resp_type, log_title):
 # ask gpt once
 # ------------
 
+def extract_auth_url(text):
+    match = re.search(r'(https://accounts\.google\.com/o/oauth2/auth[^\s\'"]+)', text)
+    return match.group(1) if match else None
+
+def login_antigravity_cli(token_code):
+    try:
+        process = subprocess.Popen(
+            ["agy", "login"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        stdout, stderr = process.communicate(input=f"{token_code}\n", timeout=20)
+        if process.returncode == 0:
+            return True, stdout
+        else:
+            return False, stderr or stdout
+    except Exception as e:
+        return False, str(e)
+
 def ask_antigravity_cli(prompt):
+    # ── 1. 尝试使用前台传入的 Token Code 在后台执行授权登录 ──
+    token_code = load_key("api.antigravity_token_code")
+    if token_code and token_code.strip():
+        rprint("[cyan]🔑 检测到已输入 Antigravity Token Code，正在后台自动激活登录授权...[/cyan]")
+        success, info = login_antigravity_cli(token_code.strip())
+        if success:
+            rprint("[green]✅ Antigravity CLI 登录授权激活成功！[/green]")
+            # 授权成功后清空 token_code 键以防止后续重复登录
+            try:
+                from core.utils.config_utils import update_key
+                update_key("api.antigravity_token_code", "")
+            except Exception:
+                pass
+        else:
+            rprint(f"[red]❌ Antigravity CLI 登录授权激活失败: {info}[/red]")
+            raise ValueError(
+                f"使用您提供的 Token Code 激活登录失败！\n"
+                f"错误详情：{info.strip()}\n\n"
+                f"💡 请检查您在左侧侧边栏填入的「Antigravity Token Code」是否正确，然后重新点击「清除错误并重试」。"
+            )
+
+    # ── 2. 执行常规 API 调用 ──
     try:
         # Use agy -p "<prompt>"
         result = subprocess.run(
@@ -54,22 +97,31 @@ def ask_antigravity_cli(prompt):
         stdout = result.stdout.strip()
         # 🛡️ 拦截未登录或授权过期的提示
         if "Authentication required" in stdout or "accounts.google.com" in stdout or "authorization code" in stdout:
+            auth_url = extract_auth_url(stdout)
+            url_msg = f"🔗 <b>授权链接 (Google OAuth URL)：</b><br/><a href='{auth_url}' target='_blank'>{auth_url}</a><br/><br/>" if auth_url else ""
             raise ValueError(
-                "检测到您的 Antigravity 命令行工具 (agy) 尚未登录或登录已过期！\n"
-                "💡 请在您的本地终端/命令行中执行以下命令以重新完成登录授权：\n"
-                "   agy login\n"
-                "完成登录后再重新开始运行本任务。"
+                "检测到您的 Antigravity 命令行工具 (agy) 尚未登录或登录已过期！❌\n\n"
+                f"{url_msg}"
+                "💡 <b>三步无缝恢复任务步骤：</b>\n"
+                "1. <b>获取 Code</b>：点击上方授权链接（或在浏览器中登录 Google 账号），复制返回的 Authorization Code。\n"
+                "2. <b>填入配置</b>：将 Code 粘贴到左侧 LLM 配置的「Antigravity Token Code」输入框中。\n"
+                "3. <b>恢复任务</b>：点击下方的「清除错误并重试」，任务即可无缝继续运行，不需要重新开始！"
             )
         return stdout
     except subprocess.CalledProcessError as e:
         stderr = e.stderr or ""
         stdout = e.stdout or ""
-        if "Authentication required" in stderr or "accounts.google.com" in stderr or "Authentication required" in stdout or "accounts.google.com" in stdout:
+        combined_output = stderr + "\n" + stdout
+        if "Authentication required" in combined_output or "accounts.google.com" in combined_output:
+            auth_url = extract_auth_url(combined_output)
+            url_msg = f"🔗 <b>授权链接 (Google OAuth URL)：</b><br/><a href='{auth_url}' target='_blank'>{auth_url}</a><br/><br/>" if auth_url else ""
             raise ValueError(
-                "检测到您的 Antigravity 命令行工具 (agy) 尚未登录或登录已过期！\n"
-                "💡 请在您的本地终端/命令行中执行以下命令以重新完成登录授权：\n"
-                "   agy login\n"
-                "完成登录后再重新开始运行本任务。"
+                "检测到您的 Antigravity 命令行工具 (agy) 尚未登录或登录已过期！❌\n\n"
+                f"{url_msg}"
+                "💡 <b>三步无缝恢复任务步骤：</b>\n"
+                "1. <b>获取 Code</b>：点击上方授权链接（或在浏览器中登录 Google 账号），复制返回的 Authorization Code。\n"
+                "2. <b>填入配置</b>：将 Code 粘贴到左侧 LLM 配置的「Antigravity Token Code」输入框中。\n"
+                "3. <b>恢复任务</b>：点击下方的「清除错误并重试」，任务即可无缝继续运行，不需要重新开始！"
             )
         raise ValueError(f"Antigravity CLI call failed: {stderr or stdout}")
 

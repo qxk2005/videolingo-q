@@ -16,6 +16,7 @@ api:
   model: 'YOUR_MODEL'
   llm_support_json: false
   use_antigravity_cli: true
+  antigravity_token_code: ''
 # *Number of LLM multi-threaded accesses, set to 1 if using local LLM
 max_workers: 1
 

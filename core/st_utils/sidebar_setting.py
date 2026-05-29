@@ -77,6 +77,16 @@ def page_setting():
             use_antigravity_cli = st.toggle(t("Use Antigravity CLI"), value=load_key("api.use_antigravity_cli"), help=t("If enabled, use antigravity-cli to call LLM, ignoring above settings"))
             if use_antigravity_cli != load_key("api.use_antigravity_cli"):
                 update_key("api.use_antigravity_cli", use_antigravity_cli)
+
+            if use_antigravity_cli:
+                antigravity_token_code = st.text_input(
+                    t("Antigravity Token Code"),
+                    value=load_key("api.antigravity_token_code"),
+                    placeholder=t("Enter Authorization Code from browser"),
+                    help=t("When your agy login expires during run, paste the google authorization code here and click retry to automatically authenticate and resume.")
+                )
+                if antigravity_token_code != load_key("api.antigravity_token_code"):
+                    update_key("api.antigravity_token_code", antigravity_token_code)
             
             if not use_antigravity_cli:
                 # ── Profile selector (only when profiles exist) ──────────────────

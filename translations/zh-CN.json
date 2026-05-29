@@ -174,6 +174,9 @@
     "Dubbing Processing Failed ❌": "配音处理失败 ❌",
     "Clear Error & Retry": "清除错误并重试",
     "Batch Split Size": "效率模式批量分割数",
-    "Maximum number of sentences sent to LLM in one batch. Set to 0 to send all sentences at once. Reduce this value if you experience model context or timeout errors.": "单次提交给大模型的最大句子数。设为 0 代表一次性提交所有句子。如果您在处理长视频时遇到超时或大模型上下文溢出报错，请降低此数值。"
+    "Maximum number of sentences sent to LLM in one batch. Set to 0 to send all sentences at once. Reduce this value if you experience model context or timeout errors.": "单次提交给大模型的最大句子数。设为 0 代表一次性提交所有句子。如果您在处理长视频时遇到超时或大模型上下文溢出报错，请降低此数值。",
+    "Antigravity Token Code": "Antigravity 登录授权码",
+    "Enter Authorization Code from browser": "请输入浏览器登录后返回的授权码(Code)",
+    "When your agy login expires during run, paste the google authorization code here and click retry to automatically authenticate and resume.": "当 agy 命令行登录过期时，在此处粘贴浏览器获得的 Google 授权码并点击重新运行，系统会自动在后台登录激活并无缝继续任务。"
 }
 
