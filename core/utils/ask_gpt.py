@@ -51,9 +51,27 @@ def ask_antigravity_cli(prompt):
             text=True,
             check=True
         )
-        return result.stdout.strip()
+        stdout = result.stdout.strip()
+        # 🛡️ 拦截未登录或授权过期的提示
+        if "Authentication required" in stdout or "accounts.google.com" in stdout or "authorization code" in stdout:
+            raise ValueError(
+                "检测到您的 Antigravity 命令行工具 (agy) 尚未登录或登录已过期！\n"
+                "💡 请在您的本地终端/命令行中执行以下命令以重新完成登录授权：\n"
+                "   agy login\n"
+                "完成登录后再重新开始运行本任务。"
+            )
+        return stdout
     except subprocess.CalledProcessError as e:
-        raise ValueError(f"Antigravity CLI call failed: {e.stderr}")
+        stderr = e.stderr or ""
+        stdout = e.stdout or ""
+        if "Authentication required" in stderr or "accounts.google.com" in stderr or "Authentication required" in stdout or "accounts.google.com" in stdout:
+            raise ValueError(
+                "检测到您的 Antigravity 命令行工具 (agy) 尚未登录或登录已过期！\n"
+                "💡 请在您的本地终端/命令行中执行以下命令以重新完成登录授权：\n"
+                "   agy login\n"
+                "完成登录后再重新开始运行本任务。"
+            )
+        raise ValueError(f"Antigravity CLI call failed: {stderr or stdout}")
 
 def _normalize_keys_to_strings(data):
     if isinstance(data, dict):

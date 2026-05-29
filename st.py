@@ -623,30 +623,22 @@ def file_browser():
                 elif ext == '.mp3':
                     mime_type = "audio/mpeg"
                 
+                # 🚀 优先使用惰性加载数据，避免在大文件加载时占用内存并极大地提升首屏响应性能
+                def get_file_data(path=full_path):
+                    with open(path, "rb") as file_data:
+                        return file_data.read()
+
                 try:
-                    # 🚀 优先：使用惰性加载数据，若 Streamlit 版本支持，能极大地提升性能
                     st.download_button(
                         label=f"{indent}📄 {f}",
-                        data=lambda path=full_path: open(path, "rb").read(),
+                        data=get_file_data,
                         file_name=f,
                         mime=mime_type,
                         key=safe_key
                     )
                 except Exception:
-                    try:
-                        # 🔄 兜底：如果旧版 Streamlit 不支持 lambda，则同步读取文件内容以确保下载功能仍然可用
-                        with open(full_path, "rb") as file_data:
-                            data_bytes = file_data.read()
-                        st.download_button(
-                            label=f"{indent}📄 {f}",
-                            data=data_bytes,
-                            file_name=f,
-                            mime=mime_type,
-                            key=safe_key
-                        )
-                    except Exception:
-                        # 🛡️ 降级：如果遇到其他未知错误，则退化回只读文本显示
-                        st.markdown(f"<p style='margin: 0; padding: 2px 5px; font-size: 0.9em; color: #555;'>{indent}📄 {f}</p>", unsafe_allow_html=True)
+                    # 🛡️ 降级：如果遇到未知渲染错误，则退化回只读文本显示，这能彻底避免重复同一个 key 实例化组件导致的 React 越界崩溃
+                    st.markdown(f"<p style='margin: 0; padding: 2px 5px; font-size: 0.9em; color: #555;'>{indent}📄 {f}</p>", unsafe_allow_html=True)
 
         # Scrollable container for the tree with custom class for styling
         st.markdown('<div class="windows-file-tree">', unsafe_allow_html=True)

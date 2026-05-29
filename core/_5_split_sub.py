@@ -114,7 +114,7 @@ def split_align_subs(src_lines: List[str], tr_lines: List[str]):
         task = progress.add_task(task_desc, total=2) # 2 steps: split and align
         
         word_limit = load_key("max_split_length")
-        chunk_size = 40  # 💡 黄金安全分批大小，彻底预防长输出爆 Token 截断或丢失 key
+        chunk_size = 10  # 💡 更加安全的黄金分批大小，彻底预防大模型生成超长 JSON 时发生网络超时或内容截断
         
         # 对待切分列表实施精细分块
         chunks = [to_split[i:i + chunk_size] for i in range(0, len(to_split), chunk_size)]
