@@ -292,7 +292,13 @@ def text_processing_section():
             # If error is present, disable the button until cleared to maintain safety
             btn_disabled = "processing_error" in st.session_state
             if st.button(t("Start Processing Subtitles"), key="text_processing_button", disabled=btn_disabled):
-                st.session_state.text_processing_step = 1
+                # 动态探测断点：从第一个未完成的步骤开始执行
+                start_step = 1
+                for step_idx in range(1, 7):
+                    if not check_text_step_completed(step_idx):
+                        start_step = step_idx
+                        break
+                st.session_state.text_processing_step = start_step
                 st.rerun()
 
             # Subtitle upload bypass
