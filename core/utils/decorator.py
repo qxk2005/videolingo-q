@@ -19,7 +19,7 @@ def except_handler(error_msg, retry=0, delay=1, default_return=None):
                     last_exception = e
                     # 🛡️ 对根本无法通过重试解决的系统/凭证类硬伤错误进行即时拦截并直接向上抛出
                     err_str = str(e)
-                    if "尚未登录" in err_str or "agy login" in err_str or "API key is not set" in err_str or "Authentication required" in err_str:
+                    if "尚未登录" in err_str or "agy login" in err_str or "API key is not set" in err_str or "Authentication required" in err_str or "Antigravity CLI call failed" in err_str or "after re-auth" in err_str:
                         raise e
                         
                     rprint(f"[red]{error_msg}: {e}, retry: {i+1}/{retry}[/red]")

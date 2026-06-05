@@ -152,9 +152,19 @@ def ask_antigravity_cli(prompt):
         token_code = load_key("api.antigravity_token_code")
         if token_code and token_code.strip():
             rprint("[cyan]🔑 探测到 CLI 未登录/过期，正在使用侧边栏已保存的 Token Code 尝试静默激活授权...[/cyan]")
+            try:
+                import streamlit as st
+                st.toast("🔑 探测到 CLI 未登录/过期，正在使用侧边栏已保存的 Token Code 尝试静默激活授权...", icon="🔑")
+            except Exception:
+                pass
             success, info = login_antigravity_cli(token_code.strip())
             if success:
                 rprint("[green]✅ 后台静默授权激活成功！正在重新执行 API 请求...[/green]")
+                try:
+                    import streamlit as st
+                    st.toast("✅ 后台静默授权激活成功！正在重新执行 API 请求...", icon="🎉")
+                except Exception:
+                    pass
                 try:
                     # 重新执行刚才失败的 API 调用
                     retry_returncode, retry_stdout, _ = run_command_in_pty(["agy", "-p", prompt], timeout=120)
@@ -166,6 +176,11 @@ def ask_antigravity_cli(prompt):
                     raise ValueError(f"Antigravity CLI call failed after re-auth: {str(err)}")
             else:
                 rprint(f"[red]❌ 使用保存的 Token Code 后台静默激活失败: {info.strip()}[/red]")
+                try:
+                    import streamlit as st
+                    st.toast("❌ 使用保存的 Token Code 后台静默激活失败，请在侧边栏填入新的 Token Code 重新授权", icon="⚠️")
+                except Exception:
+                    pass
 
         # ── 3. 若未填 Token Code 或后台静默登录失败，则向用户抛出含有 OAuth 链接的友好错误指引 ──
         auth_url = extract_auth_url(auth_output)
