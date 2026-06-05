@@ -153,16 +153,20 @@ def ask_antigravity_cli(prompt):
         if token_code and token_code.strip():
             rprint("[cyan]🔑 探测到 CLI 未登录/过期，正在使用侧边栏已保存的 Token Code 尝试静默激活授权...[/cyan]")
             try:
-                import streamlit as st
-                st.toast("🔑 探测到 CLI 未登录/过期，正在使用侧边栏已保存的 Token Code 尝试静默激活授权...", icon="🔑")
+                from streamlit.runtime.scriptrunner import get_script_run_ctx
+                if get_script_run_ctx() is not None:
+                    import streamlit as st
+                    st.toast("🔑 探测到 CLI 未登录/过期，正在使用侧边栏已保存的 Token Code 尝试静默激活授权...", icon="🔑")
             except Exception:
                 pass
             success, info = login_antigravity_cli(token_code.strip())
             if success:
                 rprint("[green]✅ 后台静默授权激活成功！正在重新执行 API 请求...[/green]")
                 try:
-                    import streamlit as st
-                    st.toast("✅ 后台静默授权激活成功！正在重新执行 API 请求...", icon="🎉")
+                    from streamlit.runtime.scriptrunner import get_script_run_ctx
+                    if get_script_run_ctx() is not None:
+                        import streamlit as st
+                        st.toast("✅ 后台静默授权激活成功！正在重新执行 API 请求...", icon="🎉")
                 except Exception:
                     pass
                 try:
@@ -177,8 +181,10 @@ def ask_antigravity_cli(prompt):
             else:
                 rprint(f"[red]❌ 使用保存的 Token Code 后台静默激活失败: {info.strip()}[/red]")
                 try:
-                    import streamlit as st
-                    st.toast("❌ 使用保存的 Token Code 后台静默激活失败，请在侧边栏填入新的 Token Code 重新授权", icon="⚠️")
+                    from streamlit.runtime.scriptrunner import get_script_run_ctx
+                    if get_script_run_ctx() is not None:
+                        import streamlit as st
+                        st.toast("❌ 使用保存的 Token Code 后台静默激活失败，请在侧边栏填入新的 Token Code 重新授权", icon="⚠️")
                 except Exception:
                     pass
 
