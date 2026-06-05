@@ -170,11 +170,15 @@ def align_timestamp(df_text, df_translate, subtitle_output_configs: list, output
     df_trans_time['timestamp'] = time_stamp_list
     df_trans_time['duration'] = df_trans_time['timestamp'].apply(lambda x: x[1] - x[0])
 
-    # Remove gaps 🕳️
+    # Remove gaps 🕳️ (but keep a tiny gap of 0.15s for breathing room to make both subtitles and dubbing comfortable)
     for i in range(len(df_trans_time)-1):
         delta_time = df_trans_time.loc[i+1, 'timestamp'][0] - df_trans_time.loc[i, 'timestamp'][1]
         if 0 < delta_time < 1:
-            df_trans_time.at[i, 'timestamp'] = (df_trans_time.loc[i, 'timestamp'][0], df_trans_time.loc[i+1, 'timestamp'][0])
+            tiny_gap = 0.15
+            if delta_time > tiny_gap:
+                df_trans_time.at[i, 'timestamp'] = (df_trans_time.loc[i, 'timestamp'][0], df_trans_time.loc[i+1, 'timestamp'][0] - tiny_gap)
+            else:
+                df_trans_time.at[i, 'timestamp'] = (df_trans_time.loc[i, 'timestamp'][0], df_trans_time.loc[i+1, 'timestamp'][0])
 
     # Convert start and end timestamps to SRT format
     df_trans_time['timestamp'] = df_trans_time['timestamp'].apply(lambda x: convert_to_srt_format(x[0], x[1]))

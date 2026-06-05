@@ -252,6 +252,26 @@ def page_setting():
                 if batch_translate_size != load_key("batch_translate_size"):
                     update_key("batch_translate_size", batch_translate_size)
 
+            st.divider()
+            st.markdown(f"**YouTube {t('Settings')}**")
+            
+            cookies_from_browser_options = ["", "chrome", "firefox", "edge", "safari", "opera", "brave"]
+            current_cfb = load_key("youtube.cookies_from_browser")
+            if current_cfb not in cookies_from_browser_options:
+                cookies_from_browser_options.append(current_cfb)
+            
+            selected_cfb = st.selectbox(
+                t("Extract Cookies From Browser"),
+                options=cookies_from_browser_options,
+                index=cookies_from_browser_options.index(current_cfb) if current_cfb else 0,
+                help=t("Select browser to automatically extract YouTube cookies to bypass bot checks. Leave empty if not needed.")
+            )
+            if selected_cfb != current_cfb:
+                update_key("youtube.cookies_from_browser", selected_cfb)
+
+            config_input(t("YouTube Cookies File Path"), "youtube.cookies_path", 
+                         help=t("Path to exported cookies.txt file, fallback if browser extraction fails."))
+
         with tab_dub:
             tts_methods = ["edge_tts", "doubao_tts"]
             current_tts = load_key("tts_method")

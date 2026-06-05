@@ -173,5 +173,10 @@
     "Enter Authorization Code from browser": "Enter Authorization Code from browser",
     "When your agy login expires during run, paste the google authorization code here and click retry to automatically authenticate and resume.": "When your agy login expires during run, paste the google authorization code here and click retry to automatically authenticate and resume.",
     "Batch Translate Size": "Batch Translate Size",
-    "Maximum number of subtitle lines translated by LLM in one batch. Set to 0 to send all. Reduce this value if translation experiences timeouts.": "Maximum number of subtitle lines translated by LLM in one batch. Set to 0 to send all. Reduce this value if translation experiences timeouts."
+    "Maximum number of subtitle lines translated by LLM in one batch. Set to 0 to send all. Reduce this value if translation experiences timeouts.": "Maximum number of subtitle lines translated by LLM in one batch. Set to 0 to send all. Reduce this value if translation experiences timeouts.",
+    "Settings": "Settings",
+    "Extract Cookies From Browser": "Extract Cookies From Browser",
+    "Select browser to automatically extract YouTube cookies to bypass bot checks. Leave empty if not needed.": "Select browser to automatically extract YouTube cookies to bypass bot checks. Leave empty if not needed.",
+    "YouTube Cookies File Path": "YouTube Cookies File Path",
+    "Path to exported cookies.txt file, fallback if browser extraction fails.": "Path to exported cookies.txt file, fallback if browser extraction fails."
 }

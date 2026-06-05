@@ -179,6 +179,11 @@
     "Enter Authorization Code from browser": "请输入浏览器登录后返回的授权码(Code)",
     "When your agy login expires during run, paste the google authorization code here and click retry to automatically authenticate and resume.": "当 agy 命令行登录过期时，在此处粘贴浏览器获得的 Google 授权码并点击重新运行，系统会自动在后台登录激活并无缝继续任务。",
     "Batch Translate Size": "效率模式批量翻译数",
-    "Maximum number of subtitle lines translated by LLM in one batch. Set to 0 to send all. Reduce this value if translation experiences timeouts.": "单次翻译提交给大模型的最大字幕行数。设为 0 代表一次性提交所有字幕。如果您在翻译过程中遇到连接超时报错，请降低此数值。"
+    "Maximum number of subtitle lines translated by LLM in one batch. Set to 0 to send all. Reduce this value if translation experiences timeouts.": "单次翻译提交给大模型的最大字幕行数。设为 0 代表一次性提交所有字幕。如果您在翻译过程中遇到连接超时报错，请降低此数值。",
+    "Settings": "设置",
+    "Extract Cookies From Browser": "从浏览器提取 Cookies",
+    "Select browser to automatically extract YouTube cookies to bypass bot checks. Leave empty if not needed.": "选择浏览器以自动提取 YouTube cookies 绕过人机验证。如果不需要请留空。",
+    "YouTube Cookies File Path": "YouTube Cookies 文件路径",
+    "Path to exported cookies.txt file, fallback if browser extraction fails.": "导出的 cookies.txt 文件路径，当浏览器提取失败时作为备用。"
 }
 

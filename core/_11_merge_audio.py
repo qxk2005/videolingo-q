@@ -39,7 +39,7 @@ def get_audio_files(df):
     return audios
 
 def process_audio_segment(audio_file):
-    """Process a single audio segment with MP3 compression"""
+    """Process a single audio segment directly from WAV without MP3 compression to prevent timing drift"""
     # Check if the file is empty or too small (e.g. 44-byte empty WAV header) to bypass directly to silence
     if os.path.exists(audio_file) and os.path.getsize(audio_file) < 100:
         console.print(f"[yellow]⚠️ Audio file {audio_file} is empty/too small, creating silent segment[/yellow]")
@@ -60,25 +60,12 @@ def process_audio_segment(audio_file):
         console.print(f"[yellow]⚠️ Error checking audio file {audio_file}: {e}, creating silent segment[/yellow]")
         return AudioSegment.silent(duration=100, frame_rate=16000)
     
-    temp_file = f"{os.path.splitext(audio_file)[0]}_temp.mp3"
-    ffmpeg_cmd = [
-        'ffmpeg', '-y',
-        '-i', audio_file,
-        '-ar', '16000',
-        '-ac', '1',
-        '-b:a', '64k',
-        temp_file
-    ]
-    
     try:
-        subprocess.run(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-        audio_segment = AudioSegment.from_mp3(temp_file)
-        os.remove(temp_file)
-        return audio_segment
-    except (subprocess.CalledProcessError, Exception) as e:
+        # Directly load WAV to avoid MP3 padding/decoding delay accumulation
+        audio_segment = AudioSegment.from_wav(audio_file)
+        return audio_segment.set_frame_rate(16000).set_channels(1)
+    except Exception as e:
         console.print(f"[yellow]⚠️ Failed to process audio file {audio_file}: {e}, creating silent segment[/yellow]")
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
         return AudioSegment.silent(duration=100, frame_rate=16000)  # 100ms of silence
 
 def merge_audio_segments(audios, new_sub_times, sample_rate):

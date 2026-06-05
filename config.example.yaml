@@ -63,6 +63,8 @@ ffmpeg_gpu: true
 # *Youtube settings
 youtube:
   cookies_path: ''
+  # Automatically extract cookies from browser (e.g., 'chrome', 'firefox', 'edge', 'safari', 'opera', 'brave') to bypass bot checks.
+  cookies_from_browser: ''
 
 # *Default resolution for downloading YouTube videos [360, 1080, best]
 ytb_resolution: '1080'

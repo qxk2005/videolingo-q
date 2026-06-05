@@ -67,10 +67,75 @@ def _parse_vtt_words(text_lines: list, cue_start: float, cue_end: float) -> list
 
 # ─────────────────────────── File parsers ───────────────────────────────────
 
+def _deduplicate_block_lines(text_lines: list) -> list:
+    """
+    Remove scrolling/karaoke redundant lines within a single VTT cue block.
+    For example, if a line is a prefix/substring of another longer line in the same block,
+    it is considered redundant.
+    """
+    cleaned = []
+    for line in text_lines:
+        line_clean = _strip_markup(line)
+        if not line_clean:
+            continue
+        cleaned.append(line_clean)
+        
+    final_lines = []
+    for i, line in enumerate(cleaned):
+        is_sub = False
+        for j, other in enumerate(cleaned):
+            if i != j and len(other) > len(line):
+                line_norm = "".join(line.lower().split())
+                other_norm = "".join(other.lower().split())
+                if line_norm in other_norm:
+                    is_sub = True
+                    break
+        if not is_sub:
+            final_lines.append(line)
+    return final_lines
+
+def _merge_vtt_rolling_duplicates(sentences: list) -> list:
+    """
+    Merge rolling/karaoke-style duplicate blocks in VTT.
+    If block_i is a substring of block_i+1 (or vice versa) and they are close in time,
+    we merge them by extending the next block's start to the current block's start,
+    and dropping the redundant block.
+    """
+    if not sentences:
+        return []
+        
+    merged = []
+    i = 0
+    n = len(sentences)
+    while i < n:
+        curr = list(sentences[i])  # [start, end, text, raw_lines]
+        
+        while i + 1 < n:
+            nxt = sentences[i + 1]
+            curr_text_norm = "".join(curr[2].lower().split())
+            nxt_text_norm = "".join(nxt[2].lower().split())
+            
+            time_gap = nxt[0] - curr[1]
+            if time_gap <= 1.5 and (curr_text_norm in nxt_text_norm or nxt_text_norm in curr_text_norm):
+                # Keep the longer text
+                if len(nxt_text_norm) >= len(curr_text_norm):
+                    curr[2] = nxt[2]
+                    curr[3] = nxt[3]
+                curr[1] = nxt[1]  # Update end time
+                i += 1  # Skip the next block
+                rprint(f"[yellow]🔄 Merged rolling duplicate block: '{curr_text_norm}' into '{nxt_text_norm}'[/yellow]")
+            else:
+                break
+                
+        merged.append((curr[0], curr[1], curr[2], curr[3]))
+        i += 1
+        
+    return merged
+
 def _parse_vtt(file_path: str) -> list:
     """
     Parse VTT into list of (start_s, end_s, text_str) sentences.
-    Handles YouTube karaoke duplicates by deduplicating on (start_rounded, text).
+    Handles YouTube karaoke duplicates by deduplicating internal lines and merging rolling blocks.
     """
     with open(file_path, 'r', encoding='utf-8') as f:
         content = f.read()
@@ -97,15 +162,21 @@ def _parse_vtt(file_path: str) -> list:
 
         start = _ts_to_sec(ts_match.group(1))
         end   = _ts_to_sec(ts_match.group(2))
-        text  = _strip_markup(' '.join(lines[ts_idx + 1:]))
+        
+        # Deduplicate internal karaoke scrolling lines
+        block_text_lines = lines[ts_idx + 1:]
+        deduped_block_lines = _deduplicate_block_lines(block_text_lines)
+        text = ' '.join(deduped_block_lines)
         if not text:
             continue
 
         key = (round(start, 1), text)
         if key not in seen:
             seen.add(key)
-            sentences.append((start, end, text, lines[ts_idx + 1:]))
+            sentences.append((start, end, text, deduped_block_lines))
 
+    # Merge cross-block rolling duplicates
+    sentences = _merge_vtt_rolling_duplicates(sentences)
     return sentences
 
 

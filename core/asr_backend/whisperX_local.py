@@ -137,17 +137,35 @@ def transcribe_audio(raw_audio_file, vocal_audio_file, start, end):
                     for w in gs['words']:
                         if 'start' in w: w['start'] += seg['start']
                         if 'end'   in w: w['end']   += seg['start']
-                    # Only keep segments that fall within this segment's range
-                    if gs['start'] < seg['end'] + REFILL_EXTRA:
+                    # Only keep segments that start within this segment's range
+                    if gs['start'] < seg['end']:
                         new_segs.append(gs)
                 if new_segs and len(new_segs[0]['text'].split()) > n_words:
-                    rprint(f"[green]✅ Refill got {len(new_segs)} segment(s): "
-                           f"{[s['text'][:40] for s in new_segs]}[/green]")
-                    filled[i] = new_segs[0]
-                    for j, s in enumerate(new_segs[1:]):
-                        filled.insert(i + 1 + j, s)
-                    i += len(new_segs)
-                    continue
+                    # Deduplicate new_segs against subsequent original segments to prevent duplicate overlap
+                    import difflib
+                    filtered_new_segs = []
+                    for gs in new_segs:
+                        is_duplicate = False
+                        # Compare against next 3 original segments
+                        for next_idx in range(i + 1, min(i + 4, len(filled))):
+                            orig_next_text = filled[next_idx]['text']
+                            ratio = difflib.SequenceMatcher(None, 
+                                                            "".join(gs['text'].lower().split()), 
+                                                            "".join(orig_next_text.lower().split())).ratio()
+                            if ratio > 0.7:
+                                is_duplicate = True
+                                rprint(f"[yellow]🚫 Duplicate detected: '{gs['text'][:40]}' overlaps with next segment '{orig_next_text[:40]}' (ratio={ratio:.2f})[/yellow]")
+                                break
+                        if not is_duplicate:
+                            filtered_new_segs.append(gs)
+                    
+                    if filtered_new_segs:
+                        rprint(f"[green]✅ Refill got {len(filtered_new_segs)} non-duplicate segment(s): {[s['text'][:40] for s in filtered_new_segs]}[/green]")
+                        filled[i] = filtered_new_segs[0]
+                        for j, s in enumerate(filtered_new_segs[1:]):
+                            filled.insert(i + 1 + j, s)
+                        i += len(filtered_new_segs)
+                        continue
                 else:
                     rprint(f"[yellow]⚠️ Refill did not improve content, keeping original[/yellow]")
             except Exception as e:

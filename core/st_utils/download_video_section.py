@@ -42,6 +42,23 @@ def delete_existing_videos():
                 except Exception:
                     pass
 
+def srt_to_vtt(srt_path: str, vtt_path: str):
+    """Convert SRT subtitle file to VTT format for browser HTML5 player compatibility."""
+    if not os.path.exists(srt_path):
+        return
+    try:
+        with open(srt_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Replace timestamp commas with dots for VTT format compliance
+        content_vtt = re.sub(r'(\d{2}:\d{2}:\d{2}),(\d{3})', r'\1.\2', content)
+        # Prepend WEBVTT header
+        if not content_vtt.strip().startswith("WEBVTT"):
+            content_vtt = "WEBVTT\n\n" + content_vtt.lstrip()
+        with open(vtt_path, 'w', encoding='utf-8') as f:
+            f.write(content_vtt)
+    except Exception as e:
+        print(f"Failed to convert srt to vtt: {e}")
+
 def download_video_section():
     st.header(t("a. Download or Upload Video"))
     with st.container(border=True):
@@ -53,10 +70,23 @@ def download_video_section():
             video_exists = True
         except:
             video_exists = False
-
+ 
         # 2. 如果已有视频，渲染视频播放控件
         if video_exists and video_file:
-            st.video(video_file)
+            srt_path = os.path.join(OUTPUT_DIR, "youtube_subtitle.srt")
+            vtt_path = os.path.join(OUTPUT_DIR, "youtube_subtitle.vtt")
+            sub_vtt = None
+            if os.path.exists(srt_path):
+                srt_to_vtt(srt_path, vtt_path)
+                if os.path.exists(vtt_path):
+                    sub_vtt = vtt_path
+            elif os.path.exists(vtt_path):
+                sub_vtt = vtt_path
+
+            if sub_vtt:
+                st.video(video_file, subtitles=sub_vtt)
+            else:
+                st.video(video_file)
 
         # 3. 构造地址框的内容与状态
         if video_exists:

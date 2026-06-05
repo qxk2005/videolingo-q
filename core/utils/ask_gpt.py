@@ -47,20 +47,91 @@ def extract_auth_url(text):
     match = re.search(r'(https://accounts\.google\.com/o/oauth2/auth[^\s\'"]+)', text)
     return match.group(1) if match else None
 
-def login_antigravity_cli(token_code):
+def run_command_in_pty(cmd, stdin_data=None, timeout=60):
+    """
+    Runs a command inside a pseudo-terminal (PTY) to bypass interactive constraints.
+    Supports feeding stdin_data if provided.
+    """
+    import os
+    import select
     try:
+        import pty
+        has_pty = True
+    except ImportError:
+        has_pty = False
+
+    if not has_pty:
         process = subprocess.Popen(
-            ["agy", "login"],
-            stdin=subprocess.PIPE,
+            cmd,
+            stdin=subprocess.PIPE if stdin_data else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
         )
-        stdout, stderr = process.communicate(input=f"{token_code}\n", timeout=20)
-        if process.returncode == 0:
-            return True, stdout
-        else:
-            return False, stderr or stdout
+        try:
+            stdout, stderr = process.communicate(input=stdin_data, timeout=timeout)
+            return process.returncode, stdout, stderr
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            stdout, stderr = process.communicate()
+            return -1, stdout or "", stderr or ""
+
+    master, slave = pty.openpty()
+    process = subprocess.Popen(
+        cmd,
+        stdout=slave,
+        stderr=slave,
+        stdin=slave,
+        text=True,
+        close_fds=True
+    )
+    os.close(slave)
+    
+    if stdin_data:
+        try:
+            os.write(master, stdin_data.encode('utf-8'))
+        except OSError:
+            pass
+        
+    output_chunks = []
+    try:
+        while True:
+            r, w, x = select.select([master], [], [], timeout)
+            if not r:
+                process.terminate()
+                break
+            try:
+                data = os.read(master, 4096)
+                if not data:
+                    break
+                chunk = data.decode('utf-8', errors='ignore')
+                output_chunks.append(chunk)
+                
+                # Check for interactive login trigger and abort early
+                full_so_far = "".join(output_chunks)
+                if "Authentication required" in full_so_far or "accounts.google.com" in full_so_far or "authorization code" in full_so_far:
+                    process.terminate()
+                    break
+            except OSError:
+                break
+    finally:
+        try:
+            os.close(master)
+        except OSError:
+            pass
+        process.wait()
+        
+    full_output = "".join(output_chunks)
+    return process.returncode, full_output, ""
+
+def login_antigravity_cli(token_code):
+    try:
+        returncode, output, _ = run_command_in_pty(["agy", "models"], stdin_data=f"{token_code}\n", timeout=20)
+        if "Gemini" in output or "GPT" in output or "Claude" in output:
+            return True, output
+        if returncode == 0:
+            return True, output
+        return False, output
     except Exception as e:
         return False, str(e)
 
@@ -68,25 +139,14 @@ def ask_antigravity_cli(prompt):
     with CLI_LOCK:
         # ── 1. 执行常规 API 调用 ──
         try:
-            # Use agy -p "<prompt>"
-            result = subprocess.run(
-                ["agy", "-p", prompt],
-                capture_output=True,
-                text=True,
-                check=True,
-                stdin=subprocess.DEVNULL
-            )
-            stdout = result.stdout.strip()
+            returncode, stdout, _ = run_command_in_pty(["agy", "-p", prompt], timeout=120)
+            stdout = stdout.strip()
             # 探测是否确实未登录
             if not ("Authentication required" in stdout or "accounts.google.com" in stdout or "authorization code" in stdout):
                 return stdout
             auth_output = stdout
-        except subprocess.CalledProcessError as e:
-            stderr = e.stderr or ""
-            stdout = e.stdout or ""
-            auth_output = stderr + "\n" + stdout
-            if not ("Authentication required" in auth_output or "accounts.google.com" in auth_output):
-                raise ValueError(f"Antigravity CLI call failed: {stderr or stdout}")
+        except Exception as e:
+            raise ValueError(f"Antigravity CLI call failed: {str(e)}")
 
         # ── 2. 若执行到此处说明 agy 报了“未登录”错误，我们尝试在后台静默自动登录 ──
         token_code = load_key("api.antigravity_token_code")
@@ -97,19 +157,13 @@ def ask_antigravity_cli(prompt):
                 rprint("[green]✅ 后台静默授权激活成功！正在重新执行 API 请求...[/green]")
                 try:
                     # 重新执行刚才失败的 API 调用
-                    retry_result = subprocess.run(
-                        ["agy", "-p", prompt],
-                        capture_output=True,
-                        text=True,
-                        check=True,
-                        stdin=subprocess.DEVNULL
-                    )
-                    retry_stdout = retry_result.stdout.strip()
+                    retry_returncode, retry_stdout, _ = run_command_in_pty(["agy", "-p", prompt], timeout=120)
+                    retry_stdout = retry_stdout.strip()
                     if not ("Authentication required" in retry_stdout or "accounts.google.com" in retry_stdout):
                         return retry_stdout
                     auth_output = retry_stdout
-                except subprocess.CalledProcessError as err:
-                    raise ValueError(f"Antigravity CLI call failed after re-auth: {err.stderr or err.stdout}")
+                except Exception as err:
+                    raise ValueError(f"Antigravity CLI call failed after re-auth: {str(err)}")
             else:
                 rprint(f"[red]❌ 使用保存的 Token Code 后台静默激活失败: {info.strip()}[/red]")
 
