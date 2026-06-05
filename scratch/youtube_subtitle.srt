@@ -1,0 +1,556 @@
+1
+00:00:01,040 --> 00:00:06,320
+Today, I will show off a demo
+
+2
+00:00:03,320 --> 00:00:08,760
+of the Nemo claw blueprint and how we
+
+3
+00:00:06,320 --> 00:00:10,480
+use this inside of Nvidia.
+
+4
+00:00:08,760 --> 00:00:12,760
+We find that with many open source
+
+5
+00:00:10,480 --> 00:00:15,280
+projects in Nvidia, we need to balance
+
+6
+00:00:12,760 --> 00:00:17,000
+the asks of the open source community
+
+7
+00:00:15,280 --> 00:00:18,480
+with internal priorities driving our
+
+8
+00:00:17,000 --> 00:00:20,360
+product forward.
+
+9
+00:00:18,480 --> 00:00:22,040
+And to do that,
+
+10
+00:00:20,360 --> 00:00:24,440
+we need to triage those needs into a
+
+11
+00:00:22,040 --> 00:00:26,160
+singular roadmap.
+
+12
+00:00:24,440 --> 00:00:28,080
+The example we will take a look at today
+
+13
+00:00:26,160 --> 00:00:29,320
+is one that we have deployed internally
+
+14
+00:00:28,080 --> 00:00:31,760
+at Nvidia.
+
+15
+00:00:29,320 --> 00:00:34,080
+And you can do the same.
+
+16
+00:00:31,760 --> 00:00:36,360
+It is shown in our Nemo claw community
+
+17
+00:00:34,080 --> 00:00:38,040
+repository.
+
+18
+00:00:36,360 --> 00:00:40,880
+I'll switch over to a quick view of the
+
+19
+00:00:38,040 --> 00:00:43,120
+architecture diagram here.
+
+20
+00:00:40,880 --> 00:00:45,960
+We want to create an agent deployed
+
+21
+00:00:43,120 --> 00:00:49,120
+internally that can accomplish this. And
+
+22
+00:00:45,960 --> 00:00:51,840
+in this case, we used a Hermes agent
+
+23
+00:00:49,120 --> 00:00:54,560
+developed by News Research.
+
+24
+00:00:51,840 --> 00:00:57,680
+For the agent to accomplish these tasks,
+
+25
+00:00:54,560 --> 00:00:59,320
+it needs access to internal data.
+
+26
+00:00:57,680 --> 00:01:01,960
+But we don't want an agent with that
+
+27
+00:00:59,320 --> 00:01:04,680
+type of access to also be able to write
+
+28
+00:01:01,960 --> 00:01:07,280
+to external sources.
+
+29
+00:01:04,680 --> 00:01:10,440
+Additionally, API tokens used to access
+
+30
+00:01:07,280 --> 00:01:13,640
+services like GitHub, Slack, and Outlook
+
+31
+00:01:10,440 --> 00:01:16,120
+shouldn't be accessible to these agents.
+
+32
+00:01:13,640 --> 00:01:18,120
+So, how can we maintain a balance
+
+33
+00:01:16,120 --> 00:01:19,600
+between deploying a powerful agent to
+
+34
+00:01:18,120 --> 00:01:21,960
+accomplish these tasks while
+
+35
+00:01:19,600 --> 00:01:24,760
+establishing trust boundaries?
+
+36
+00:01:21,960 --> 00:01:26,560
+We use Nvidia Open Shell and define
+
+37
+00:01:24,760 --> 00:01:28,160
+policies that will allow us to access
+
+38
+00:01:26,560 --> 00:01:30,240
+that internal data
+
+39
+00:01:28,160 --> 00:01:32,840
+while preventing the agent from posting
+
+40
+00:01:30,240 --> 00:01:34,800
+it externally.
+
+41
+00:01:32,840 --> 00:01:37,280
+Within that repository,
+
+42
+00:01:34,800 --> 00:01:39,720
+there is a full setup guide that will
+
+43
+00:01:37,280 --> 00:01:41,960
+take you through cloning the repo
+
+44
+00:01:39,720 --> 00:01:45,280
+to installing Open Shell,
+
+45
+00:01:41,960 --> 00:01:47,200
+authenticating with tools like Outlook,
+
+46
+00:01:45,280 --> 00:01:49,560
+and bringing up that agent in Open
+
+47
+00:01:47,200 --> 00:01:49,560
+Shell.
+
+48
+00:01:50,240 --> 00:01:53,800
+Now that we've done the setup
+
+49
+00:01:52,080 --> 00:01:56,080
+and we've deployed the agent, we can
+
+50
+00:01:53,800 --> 00:01:58,400
+interact the agent by messaging it
+
+51
+00:01:56,080 --> 00:02:00,160
+directly in Slack.
+
+52
+00:01:58,400 --> 00:02:01,440
+You can ask it questions like, "Can you
+
+53
+00:02:00,160 --> 00:02:02,920
+tell me a little bit about yourself or
+
+54
+00:02:01,440 --> 00:02:05,479
+what kind of agent you are?" And it
+
+55
+00:02:02,920 --> 00:02:08,640
+says, "Well, I'm an AI assistant running
+
+56
+00:02:05,479 --> 00:02:10,479
+inside of Nvidia's Open Shell Sandbox.
+
+57
+00:02:08,640 --> 00:02:11,880
+It has access to skills, persistent
+
+58
+00:02:10,479 --> 00:02:13,920
+memory."
+
+59
+00:02:11,880 --> 00:02:15,840
+You can ask it, "Well, tell me about the
+
+60
+00:02:13,920 --> 00:02:17,480
+skills." And it will tell you all of the
+
+61
+00:02:15,840 --> 00:02:20,680
+skills that it has.
+
+62
+00:02:17,480 --> 00:02:24,120
+These can be skills defined by Hermes,
+
+63
+00:02:20,680 --> 00:02:26,120
+built-in, or these can be custom skills.
+
+64
+00:02:24,120 --> 00:02:27,880
+"What kinds of custom skills did we
+
+65
+00:02:26,120 --> 00:02:30,080
+provide to this particular agent?" Well,
+
+66
+00:02:27,880 --> 00:02:32,080
+you can ask it that. And it will tell
+
+67
+00:02:30,080 --> 00:02:33,840
+you, "Here are all the skills." And you
+
+68
+00:02:32,080 --> 00:02:35,480
+can go and verify in the Nemo Clock
+
+69
+00:02:33,840 --> 00:02:37,000
+community repo that these are actually
+
+70
+00:02:35,480 --> 00:02:39,480
+the skills that we have provided the
+
+71
+00:02:37,000 --> 00:02:39,480
+agent.
+
+72
+00:02:40,320 --> 00:02:43,680
+Additionally,
+
+73
+00:02:42,040 --> 00:02:47,160
+we can show the power of Hermes in its
+
+74
+00:02:43,680 --> 00:02:49,000
+ability to self-evolve. For example,
+
+75
+00:02:47,160 --> 00:02:50,920
+you might want to ask for an update of
+
+76
+00:02:49,000 --> 00:02:53,200
+all of the issues for a product seen
+
+77
+00:02:50,920 --> 00:02:55,720
+across various channels like GitHub,
+
+78
+00:02:53,200 --> 00:02:57,200
+developer forums, and internal clients.
+
+79
+00:02:55,720 --> 00:02:59,320
+To do this,
+
+80
+00:02:57,200 --> 00:03:01,400
+I might start by asking for a daily
+
+81
+00:02:59,320 --> 00:03:03,560
+update on the important issues for Nemo
+
+82
+00:03:01,400 --> 00:03:05,000
+Clock. And it provides me one. It gives
+
+83
+00:03:03,560 --> 00:03:06,840
+me
+
+84
+00:03:05,000 --> 00:03:09,840
+a title,
+
+85
+00:03:06,840 --> 00:03:12,640
+some issues, say five of them, and some
+
+86
+00:03:09,840 --> 00:03:15,280
+discussions along with a bottom line.
+
+87
+00:03:12,640 --> 00:03:16,840
+Perhaps I like this format initially,
+
+88
+00:03:15,280 --> 00:03:19,519
+but
+
+89
+00:03:16,840 --> 00:03:22,320
+I want to change it a little bit. And
+
+90
+00:03:19,519 --> 00:03:25,160
+so, I ask, "Can you give me a TLDR at
+
+91
+00:03:22,320 --> 00:03:26,720
+the very top, a too long, didn't read?"
+
+92
+00:03:25,160 --> 00:03:28,160
+So that if I didn't want to dig into all
+
+93
+00:03:26,720 --> 00:03:29,720
+the issues, I can just read through that
+
+94
+00:03:28,160 --> 00:03:31,360
+and get the gist of what's happening.
+
+95
+00:03:29,720 --> 00:03:32,680
+And of course, the agent says, "Sure,
+
+96
+00:03:31,360 --> 00:03:34,040
+happy to do that. I can give you a
+
+97
+00:03:32,680 --> 00:03:35,400
+little bit of uh
+
+98
+00:03:34,040 --> 00:03:37,760
+background before I give you more
+
+99
+00:03:35,400 --> 00:03:39,800
+details. So that if you don't have time,
+
+100
+00:03:37,760 --> 00:03:41,640
+you can go through and just read the
+
+101
+00:03:39,800 --> 00:03:43,480
+very basics of it."
+
+102
+00:03:41,640 --> 00:03:44,760
+If I don't want the bottom line,
+
+103
+00:03:43,480 --> 00:03:46,120
+I can ask it, "Please don't give me the
+
+104
+00:03:44,760 --> 00:03:47,760
+bottom line."
+
+105
+00:03:46,120 --> 00:03:49,519
+But now that I'm happy with this
+
+106
+00:03:47,760 --> 00:03:51,640
+particular format,
+
+107
+00:03:49,519 --> 00:03:53,600
+if you say, "Hey, I'd like a
+
+108
+00:03:51,640 --> 00:03:56,800
+reliable way of receiving this type of
+
+109
+00:03:53,600 --> 00:03:58,280
+format if I ask you a similar question."
+
+110
+00:03:56,800 --> 00:04:00,800
+It will go ahead
+
+111
+00:03:58,280 --> 00:04:03,840
+and create a skill for you. You don't
+
+112
+00:04:00,800 --> 00:04:06,600
+have to say, "Create a skill for me." It
+
+113
+00:04:03,840 --> 00:04:08,959
+just knows to do that.
+
+114
+00:04:06,600 --> 00:04:10,760
+Finally, once the agent learns this
+
+115
+00:04:08,959 --> 00:04:12,800
+skill, it can be used across the
+
+116
+00:04:10,760 --> 00:04:14,600
+communication channels, including
+
+117
+00:04:12,800 --> 00:04:17,040
+Outlook.
+
+118
+00:04:14,600 --> 00:04:19,120
+And we can see that here.
+
+119
+00:04:17,040 --> 00:04:21,760
+Here I have emailed my agent and I've
+
+120
+00:04:19,120 --> 00:04:25,360
+asked it for the latest daily digest for
+
+121
+00:04:21,760 --> 00:04:27,120
+Nemo claw in the usual format.
+
+122
+00:04:25,360 --> 00:04:30,120
+And it responds to me.
+
+123
+00:04:27,120 --> 00:04:32,080
+It says, "Here's the digest
+
+124
+00:04:30,120 --> 00:04:33,480
+with the format that I've learned over
+
+125
+00:04:32,080 --> 00:04:34,760
+time
+
+126
+00:04:33,480 --> 00:04:36,240
+with the title,
+
+127
+00:04:34,760 --> 00:04:38,800
+the TLDR,
+
+128
+00:04:36,240 --> 00:04:40,640
+the top five issues alongside some links
+
+129
+00:04:38,800 --> 00:04:42,880
+that are important,
+
+130
+00:04:40,640 --> 00:04:44,840
+and the discussions, and no bottom
+
+131
+00:04:42,880 --> 00:04:47,040
+line."
+
+132
+00:04:44,840 --> 00:04:48,560
+This shows the usefulness of
+
+133
+00:04:47,040 --> 00:04:50,880
+self-evolution
+
+134
+00:04:48,560 --> 00:04:52,880
+within a Hermes agent, deployed securely
+
+135
+00:04:50,880 --> 00:04:54,919
+via NVIDIA Open Shell, and powered by
+
+136
+00:04:52,880 --> 00:04:57,480
+our Nematron models.
+
+137
+00:04:54,919 --> 00:05:00,560
+Feel free to take a look at it at the
+
+138
+00:04:57,480 --> 00:05:03,440
+Nemo claw community repository for this
+
+139
+00:05:00,560 --> 00:05:03,440
+example and more.
+
