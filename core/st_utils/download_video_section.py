@@ -146,9 +146,22 @@ def download_video_section():
                     ">
                         💡 <b>如何快速解决此问题 (How to bypass Bot Check)：</b><br/>
                         由于 YouTube 加强了防爬人机请求检测，需要向下载工具提供浏览器登录 Cookie 证明身份：<br/><br/>
-                        1. <b>使用浏览器 Cookie（最简便）</b>：在左侧的配置 Tab 面板的「<b>配音与系统设置 -> YouTube 自动读取浏览器 Cookie</b>」中选择您常用的浏览器（如 <code>chrome</code> 或 <code>edge</code>），点击保存。<br/>
-                        2. <b>使用导出的 Cookies 文件</b>：在浏览器中安装 Cookie 导出插件（如 <i>Get cookies.txt LOCALLY</i>），导出 <code>youtube.com</code> 的 cookie 文件，并将文件路径填在左侧「<b>YouTube Cookies 文件路径</b>」中。<br/>
-                        3. <b>重新点击下载</b>：配置完成后，无需重新启动，直接再次点击下载即可！
+                        1. <b>浏览器自动读取（推荐，100%免插件/免手动文件）</b>：在左侧配置面板的「<b>配音与系统设置 -> YouTube 自动读取浏览器 Cookie</b>」中选择您电脑上已登录 YouTube 的浏览器（如 <code>chrome</code> 或 <code>edge</code>），点击保存即可。系统会在后台读取登录态，无需导出任何文件！<br/>
+                        2. <b>免插件手动导出（备用，安全透明）</b>：如果您不想让系统读取浏览器，可以使用浏览器自带功能手动导出。在已登录 YouTube 的网页按下 <b>F12 (开发者工具)</b>，在控制台 (Console) 中粘贴以下原生代码并回车，即可直接生成并下载 <code>youtube_cookies.txt</code> 文件，最后将该文件路径填在左侧「<b>YouTube Cookies 文件路径</b>」即可：
+                        <pre style="margin: 8px 0; padding: 8px; background: #f4f4f4; border: 1px solid #ddd; border-radius: 4px; font-size: 11px; overflow-x: auto; color: #333;">
+(function() {
+  var netscape = '# Netscape HTTP Cookie File\\n\\n';
+  document.cookie.split(';').forEach(c => {
+    var [n, ...v] = c.trim().split('=');
+    netscape += `.youtube.com\\tTRUE\\t/\\tTRUE\\t0\\t${n}\\t${v.join('=')}\\n`;
+  });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([netscape]));
+  a.download = 'youtube_cookies.txt';
+  a.click();
+})();
+                        </pre>
+                        3. <b>重新点击下载</b>：配置/指定完成后，直接再次点击下载按钮即可！
                     </div>
                     """,
                     unsafe_allow_html=True
