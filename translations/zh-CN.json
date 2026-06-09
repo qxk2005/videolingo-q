@@ -185,6 +185,12 @@
     "Select browser to automatically extract YouTube cookies to bypass bot checks. Leave empty if not needed.": "选择浏览器以自动提取 YouTube cookies 绕过人机验证。如果不需要请留空。",
     "YouTube Cookies File Path": "YouTube Cookies 文件路径",
     "Path to exported cookies.txt file, fallback if browser extraction fails.": "导出的 cookies.txt 文件路径，当浏览器提取失败时作为备用。",
-    "Video/Subtitle Download Failed ❌": "视频/字幕下载失败 ❌"
+    "Video/Subtitle Download Failed ❌": "视频/字幕下载失败 ❌",
+    "Saved cookies file": "已保存的 Cookies 文件",
+    "Delete Saved Cookies": "删除已保存的 Cookies",
+    "Saved cookies file deleted successfully!": "已保存的 Cookies 文件已成功删除！",
+    "Upload YouTube Cookies (.txt)": "上传 YouTube Cookies (.txt)",
+    "Upload Netscape format cookies.txt file to bypass bot checks.": "上传 Netscape 格式的 cookies.txt 文件以绕过人机验证。",
+    "Cookies uploaded and saved successfully!": "Cookies 已成功上传并保存！"
 }
 

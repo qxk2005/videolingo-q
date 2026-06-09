@@ -179,5 +179,11 @@
     "Select browser to automatically extract YouTube cookies to bypass bot checks. Leave empty if not needed.": "Select browser to automatically extract YouTube cookies to bypass bot checks. Leave empty if not needed.",
     "YouTube Cookies File Path": "YouTube Cookies File Path",
     "Path to exported cookies.txt file, fallback if browser extraction fails.": "Path to exported cookies.txt file, fallback if browser extraction fails.",
-    "Video/Subtitle Download Failed ❌": "Video/Subtitle Download Failed ❌"
+    "Video/Subtitle Download Failed ❌": "Video/Subtitle Download Failed ❌",
+    "Saved cookies file": "Saved cookies file",
+    "Delete Saved Cookies": "Delete Saved Cookies",
+    "Saved cookies file deleted successfully!": "Saved cookies file deleted successfully!",
+    "Upload YouTube Cookies (.txt)": "Upload YouTube Cookies (.txt)",
+    "Upload Netscape format cookies.txt file to bypass bot checks.": "Upload Netscape format cookies.txt file to bypass bot checks.",
+    "Cookies uploaded and saved successfully!": "Cookies uploaded and saved successfully!"
 }

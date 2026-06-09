@@ -269,8 +269,44 @@ def page_setting():
             if selected_cfb != current_cfb:
                 update_key("youtube.cookies_from_browser", selected_cfb)
 
-            config_input(t("YouTube Cookies File Path"), "youtube.cookies_path", 
-                         help=t("Path to exported cookies.txt file, fallback if browser extraction fails."))
+            # Cookies 文件上传与管理组件
+            current_cookies_path = load_key("youtube.cookies_path")
+            has_cookies_file = False
+            if current_cookies_path and os.path.exists(current_cookies_path):
+                has_cookies_file = True
+
+            if has_cookies_file:
+                st.info(f"📁 {t('Saved cookies file')}: `{current_cookies_path}`")
+                if st.button(t("Delete Saved Cookies"), key="delete_cookies_button", use_container_width=True):
+                    try:
+                        if os.path.exists(current_cookies_path):
+                            os.remove(current_cookies_path)
+                        update_key("youtube.cookies_path", "")
+                        st.success(t("Saved cookies file deleted successfully!"))
+                        sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"删除失败: {e}")
+            else:
+                uploaded_cookies = st.file_uploader(
+                    t("Upload YouTube Cookies (.txt)"), 
+                    type=["txt"], 
+                    key="youtube_cookies_uploader",
+                    help=t("Upload Netscape format cookies.txt file to bypass bot checks.")
+                )
+                if uploaded_cookies is not None:
+                    try:
+                        cookies_save_dir = "output"
+                        os.makedirs(cookies_save_dir, exist_ok=True)
+                        target_cookies_path = os.path.join(cookies_save_dir, "youtube_cookies.txt")
+                        with open(target_cookies_path, "wb") as f:
+                            f.write(uploaded_cookies.getbuffer())
+                        update_key("youtube.cookies_path", target_cookies_path)
+                        st.success(t("Cookies uploaded and saved successfully!"))
+                        sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"保存失败: {e}")
 
         with tab_dub:
             tts_methods = ["edge_tts", "doubao_tts"]
