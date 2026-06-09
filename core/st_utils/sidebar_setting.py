@@ -1,6 +1,7 @@
 import json
 import os
 import streamlit as st
+from time import sleep
 from translations.translations import translate as t
 from translations.translations import DISPLAY_LANGUAGES
 from core.utils import *
