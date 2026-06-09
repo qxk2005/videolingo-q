@@ -71,6 +71,11 @@ def _translate_with_fallback(chunk, all_chunks, theme_prompt, i):
     try:
         return translate_chunk(chunk, all_chunks, theme_prompt, i)
     except Exception as e:
+        err_str = str(e)
+        # 🛡️ 对根本无法通过重试/切分解决的登录和认证硬伤错误，直接拦截并向上抛出，杜绝卡死
+        if "尚未登录" in err_str or "agy login" in err_str or "API key is not set" in err_str or "Authentication required" in err_str or "Antigravity CLI call failed" in err_str or "after re-auth" in err_str:
+            raise e
+
         console.print(f"[yellow]⚠️ Chunk {i} failed ({e}). Re-splitting into sub-chunks...[/yellow]")
         sub_chunks = _split_chunk_into_sub(chunk, chunk_size=600, max_i=10)
         src_all, trans_all, corrected_all = [], [], []
@@ -116,18 +121,32 @@ def translate_all():
         
     task_desc = "📝 正在翻译字幕块..."
     task = progress.add_task(task_desc, total=len(chunks))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=load_key("max_workers")) as executor:
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=load_key("max_workers"))
+    try:
         futures = [executor.submit(translate_fn, chunk, i) for i, chunk in enumerate(chunks)]
         results = []
         for i, future in enumerate(concurrent.futures.as_completed(futures)):
-            results.append(future.result())
+            try:
+                results.append(future.result())
+            except Exception as e:
+                for f in futures:
+                    f.cancel()
+                executor.shutdown(wait=False)
+                raise e
             progress.update(task, advance=1)
             update_st_progress(i + 1, len(chunks), task_desc)
-            
-    if is_internal:
-        progress.stop()
-    else:
-        progress.remove_task(task)
+    finally:
+        executor.shutdown(wait=False)
+        if is_internal:
+            try:
+                progress.stop()
+            except Exception:
+                pass
+        else:
+            try:
+                progress.remove_task(task)
+            except Exception:
+                pass
 
     results.sort(key=lambda x: x[0])  # Sort results based on original order
 
