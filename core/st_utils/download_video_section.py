@@ -126,74 +126,117 @@ def download_video_section():
         with col_btn2:
             download_sub_clicked = st.button(t("Download Subtitle Only"), key="download_sub_button", use_container_width=True, disabled=buttons_disabled)
 
-        # 4. 执行下载响应
+        # 4. 友好报错提示区域
+        if "download_error" in st.session_state:
+            error_str = st.session_state.download_error
+            if "confirm you're not a bot" in error_str or "Sign in" in error_str:
+                st.warning("⚠️ **YouTube 触发了人机验证 Bot 拦截！**")
+                st.markdown(
+                    """
+                    <div style="
+                        border-left: 5px solid #ff9900;
+                        background-color: #fffaf0;
+                        padding: 12px 18px;
+                        border-radius: 6px;
+                        color: #c97d00;
+                        font-size: 14px;
+                        margin-bottom: 15px;
+                        line-height: 1.5;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    ">
+                        💡 <b>如何快速解决此问题 (How to bypass Bot Check)：</b><br/>
+                        由于 YouTube 加强了防爬人机请求检测，需要向下载工具提供浏览器登录 Cookie 证明身份：<br/><br/>
+                        1. <b>使用浏览器 Cookie（最简便）</b>：在左侧的配置 Tab 面板的「<b>配音与系统设置 -> YouTube 自动读取浏览器 Cookie</b>」中选择您常用的浏览器（如 <code>chrome</code> 或 <code>edge</code>），点击保存。<br/>
+                        2. <b>使用导出的 Cookies 文件</b>：在浏览器中安装 Cookie 导出插件（如 <i>Get cookies.txt LOCALLY</i>），导出 <code>youtube.com</code> 的 cookie 文件，并将文件路径填在左侧「<b>YouTube Cookies 文件路径</b>」中。<br/>
+                        3. <b>重新点击下载</b>：配置完成后，无需重新启动，直接再次点击下载即可！
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+            else:
+                st.error(t("Video/Subtitle Download Failed ❌"))
+                st.code(error_str, wrap_lines=True)
+
+        # 5. 执行下载响应
         active_url = saved_url if video_exists else url
 
         if download_video_clicked:
             if active_url:
-                if video_exists:
-                    with st.spinner("Deleting old video files for replacement..."):
-                        delete_existing_videos()
-                
-                with st.spinner("Downloading video..."):
-                    download_video_ytdlp(active_url, resolution=res)
-                
-                save_youtube_url(active_url)
-                
-                from core.asr_backend.ytb_subtitle_asr import use_subtitle_file
-                with st.spinner("Downloading subtitles..."):
-                    sub_path, sub_type = download_subtitle_ytdlp(active_url)
-                
-                if sub_path:
-                    lang = load_key("whisper.language")
-                    if lang == 'auto': lang = 'en'
-                    with st.spinner("Applying subtitles..."):
-                        success = use_subtitle_file(sub_path, lang)
-                    if success:
-                        st.session_state.download_status_toast = (
-                            t("Successfully downloaded and applied official subtitles (type: {type}), WhisperX will be bypassed!").format(type=sub_type), 
-                            "🎉"
-                        )
+                if "download_error" in st.session_state:
+                    del st.session_state.download_error
+                try:
+                    if video_exists:
+                        with st.spinner("Deleting old video files for replacement..."):
+                            delete_existing_videos()
+                    
+                    with st.spinner("Downloading video..."):
+                        download_video_ytdlp(active_url, resolution=res)
+                    
+                    save_youtube_url(active_url)
+                    
+                    from core.asr_backend.ytb_subtitle_asr import use_subtitle_file
+                    with st.spinner("Downloading subtitles..."):
+                        sub_path, sub_type = download_subtitle_ytdlp(active_url)
+                    
+                    if sub_path:
+                        lang = load_key("whisper.language")
+                        if lang == 'auto': lang = 'en'
+                        with st.spinner("Applying subtitles..."):
+                            success = use_subtitle_file(sub_path, lang)
+                        if success:
+                            st.session_state.download_status_toast = (
+                                t("Successfully downloaded and applied official subtitles (type: {type}), WhisperX will be bypassed!").format(type=sub_type), 
+                                "🎉"
+                            )
+                        else:
+                            st.session_state.download_status_toast = (
+                                t("Downloaded subtitles but failed to parse them."), 
+                                "⚠️"
+                            )
                     else:
                         st.session_state.download_status_toast = (
-                            t("Downloaded subtitles but failed to parse them."), 
-                            "⚠️"
+                            t("No English subtitles found (WhisperX will be used)."), 
+                            "ℹ️"
                         )
-                else:
-                    st.session_state.download_status_toast = (
-                        t("No English subtitles found (WhisperX will be used)."), 
-                        "ℹ️"
-                    )
-                st.rerun()
+                    st.rerun()
+                except Exception as e:
+                    st.session_state.download_error = str(e)
+                    st.rerun()
 
         if download_sub_clicked:
             if active_url:
-                from core.asr_backend.ytb_subtitle_asr import use_subtitle_file
-                with st.spinner("Downloading subtitles..."):
-                    sub_path, sub_type = download_subtitle_ytdlp(active_url)
-                
-                if sub_path:
-                    save_youtube_url(active_url)
-                    lang = load_key("whisper.language")
-                    if lang == 'auto': lang = 'en'
-                    with st.spinner("Applying subtitles..."):
-                        success = use_subtitle_file(sub_path, lang)
-                    if success:
-                        st.session_state.download_status_toast = (
-                            t("Successfully downloaded and applied official subtitles (type: {type}), WhisperX will be bypassed!").format(type=sub_type), 
-                            "🎉"
-                        )
+                if "download_error" in st.session_state:
+                    del st.session_state.download_error
+                try:
+                    from core.asr_backend.ytb_subtitle_asr import use_subtitle_file
+                    with st.spinner("Downloading subtitles..."):
+                        sub_path, sub_type = download_subtitle_ytdlp(active_url)
+                    
+                    if sub_path:
+                        save_youtube_url(active_url)
+                        lang = load_key("whisper.language")
+                        if lang == 'auto': lang = 'en'
+                        with st.spinner("Applying subtitles..."):
+                            success = use_subtitle_file(sub_path, lang)
+                        if success:
+                            st.session_state.download_status_toast = (
+                                t("Successfully downloaded and applied official subtitles (type: {type}), WhisperX will be bypassed!").format(type=sub_type), 
+                                "🎉"
+                            )
+                        else:
+                            st.session_state.download_status_toast = (
+                                t("Downloaded subtitles but failed to parse them."), 
+                                "⚠️"
+                            )
                     else:
                         st.session_state.download_status_toast = (
-                            t("Downloaded subtitles but failed to parse them."), 
-                            "⚠️"
+                            t("No English subtitles found (original or auto-generated) for this link."), 
+                            "❌"
                         )
-                else:
-                    st.session_state.download_status_toast = (
-                        t("No English subtitles found (original or auto-generated) for this link."), 
-                        "❌"
-                    )
-                st.rerun()
+                    st.rerun()
+                except Exception as e:
+                    st.session_state.download_error = str(e)
+                    st.rerun()
 
         # 5. 如果视频已存在，渲染删除并重置按钮
         if video_exists:
