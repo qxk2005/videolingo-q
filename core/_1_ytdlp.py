@@ -296,6 +296,9 @@ def download_video_ytdlp(url, save_path='output', resolution='1080'):
         'noplaylist': True,
         'writethumbnail': True,
         'postprocessors': [{'key': 'FFmpegThumbnailsConvertor', 'format': 'jpg'}],
+        'retries': 20,
+        'fragment_retries': 20,
+        'nocheckcertificate': True,
     }
 
     _add_cookies_options(ydl_opts)
@@ -305,7 +308,7 @@ def download_video_ytdlp(url, save_path='output', resolution='1080'):
 
     # Fetch and save metadata (title and cover) first
     try:
-        ydl_opts_info = {'skip_download': True, 'noplaylist': True}
+        ydl_opts_info = {'skip_download': True, 'noplaylist': True, 'nocheckcertificate': True}
         _add_cookies_options(ydl_opts_info)
         with YoutubeDL(ydl_opts_info) as ydl_info:
             info = ydl_info.extract_info(url, download=False)
@@ -401,6 +404,7 @@ def download_subtitle_ytdlp(url, save_path='output'):
     ydl_opts_info = {
         'skip_download': True,
         'noplaylist': True,
+        'nocheckcertificate': True,
     }
     _add_cookies_options(ydl_opts_info)
         
@@ -474,6 +478,7 @@ def download_subtitle_ytdlp(url, save_path='output'):
             'key': 'FFmpegSubtitlesConvertor',
             'format': 'srt',
         }],
+        'nocheckcertificate': True,
     }
     _add_cookies_options(ydl_opts_download)
 

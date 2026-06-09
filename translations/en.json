@@ -178,5 +178,6 @@
     "Extract Cookies From Browser": "Extract Cookies From Browser",
     "Select browser to automatically extract YouTube cookies to bypass bot checks. Leave empty if not needed.": "Select browser to automatically extract YouTube cookies to bypass bot checks. Leave empty if not needed.",
     "YouTube Cookies File Path": "YouTube Cookies File Path",
-    "Path to exported cookies.txt file, fallback if browser extraction fails.": "Path to exported cookies.txt file, fallback if browser extraction fails."
+    "Path to exported cookies.txt file, fallback if browser extraction fails.": "Path to exported cookies.txt file, fallback if browser extraction fails.",
+    "Video/Subtitle Download Failed ❌": "Video/Subtitle Download Failed ❌"
 }
