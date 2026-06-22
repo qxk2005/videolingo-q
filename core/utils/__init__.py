@@ -1,3 +1,26 @@
+import os
+import shutil
+
+def _ensure_ffmpeg_in_path():
+    if shutil.which("ffmpeg") is None:
+        common_paths = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin"
+        ]
+        paths_to_add = []
+        for path in common_paths:
+            if os.path.exists(os.path.join(path, "ffmpeg")) or os.path.exists(os.path.join(path, "ffmpeg.exe")):
+                paths_to_add.append(path)
+        
+        if paths_to_add:
+            os.environ["PATH"] = os.pathsep.join(paths_to_add) + os.pathsep + os.environ.get("PATH", "")
+
+_ensure_ffmpeg_in_path()
+
 # use try-except to avoid error when installing
 try:
     from .ask_gpt import ask_gpt

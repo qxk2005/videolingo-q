@@ -277,14 +277,30 @@ def _add_cookies_options(ydl_opts):
     except Exception:
         pass
 
+_ytdlp_updated_in_session = False
+
 def update_ytdlp():
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"])
-        if 'yt_dlp' in sys.modules:
-            del sys.modules['yt_dlp']
-        rprint("[green]yt-dlp updated[/green]")
-    except subprocess.CalledProcessError as e:
-        rprint("[yellow]Warning: Failed to update yt-dlp: {e}[/yellow]")
+    global _ytdlp_updated_in_session
+    if not _ytdlp_updated_in_session:
+        try:
+            rprint("[cyan]Checking and updating yt-dlp...[/cyan]")
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=15
+            )
+            # Clear all cached yt_dlp modules and submodules to prevent version mismatches
+            for mod in list(sys.modules.keys()):
+                if mod == 'yt_dlp' or mod.startswith('yt_dlp.'):
+                    del sys.modules[mod]
+            rprint("[green]yt-dlp updated[/green]")
+        except subprocess.TimeoutExpired:
+            rprint("[yellow]Warning: Check for yt-dlp update timed out. Using local version.[/yellow]")
+        except Exception as e:
+            rprint(f"[yellow]Warning: Failed to update yt-dlp: {e}[/yellow]")
+        _ytdlp_updated_in_session = True
+        
     from yt_dlp import YoutubeDL
     return YoutubeDL
 
