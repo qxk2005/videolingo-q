@@ -16,6 +16,29 @@ lock = threading.Lock()
 yaml = YAML()
 yaml.preserve_quotes = True
 
+def setup_proxy():
+    try:
+        with open(CONFIG_PATH, 'r', encoding='utf-8') as file:
+            data = yaml.load(file)
+        if data and 'proxy' in data and data['proxy']:
+            proxy_val = str(data['proxy']).strip()
+            if proxy_val:
+                os.environ['http_proxy'] = proxy_val
+                os.environ['https_proxy'] = proxy_val
+                os.environ['HTTP_PROXY'] = proxy_val
+                os.environ['HTTPS_PROXY'] = proxy_val
+            else:
+                for key in ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY']:
+                    os.environ.pop(key, None)
+        else:
+            for key in ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY']:
+                os.environ.pop(key, None)
+    except Exception:
+        pass
+
+# Initialize proxy on load
+setup_proxy()
+
 # -----------------------
 # load & update config
 # -----------------------
@@ -50,6 +73,9 @@ def update_key(key, new_value):
         current[keys[-1]] = new_value
         with open(CONFIG_PATH, 'w', encoding='utf-8') as file:
             yaml.dump(data, file)
+        
+        if key == 'proxy':
+            setup_proxy()
         return True
         
 # basic utils

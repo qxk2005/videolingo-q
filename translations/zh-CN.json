@@ -39,6 +39,8 @@
     "Subtitle parsed successfully! Proceeding without WhisperX. 🎉": "字幕解析成功！将跳过 WhisperX 直接处理。🎉",
     "Subtitle parsed! Click 'Start Processing Subtitles' to continue.": "字幕解析成功！点击「开始处理字幕」继续。",
     "Failed to parse subtitle file. Please check the format.": "字幕文件解析失败，请检查格式是否正确。",
+    "Global Proxy": "全局网络代理",
+    "Global network proxy settings (e.g. http://127.0.0.1:7890). Leave empty to use system default.": "全局网络代理设置（例如 http://127.0.0.1:7890 ）。留空则使用系统默认。",
     "Video Resolution": "视频分辨率",
     "Recommended for videos with loud background noise, but will increase processing time": "推荐用于背景噪音较大的视频,但会增加处理时间",
     "Dubbing Settings": "配音设置",

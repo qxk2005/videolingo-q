@@ -64,6 +64,8 @@ def page_setting():
             update_key("display_language", DISPLAY_LANGUAGES[display_language])
             st.rerun()
 
+        config_input(t("Global Proxy"), "proxy", help=t("Global network proxy settings (e.g. http://127.0.0.1:7890). Leave empty to use system default."))
+
         st.divider()
 
         # ── Tab-based Settings ──────────────────────────────────────────

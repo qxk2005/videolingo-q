@@ -7,6 +7,10 @@
 
 ## ======================== Basic Settings ======================== ##
 
+# Global network proxy settings (e.g. 'http://127.0.0.1:7890' or 'socks5://127.0.0.1:1080')
+# Leave empty to use system default environment variables
+proxy: ''
+
 display_language: "zh-CN"
 
 # API settings

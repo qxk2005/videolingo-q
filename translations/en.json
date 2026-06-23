@@ -39,6 +39,8 @@
     "Subtitle parsed successfully! Proceeding without WhisperX. 🎉": "Subtitle parsed successfully! Proceeding without WhisperX. 🎉",
     "Subtitle parsed! Click 'Start Processing Subtitles' to continue.": "Subtitle parsed! Click 'Start Processing Subtitles' to continue.",
     "Failed to parse subtitle file. Please check the format.": "Failed to parse subtitle file. Please check the format.",
+    "Global Proxy": "Global Proxy",
+    "Global network proxy settings (e.g. http://127.0.0.1:7890). Leave empty to use system default.": "Global network proxy settings (e.g. http://127.0.0.1:7890). Leave empty to use system default.",
     "Video Resolution": "Video Resolution",
     "Recommended for videos with loud background noise, but will increase processing time": "Recommended for videos with loud background noise, but will increase processing time",
     "Dubbing Settings": "Dubbing Settings",
