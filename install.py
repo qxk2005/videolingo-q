@@ -1,6 +1,12 @@
 import os, sys
 import platform
 
+# macOS Homebrew PATH fallback setup
+if platform.system() == 'Darwin':
+    for path in ["/opt/homebrew/bin", "/usr/local/bin"]:
+        if path not in os.environ.get('PATH', ''):
+            os.environ['PATH'] = path + os.pathsep + os.environ.get('PATH', '')
+
 # =========================================================================
 # Python 3.10 运行版本门禁硬性检查
 # =========================================================================

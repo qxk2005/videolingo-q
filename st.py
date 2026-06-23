@@ -1,8 +1,16 @@
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
+import os, sys
+# SET PATH
+current_dir = os.path.dirname(os.path.abspath(__file__))
+for path in ["/opt/homebrew/bin", "/usr/local/bin", current_dir]:
+    if path not in os.environ.get('PATH', ''):
+        os.environ['PATH'] = path + os.pathsep + os.environ.get('PATH', '')
+sys.path.append(current_dir)
+
 import streamlit as st
-import os, sys, shutil, subprocess
+import shutil, subprocess
 import pandas as pd
 from core.st_utils.imports_and_utils import *
 from core.utils.models import *
@@ -10,11 +18,6 @@ from core import *
 from core.asr_backend.audio_preprocess import reapply_vocab_correction_to_cleaned_chunks, detect_suspicious_terms_from_srt, convert_video_to_audio
 from core.asr_backend.ytb_subtitle_asr import use_subtitle_file
 from core import _1_ytdlp
-
-# SET PATH
-current_dir = os.path.dirname(os.path.abspath(__file__))
-os.environ['PATH'] += os.pathsep + current_dir
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 st.set_page_config(
     page_title="VideoLingo Q", 
