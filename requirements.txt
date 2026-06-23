@@ -22,6 +22,7 @@ resampy==0.4.3
 spacy==3.7.4
 streamlit==1.38.0
 yt-dlp
+youtube-transcript-api
 json-repair
 ruamel.yaml
 InquirerPy

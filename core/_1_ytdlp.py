@@ -147,17 +147,16 @@ def download_subtitle_from_thirdparty(url, save_path='output'):
     sid_match = re.search(r"var sid='([^']+)';", html)
     hash_match = re.search(r"var hash='([^']+)';", html)
     hl_match = re.search(r"var hl='([^']+)';", html)
-    tutoken_match = re.search(r"var tutoken='([^']+)';", html)
     htoken_match = re.search(r"var htoken='([^']+)';", html)
     
     sid = sid_match.group(1) if sid_match else None
     hash_val = hash_match.group(1) if hash_match else None
     hl = hl_match.group(1) if hl_match else None
-    tutoken = tutoken_match.group(1) if tutoken_match else None
     htoken = htoken_match.group(1) if htoken_match else None
+    tutoken = "" # Turnstile dynamic parameter, default to empty
     
-    if not all([sid, hash_val, hl, tutoken, htoken]):
-        rprint("[yellow]Could not find essential parameters in third-party page HTML.[/yellow]")
+    if not all([sid, hash_val, hl, htoken]):
+        rprint("[yellow]Could not find essential parameters (sid/hash/hl/htoken) in third-party page HTML.[/yellow]")
         return None
         
     # Extract pwx from _$_9361 array
@@ -317,6 +316,11 @@ def download_video_ytdlp(url, save_path='output', resolution='1080'):
         'nocheckcertificate': True,
     }
 
+    import shutil
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        ydl_opts['ffmpeg_location'] = ffmpeg_path
+
     _add_cookies_options(ydl_opts)
 
     # Get YoutubeDL class after updating
@@ -393,6 +397,92 @@ def find_video_files(save_path='output'):
     all_videos = original_videos if original_videos else video_files
     raise ValueError(f"Number of videos found {len(all_videos)} is not unique. Please check.")
 
+def download_subtitle_from_youtube_transcript_api(url, save_path='output'):
+    video_id = get_youtube_video_id(url)
+    if not video_id:
+        rprint("[yellow]Invalid YouTube URL for youtube-transcript-api.[/yellow]")
+        return None, None
+
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        from youtube_transcript_api.formatters import SRTFormatter
+    except ImportError:
+        try:
+            rprint("[cyan]Installing youtube-transcript-api...[/cyan]")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "youtube-transcript-api"])
+            from youtube_transcript_api import YouTubeTranscriptApi
+            from youtube_transcript_api.formatters import SRTFormatter
+        except Exception as e:
+            rprint(f"[yellow]Failed to install youtube-transcript-api: {e}[/yellow]")
+            return None, None
+
+    cookies_path = load_key("youtube.cookies_path")
+    if cookies_path and not os.path.exists(cookies_path):
+        cookies_path = None
+
+    try:
+        import requests
+        session = requests.Session()
+        if cookies_path:
+            try:
+                from http.cookiejar import MozillaCookieJar
+                cj = MozillaCookieJar(cookies_path)
+                cj.load(ignore_discard=True, ignore_expires=True)
+                session.cookies = cj
+                rprint(f"[cyan]Loaded cookies from {cookies_path} for youtube-transcript-api[/cyan]")
+            except Exception as e:
+                rprint(f"[yellow]Failed to load cookies: {e}[/yellow]")
+
+        api = YouTubeTranscriptApi(http_client=session)
+        transcript_list = api.list(video_id)
+        
+        manual_transcripts = {}
+        generated_transcripts = {}
+        for t in transcript_list:
+            lang_code = t.language_code
+            if t.is_generated:
+                generated_transcripts[lang_code] = t
+            else:
+                manual_transcripts[lang_code] = t
+
+        def get_best_en_track(tracks_dict):
+            if 'en' in tracks_dict:
+                return tracks_dict['en']
+            en_langs = [l for l in tracks_dict.keys() if l.lower().startswith('en-') or l.lower().startswith('en_')]
+            if en_langs:
+                return tracks_dict[en_langs[0]]
+            return None
+
+        best_transcript = get_best_en_track(manual_transcripts)
+        if best_transcript:
+            sub_type = "original"
+        else:
+            best_transcript = get_best_en_track(generated_transcripts)
+            if best_transcript:
+                sub_type = "auto-generated"
+
+        if not best_transcript:
+            rprint("[yellow][youtube-transcript-api] No English subtitles found.[/yellow]")
+            return None, None
+
+        rprint(f"[green][youtube-transcript-api] Found {sub_type} English subtitle with language code: {best_transcript.language_code}[/green]")
+        transcript_data = best_transcript.fetch()
+        
+        formatter = SRTFormatter()
+        srt_formatted = formatter.format_transcript(transcript_data)
+        
+        os.makedirs(save_path, exist_ok=True)
+        target_path = os.path.join(save_path, "youtube_subtitle.srt")
+        with open(target_path, 'w', encoding='utf-8') as f:
+            f.write(srt_formatted)
+            
+        rprint(f"[green][youtube-transcript-api] Subtitle successfully saved to: {target_path}[/green]")
+        return target_path, sub_type
+    except Exception as e:
+        rprint(f"[yellow][youtube-transcript-api] Failed to download transcript: {e}[/yellow]")
+        return None, None
+
+
 def download_subtitle_ytdlp(url, save_path='output'):
     """
     Downloads English subtitles for the given YouTube URL.
@@ -402,18 +492,6 @@ def download_subtitle_ytdlp(url, save_path='output'):
     """
     os.makedirs(save_path, exist_ok=True)
 
-    # Try downloading clean srt from third party website first
-    try:
-        rprint("[cyan]尝试从第三方网站获取干净的 SRT 字幕...[/cyan]")
-        thirdparty_path = download_subtitle_from_thirdparty(url, save_path)
-        if thirdparty_path and os.path.exists(thirdparty_path):
-            rprint("[green]成功从第三方获取到干净的 SRT 字幕！[/green]")
-            resolve_srt_overlaps_file(thirdparty_path)
-            return thirdparty_path, "clean-srt"
-        rprint("[yellow]从第三方获取字幕失败或跳过，将降级使用 yt-dlp...[/yellow]")
-    except Exception as e:
-        rprint(f"[yellow]第三方字幕下载发生异常: {e}，将降级使用 yt-dlp...[/yellow]")
-    
     # Get YoutubeDL class
     YoutubeDL = update_ytdlp()
     
@@ -450,6 +528,30 @@ def download_subtitle_ytdlp(url, save_path='output'):
     except Exception as e:
         rprint(f"[yellow]Warning: Failed to save metadata: {e}[/yellow]")
 
+    # 1. Try downloading clean srt using youtube-transcript-api first
+    try:
+        rprint("[cyan]尝试使用 youtube-transcript-api 获取干净的 SRT 字幕...[/cyan]")
+        target_path, sub_type_str = download_subtitle_from_youtube_transcript_api(url, save_path)
+        if target_path and os.path.exists(target_path):
+            rprint("[green]成功使用 youtube-transcript-api 获取到干净的 SRT 字幕！[/green]")
+            resolve_srt_overlaps_file(target_path)
+            return target_path, sub_type_str
+    except Exception as e:
+        rprint(f"[yellow]youtube-transcript-api 字幕下载发生异常: {e}[/yellow]")
+
+    # 2. Try downloading clean srt from third party website
+    try:
+        rprint("[cyan]尝试从第三方网站获取干净的 SRT 字幕...[/cyan]")
+        thirdparty_path = download_subtitle_from_thirdparty(url, save_path)
+        if thirdparty_path and os.path.exists(thirdparty_path):
+            rprint("[green]成功从第三方获取到干净的 SRT 字幕！[/green]")
+            resolve_srt_overlaps_file(thirdparty_path)
+            return thirdparty_path, "clean-srt"
+        rprint("[yellow]从第三方获取字幕验证未通过，将降级使用 yt-dlp...[/yellow]")
+    except Exception as e:
+        rprint(f"[yellow]第三方字幕下载发生异常: {e}，将降级使用 yt-dlp...[/yellow]")
+
+    # 3. Fallback to yt-dlp download
     subtitles = info.get('subtitles', {}) or {}
     automatic_captions = info.get('automatic_captions', {}) or {}
 
@@ -482,7 +584,6 @@ def download_subtitle_ytdlp(url, save_path='output'):
     rprint(f"[green]Found {sub_type_str} English subtitle with language code: {selected_lang}[/green]")
 
     # Download options
-    # Download options
     ydl_opts_download = {
         'skip_download': True,
         'writesubtitles': is_original,
@@ -496,6 +597,12 @@ def download_subtitle_ytdlp(url, save_path='output'):
         }],
         'nocheckcertificate': True,
     }
+
+    import shutil
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        ydl_opts_download['ffmpeg_location'] = ffmpeg_path
+
     _add_cookies_options(ydl_opts_download)
 
     # Clean existing temp subtitle files to avoid collision
