@@ -132,6 +132,12 @@ def process_transcription(result: Dict) -> pd.DataFrame:
             # ! For French, we need to convert guillemets to empty strings
             word["word"] = word["word"].replace('»', '').replace('«', '')
             
+            # Remove music/sound markers like [music], (laughter)
+            cleaned_word = re.sub(r'\[[^\]]+\]|\([^)]+\)|（[^）]+）', '', word["word"]).strip()
+            if not cleaned_word:
+                continue
+            word["word"] = cleaned_word
+            
             if 'start' not in word and 'end' not in word:
                 if all_words:
                     # Assign the end time of the previous word as the start and end time of the current word

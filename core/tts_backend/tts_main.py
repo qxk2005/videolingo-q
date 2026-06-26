@@ -16,6 +16,8 @@ def clean_text_for_tts(text):
     chars_to_remove = ['&', '®', '™', '©']
     for char in chars_to_remove:
         text = text.replace(char, '')
+    # Remove music/sound markers like [music], (laughter)
+    text = re.sub(r'\[[^\]]+\]|\([^)]+\)|（[^）]+）', '', text)
     return text.strip()
 
 def is_audio_valid(file_path: str, text: str) -> bool:

@@ -137,9 +137,10 @@ def process_srt():
             end_time = datetime.datetime.strptime(end_time, '%H:%M:%S,%f').time()
             duration = time_diff_seconds(start_time, end_time, datetime.date.today())
             text = ' '.join(lines[2:])
-            # Remove content within parentheses (including English and Chinese parentheses)
+            # Remove content within parentheses (including English and Chinese parentheses) and brackets
             text = re.sub(r'\([^)]*\)', '', text).strip()
             text = re.sub(r'（[^）]*）', '', text).strip()
+            text = re.sub(r'\[[^\]]*\]', '', text).strip()
             # Remove '-' character, can continue to add illegal characters that cause errors
             text = text.replace('-', '')
 

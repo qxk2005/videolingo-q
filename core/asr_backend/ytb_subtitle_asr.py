@@ -167,6 +167,8 @@ def _parse_vtt(file_path: str) -> list:
         block_text_lines = lines[ts_idx + 1:]
         deduped_block_lines = _deduplicate_block_lines(block_text_lines)
         text = ' '.join(deduped_block_lines)
+        # Remove music/sound markers like [music], (laughter)
+        text = re.sub(r'\[[^\]]+\]|\([^)]+\)|（[^）]+）', '', text).strip()
         if not text:
             continue
 
@@ -200,6 +202,8 @@ def _parse_srt(file_path: str) -> list:
         end   = _ts_to_sec(ts_match.group(2))
         raw_text_lines = lines[ts_idx + 1:]
         text = _strip_markup(' '.join(raw_text_lines))
+        # Remove music/sound markers like [music], (laughter)
+        text = re.sub(r'\[[^\]]+\]|\([^)]+\)|（[^）]+）', '', text).strip()
         if text:
             sentences.append((start, end, text, raw_text_lines))
 
@@ -217,8 +221,14 @@ def _sentence_to_rows(start: float, end: float, text: str,
     # Try VTT word-level timestamps first
     word_entries = _parse_vtt_words(raw_lines, start, end)
     if word_entries:
+        # Filter out music/sound markers from word entries
+        filtered_entries = []
+        for w, s, e in word_entries:
+            cleaned_w = re.sub(r'\[[^\]]+\]|\([^)]+\)|（[^）]+）', '', w).strip()
+            if cleaned_w:
+                filtered_entries.append((cleaned_w, s, e))
         return [{'text': w, 'start': s, 'end': e, 'speaker_id': None}
-                for w, s, e in word_entries]
+                for w, s, e in filtered_entries]
 
     # Linear distribution
     is_cjk = any(c in lang for c in ('zh', 'ja', 'ko'))
