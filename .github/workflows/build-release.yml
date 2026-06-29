@@ -256,6 +256,8 @@ jobs:
             /XD $excludeDirs `
             /XF config.yaml llm_profiles.json *.log *.pen *.pyc .DS_Store `
             /NFL /NDL /NJH /NJS 2>&1 | Out-Null
+          
+          if ($LASTEXITCODE -lt 8) { $global:LASTEXITCODE = 0 }
 
           # 复制 FFmpeg
           New-Item -ItemType Directory -Force -Path "$releaseDir\runtime\ffmpeg" | Out-Null
