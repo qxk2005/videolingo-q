@@ -1,0 +1,424 @@
+# ============================================================
+# VideoLingo Q - GitHub Actions 自动构建与发布工作流
+# ============================================================
+# 触发条件:
+#   - 推送 v* 标签 (如 v1.0.0)
+#   - 手动触发 (workflow_dispatch)
+#
+# 构建策略:
+#   打包 源码 + FFmpeg 静态二进制 + 启动脚本
+#   用户首次运行时，launcher.py 自动检测 Python 3.10 并安装依赖
+#
+# 构建产出:
+#   - VideoLingo-Q-macOS-arm64.tar.gz  (Apple Silicon)
+#   - VideoLingo-Q-macOS-x64.tar.gz   (Intel Mac)
+#   - VideoLingo-Q-Windows-x64.zip    (Windows 64-bit)
+# ============================================================
+
+name: 构建与发布 (Build & Release)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '发布标签 (如 v1.0.0)'
+        required: false
+        default: 'dev'
+
+permissions:
+  contents: write
+
+jobs:
+  # ============================================================
+  # macOS 构建 (ARM64 + x64)
+  # ============================================================
+  build-macos:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+            arch_label: macOS-arm64
+          - runner: macos-13
+            arch: x64
+            arch_label: macOS-x64
+
+    runs-on: ${{ matrix.runner }}
+    name: 构建 ${{ matrix.arch_label }}
+
+    steps:
+      - name: 📥 检出代码
+        uses: actions/checkout@v4
+
+      - name: 📦 获取 FFmpeg 静态二进制
+        run: |
+          mkdir -p runtime/ffmpeg
+
+          # macOS GitHub runner 预装了 homebrew，直接安装 ffmpeg
+          brew install ffmpeg 2>/dev/null || true
+
+          # 复制二进制到便携式目录
+          FFMPEG_PATH=$(which ffmpeg)
+          FFPROBE_PATH=$(which ffprobe)
+
+          if [ -f "$FFMPEG_PATH" ]; then
+            cp "$FFMPEG_PATH" runtime/ffmpeg/ffmpeg
+            chmod +x runtime/ffmpeg/ffmpeg
+            echo "✅ FFmpeg 已复制: $(runtime/ffmpeg/ffmpeg -version | head -1)"
+          else
+            echo "❌ FFmpeg 安装失败"
+            exit 1
+          fi
+
+          if [ -f "$FFPROBE_PATH" ]; then
+            cp "$FFPROBE_PATH" runtime/ffmpeg/ffprobe
+            chmod +x runtime/ffmpeg/ffprobe
+            echo "✅ FFprobe 已复制"
+          fi
+
+      - name: 📋 准备发布文件
+        run: |
+          RELEASE_DIR="VideoLingo-Q-${{ matrix.arch_label }}"
+          mkdir -p "$RELEASE_DIR"
+
+          # 复制源码 (排除不需要的文件和目录)
+          rsync -av \
+            --exclude='.git' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.DS_Store' \
+            --exclude='output/' \
+            --exclude='history/' \
+            --exclude='_model_cache/' \
+            --exclude='*.egg-info' \
+            --exclude='build/' \
+            --exclude='dist/' \
+            --exclude='config.yaml' \
+            --exclude='llm_profiles.json' \
+            --exclude='*.log' \
+            --exclude='*.pen' \
+            --exclude='.antigravitycli' \
+            --exclude='.claude' \
+            --exclude='.agents' \
+            --exclude='batch/input/' \
+            --exclude='batch/output/' \
+            --exclude='scratch/' \
+            --exclude='dev/' \
+            --exclude='runtime/' \
+            . "$RELEASE_DIR/"
+
+          # 复制 runtime/ffmpeg (便携式 FFmpeg)
+          mkdir -p "$RELEASE_DIR/runtime/ffmpeg"
+          cp runtime/ffmpeg/* "$RELEASE_DIR/runtime/ffmpeg/"
+
+          # 确保启动脚本有可执行权限
+          chmod +x "$RELEASE_DIR/start_macos.command"
+          chmod +x "$RELEASE_DIR/launcher.py"
+
+          # 创建快捷说明
+          cat > "$RELEASE_DIR/README_启动说明.txt" << 'ENDOFREADME'
+          ╔══════════════════════════════════════════════════════════╗
+          ║     🎬 VideoLingo Q - 专业视频本地化工作站              ║
+          ╚══════════════════════════════════════════════════════════╝
+
+          【启动方式】
+          双击 "start_macos.command" 即可启动！
+
+          【首次运行】
+          首次运行时需要 Python 3.10 环境。推荐安装方式:
+            方式 1: conda create -n videolingo python=3.10 && conda activate videolingo
+            方式 2: brew install python@3.10
+            方式 3: 从 https://www.python.org/downloads/ 下载
+
+          程序会自动安装所有依赖，请确保网络连接正常。
+
+          【系统要求】
+          - macOS 12.0 及以上版本
+          - Python 3.10.x
+          - 4GB 以上可用内存
+          - 5GB 以上可用磁盘空间
+
+          【故障排除】
+          如果双击无法启动，请尝试:
+          1. 右键 → 打开 (解决 macOS 安全限制)
+          2. 在终端中运行: chmod +x start_macos.command && ./start_macos.command
+          ENDOFREADME
+
+          echo "✅ 发布文件准备完成"
+          echo "文件数量: $(find "$RELEASE_DIR" -type f | wc -l)"
+          du -sh "$RELEASE_DIR"
+
+      - name: 🧪 Smoke Test
+        run: |
+          RELEASE_DIR="VideoLingo-Q-${{ matrix.arch_label }}"
+
+          # 验证关键文件存在
+          echo "🔍 验证关键文件..."
+          for f in start_macos.command launcher.py st.py setup.py requirements.txt \
+                   config.example.yaml runtime/ffmpeg/ffmpeg core/__init__.py \
+                   core/utils/config_utils.py translations/translations.py; do
+            if [ -f "$RELEASE_DIR/$f" ]; then
+              echo "  ✅ $f"
+            else
+              echo "  ❌ $f 缺失!"
+              exit 1
+            fi
+          done
+
+          # 验证 FFmpeg 可执行
+          echo "🔍 验证 FFmpeg..."
+          "$RELEASE_DIR/runtime/ffmpeg/ffmpeg" -version | head -1
+
+          # 验证 launcher.py 语法
+          echo "🔍 验证 Python 语法..."
+          python3 -c "import py_compile; py_compile.compile('$RELEASE_DIR/launcher.py', doraise=True)"
+          python3 -c "import py_compile; py_compile.compile('$RELEASE_DIR/st.py', doraise=True)"
+
+          echo "✅ Smoke test 全部通过"
+
+      - name: 📦 打包 (tar.gz)
+        run: |
+          RELEASE_DIR="VideoLingo-Q-${{ matrix.arch_label }}"
+          tar -czf "${RELEASE_DIR}.tar.gz" "$RELEASE_DIR"
+          echo "📦 产物: ${RELEASE_DIR}.tar.gz ($(du -h "${RELEASE_DIR}.tar.gz" | cut -f1))"
+
+      - name: 📤 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: VideoLingo-Q-${{ matrix.arch_label }}
+          path: VideoLingo-Q-${{ matrix.arch_label }}.tar.gz
+          retention-days: 7
+
+  # ============================================================
+  # Windows 构建 (x64)
+  # ============================================================
+  build-windows:
+    runs-on: windows-latest
+    name: 构建 Windows-x64
+
+    steps:
+      - name: 📥 检出代码
+        uses: actions/checkout@v4
+
+      - name: 📦 下载 FFmpeg (Windows)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path runtime/ffmpeg | Out-Null
+
+          $ffmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+          $tmpFile = "runtime/ffmpeg_tmp.zip"
+
+          Write-Host "⬇️ 下载 FFmpeg..."
+          Invoke-WebRequest -Uri $ffmpegUrl -OutFile $tmpFile -UseBasicParsing
+
+          Write-Host "📂 解压 FFmpeg..."
+          Expand-Archive -Path $tmpFile -DestinationPath "runtime/ffmpeg_extracted" -Force
+
+          # 查找并移动 ffmpeg.exe 和 ffprobe.exe
+          $ffmpegExe = Get-ChildItem -Path "runtime/ffmpeg_extracted" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          $ffprobeExe = Get-ChildItem -Path "runtime/ffmpeg_extracted" -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
+
+          if ($ffmpegExe) {
+              Copy-Item $ffmpegExe.FullName "runtime/ffmpeg/ffmpeg.exe"
+              Write-Host "✅ ffmpeg.exe 已安装"
+          } else {
+              Write-Host "❌ ffmpeg.exe 未找到"
+              exit 1
+          }
+          if ($ffprobeExe) {
+              Copy-Item $ffprobeExe.FullName "runtime/ffmpeg/ffprobe.exe"
+              Write-Host "✅ ffprobe.exe 已安装"
+          }
+
+          # 清理
+          Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+          Remove-Item "runtime/ffmpeg_extracted" -Recurse -Force -ErrorAction SilentlyContinue
+
+          # 验证
+          & "runtime/ffmpeg/ffmpeg.exe" -version | Select-Object -First 1
+
+      - name: 📋 准备发布文件
+        shell: pwsh
+        run: |
+          $releaseDir = "VideoLingo-Q-Windows-x64"
+          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+
+          # 排除的目录
+          $excludeDirs = @('.git', '__pycache__', 'output', 'history', '_model_cache',
+                          'VideoLingo.egg-info', 'build', 'dist', '.antigravitycli',
+                          '.claude', '.agents', 'scratch', 'dev', 'runtime')
+
+          # 使用 robocopy 复制文件
+          robocopy . $releaseDir /E `
+            /XD $excludeDirs `
+            /XF config.yaml llm_profiles.json *.log *.pen *.pyc .DS_Store `
+            /NFL /NDL /NJH /NJS 2>&1 | Out-Null
+
+          # 复制 FFmpeg
+          New-Item -ItemType Directory -Force -Path "$releaseDir\runtime\ffmpeg" | Out-Null
+          Copy-Item "runtime\ffmpeg\*" "$releaseDir\runtime\ffmpeg\" -Force
+
+          # 创建启动说明
+          @"
+          ===========================================================
+               VideoLingo Q - 专业视频本地化工作站
+          ===========================================================
+
+          【启动方式】
+          双击 "start_windows.bat" 即可启动！
+
+          【首次运行】
+          首次运行时需要 Python 3.10 环境。推荐安装方式:
+            方式 1: conda create -n videolingo python=3.10
+                     conda activate videolingo
+            方式 2: 从 https://www.python.org/downloads/ 下载 Python 3.10
+
+          程序会自动安装所有依赖，请确保网络连接正常。
+
+          【系统要求】
+          - Windows 10/11 (64-bit)
+          - Python 3.10.x
+          - 4GB 以上可用内存
+          - 5GB 以上可用磁盘空间
+          - 如有 NVIDIA GPU，可选择安装 CUDA 加速版
+
+          【故障排除】
+          如果双击无法启动，请尝试:
+          1. 右键 → 以管理员身份运行
+          2. 检查 Windows Defender 是否阻止了运行
+          3. 确保已安装 Python 3.10 并添加到 PATH
+          "@ | Set-Content "$releaseDir\README_启动说明.txt" -Encoding UTF8
+
+          Write-Host "✅ 发布文件准备完成"
+          $fileCount = (Get-ChildItem $releaseDir -Recurse -File).Count
+          $size = (Get-ChildItem $releaseDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
+          Write-Host "文件数量: $fileCount, 总大小: $([math]::Round($size, 2)) MB"
+
+      - name: 🧪 Smoke Test
+        shell: pwsh
+        run: |
+          $releaseDir = "VideoLingo-Q-Windows-x64"
+
+          Write-Host "🔍 验证关键文件..."
+          $requiredFiles = @(
+            "start_windows.bat", "launcher.py", "st.py", "setup.py",
+            "requirements.txt", "config.example.yaml",
+            "runtime\ffmpeg\ffmpeg.exe", "core\__init__.py",
+            "core\utils\config_utils.py", "translations\translations.py"
+          )
+
+          foreach ($f in $requiredFiles) {
+            if (Test-Path "$releaseDir\$f") {
+              Write-Host "  ✅ $f"
+            } else {
+              Write-Host "  ❌ $f 缺失!"
+              exit 1
+            }
+          }
+
+          # 验证 FFmpeg 可执行
+          Write-Host "🔍 验证 FFmpeg..."
+          & "$releaseDir\runtime\ffmpeg\ffmpeg.exe" -version | Select-Object -First 1
+
+          Write-Host "✅ Smoke test 全部通过"
+
+      - name: 📦 打包 (zip)
+        shell: pwsh
+        run: |
+          $releaseDir = "VideoLingo-Q-Windows-x64"
+          Compress-Archive -Path $releaseDir -DestinationPath "${releaseDir}.zip"
+          $size = [math]::Round((Get-Item "${releaseDir}.zip").Length / 1MB, 2)
+          Write-Host "📦 产物: ${releaseDir}.zip ($size MB)"
+
+      - name: 📤 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: VideoLingo-Q-Windows-x64
+          path: VideoLingo-Q-Windows-x64.zip
+          retention-days: 7
+
+  # ============================================================
+  # 发布 Release
+  # ============================================================
+  release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    name: 🚀 发布 Release
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: 📥 下载所有构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: 📋 列出产物
+        run: |
+          echo "📦 构建产物列表:"
+          find artifacts/ -type f \( -name "*.tar.gz" -o -name "*.zip" \) | while read f; do
+            echo "  - $(basename $f) ($(du -h $f | cut -f1))"
+          done
+
+      - name: 🏷️ 确定版本号
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+          elif [[ "${{ github.event.inputs.release_tag }}" != "" && "${{ github.event.inputs.release_tag }}" != "dev" ]]; then
+            VERSION="${{ github.event.inputs.release_tag }}"
+          else
+            VERSION="dev-$(date +%Y%m%d-%H%M%S)"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📌 版本号: $VERSION"
+
+      - name: 🚀 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: "VideoLingo Q ${{ steps.version.outputs.version }}"
+          body: |
+            ## 🎬 VideoLingo Q ${{ steps.version.outputs.version }}
+
+            专业视频本地化工作站 - 跨平台独立安装包
+
+            ### 📥 下载指南
+
+            | 平台 | 文件 | 说明 |
+            |------|------|------|
+            | 🍎 macOS (Apple Silicon) | `VideoLingo-Q-macOS-arm64.tar.gz` | M1/M2/M3/M4 芯片 Mac |
+            | 🍎 macOS (Intel) | `VideoLingo-Q-macOS-x64.tar.gz` | Intel 芯片 Mac |
+            | 🪟 Windows (64-bit) | `VideoLingo-Q-Windows-x64.zip` | Windows 10/11 |
+
+            ### 🚀 快速开始
+
+            1. 下载对应平台的压缩包并解压
+            2. 确保已安装 **Python 3.10** (推荐: `conda create -n videolingo python=3.10`)
+            3. **macOS**: 双击 `start_macos.command` (首次可能需右键→打开)
+            4. **Windows**: 双击 `start_windows.bat`
+            5. 首次运行会自动安装 PyTorch 等 ML 依赖，请耐心等待
+
+            ### ✅ 包含内容
+
+            - 📦 完整源码
+            - 🎥 预编译 FFmpeg (无需额外安装)
+            - 🚀 一键启动脚本 (自动环境检测与依赖安装)
+
+            ### ⚠️ 注意事项
+
+            - 需要 Python 3.10.x 环境
+            - 首次运行需要联网安装 ML 依赖 (~1-2GB)
+            - macOS 用户如遇安全提示，请右键选择「打开」
+            - Windows 用户如遇防火墙提示，请允许 Python 网络访问
+            - 建议保留 5GB 以上空闲磁盘空间
+
+            ---
+            *此版本由 GitHub Actions 自动构建*
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, 'dev') }}
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip

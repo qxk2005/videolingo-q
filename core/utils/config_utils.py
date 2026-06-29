@@ -4,8 +4,25 @@ import threading
 import os
 import shutil
 
-CONFIG_PATH = 'config.yaml'
-CONFIG_EXAMPLE_PATH = 'config.example.yaml'
+
+def get_app_root():
+    """获取应用根目录。
+    
+    解析策略 (按优先级):
+    1. 环境变量 VIDEOLINGO_ROOT (用于打包/自定义部署)
+    2. 从本文件路径向上推导: core/utils/config_utils.py → 根目录 (../../..)
+    """
+    env_root = os.environ.get("VIDEOLINGO_ROOT")
+    if env_root and os.path.isdir(env_root):
+        return env_root
+    
+    # 从本文件位置推导: <root>/core/utils/config_utils.py
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+APP_ROOT = get_app_root()
+CONFIG_PATH = os.path.join(APP_ROOT, 'config.yaml')
+CONFIG_EXAMPLE_PATH = os.path.join(APP_ROOT, 'config.example.yaml')
 
 # Automatically initialize config.yaml from config.example.yaml if missing
 if not os.path.exists(CONFIG_PATH) and os.path.exists(CONFIG_EXAMPLE_PATH):

@@ -177,3 +177,8 @@ installer_files/
 config.yaml
 llm_profiles.json
 *.pen
+
+# build artifacts
+requirements_portable.txt
+VideoLingo-Q-*/
+*.tar.gz
