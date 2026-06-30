@@ -187,5 +187,8 @@
     "Saved cookies file deleted successfully!": "Saved cookies file deleted successfully!",
     "Upload YouTube Cookies (.txt)": "Upload YouTube Cookies (.txt)",
     "Upload Netscape format cookies.txt file to bypass bot checks.": "Upload Netscape format cookies.txt file to bypass bot checks.",
-    "Cookies uploaded and saved successfully!": "Cookies uploaded and saved successfully!"
+    "Cookies uploaded and saved successfully!": "Cookies uploaded and saved successfully!",
+    "FFmpeg GPU Acceleration": "FFmpeg GPU Acceleration",
+    "Enable NVIDIA NVENC hardware encoding for FFmpeg. Significantly speeds up video encoding. Auto-detected on startup.": "Enable NVIDIA NVENC hardware encoding for FFmpeg. Significantly speeds up video encoding. Auto-detected on startup.",
+    "No NVIDIA GPU detected. Local Whisper will run on CPU, which may be significantly slower. Consider using 'cloud' or 'elevenlabs' runtime for better performance.": "No NVIDIA GPU detected. Local Whisper will run on CPU, which may be significantly slower. Consider using 'cloud' or 'elevenlabs' runtime for better performance."
 }

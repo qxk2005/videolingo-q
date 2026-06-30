@@ -110,5 +110,8 @@
     "LLM JSON Format Support": "Soporte de formato JSON para LLM",
     "Enable if your LLM supports JSON mode output": "Activar si su LLM admite salida en modo JSON",
     "Efficiency Mode": "Efficiency Mode",
-    "Send all subtitle data to LLM in large batches to reduce API calls. Automatically falls back to standard mode on failure.": "Send all subtitle data to LLM in large batches to reduce API calls. Automatically falls back to standard mode on failure."
+    "Send all subtitle data to LLM in large batches to reduce API calls. Automatically falls back to standard mode on failure.": "Send all subtitle data to LLM in large batches to reduce API calls. Automatically falls back to standard mode on failure.",
+    "FFmpeg GPU Acceleration": "Aceleración GPU de FFmpeg",
+    "Enable NVIDIA NVENC hardware encoding for FFmpeg. Significantly speeds up video encoding. Auto-detected on startup.": "Habilitar la codificación por hardware NVIDIA NVENC para FFmpeg. Acelera significativamente la codificación de video. Se detecta automáticamente al iniciar.",
+    "No NVIDIA GPU detected. Local Whisper will run on CPU, which may be significantly slower. Consider using 'cloud' or 'elevenlabs' runtime for better performance.": "No se detectó GPU NVIDIA. El Whisper local se ejecutará en CPU, lo que puede ser significativamente más lento. Considere usar el runtime 'cloud' o 'elevenlabs' para un mejor rendimiento."
 }

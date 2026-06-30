@@ -33,11 +33,16 @@ except ImportError:
 import platform
 import subprocess
 
+# 缓存 FFmpeg 硬件编码器检测结果，避免每次调用都启动子进程
+_ffmpeg_encoder_cache = {"checked": False, "encoder": None}
+
 def get_ffmpeg_video_encoder():
     """
     Returns the best available hardware video encoder name, or None for software (CPU) encoding.
     On macOS (Apple Silicon / VideoToolbox): h264_videotoolbox
     On other platforms (NVIDIA):             h264_nvenc
+    
+    检测结果会被缓存，后续调用直接返回缓存值。
     """
     try:
         if not load_key("ffmpeg_gpu"):
@@ -45,16 +50,42 @@ def get_ffmpeg_video_encoder():
     except Exception:
         return None
 
+    # 使用缓存结果
+    if _ffmpeg_encoder_cache["checked"]:
+        return _ffmpeg_encoder_cache["encoder"]
+
     system = platform.system()
     candidate = 'h264_videotoolbox' if system == 'Darwin' else 'h264_nvenc'
+
+    # 对于非 macOS 平台，优先使用 gpu_utils 的缓存检测
+    if system != 'Darwin':
+        try:
+            from core.utils.gpu_utils import check_ffmpeg_nvenc_available
+            if check_ffmpeg_nvenc_available():
+                print(f"ffmpeg hw encoder available and working: {candidate}")
+                _ffmpeg_encoder_cache["checked"] = True
+                _ffmpeg_encoder_cache["encoder"] = candidate
+                return candidate
+            else:
+                print(f"ffmpeg hw encoder '{candidate}' not available, falling back to software encoding")
+                _ffmpeg_encoder_cache["checked"] = True
+                _ffmpeg_encoder_cache["encoder"] = None
+                return None
+        except ImportError:
+            pass  # gpu_utils 未安装，使用下面的原始检测逻辑
     
+    # macOS 或 gpu_utils 不可用时的原始检测逻辑
     # 1. Check if the encoder is supported in the ffmpeg binary compilation
     try:
         result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True)
         if candidate not in result.stdout:
             print(f"ffmpeg hw encoder '{candidate}' not compiled in ffmpeg, falling back to software encoding")
+            _ffmpeg_encoder_cache["checked"] = True
+            _ffmpeg_encoder_cache["encoder"] = None
             return None
     except Exception:
+        _ffmpeg_encoder_cache["checked"] = True
+        _ffmpeg_encoder_cache["encoder"] = None
         return None
 
     # 2. Runtime check to see if the hardware/driver actually supports initialized encoding
@@ -68,12 +99,16 @@ def get_ffmpeg_video_encoder():
         test_result = subprocess.run(test_cmd, capture_output=True, text=True, timeout=3)
         if test_result.returncode == 0:
             print(f"ffmpeg hw encoder available and working: {candidate}")
+            _ffmpeg_encoder_cache["checked"] = True
+            _ffmpeg_encoder_cache["encoder"] = candidate
             return candidate
         else:
             print(f"ffmpeg hw encoder '{candidate}' runtime check failed, falling back to software encoding")
     except Exception as e:
         print(f"ffmpeg hw encoder '{candidate}' runtime check exception, falling back to software encoding: {e}")
-        
+
+    _ffmpeg_encoder_cache["checked"] = True
+    _ffmpeg_encoder_cache["encoder"] = None
     return None
 
 __all__ = ["ask_gpt", "except_handler", "check_file_exists", "load_key", "update_key", "rprint", "get_joiner", "get_ffmpeg_video_encoder"]

@@ -203,10 +203,35 @@ def page_setting():
             if runtime == "elevenlabs":
                 config_input(("ElevenLabs API"), "whisper.elevenlabs_api_key")
 
+            # Local runtime 下无 GPU 时的性能提示
+            if runtime == "local" and _platform.system() != "Darwin":
+                try:
+                    from core.utils.gpu_utils import check_cuda_available
+                    if not check_cuda_available():
+                        st.warning(t("No NVIDIA GPU detected. Local Whisper will run on CPU, which may be significantly slower. Consider using 'cloud' or 'elevenlabs' runtime for better performance."))
+                except ImportError:
+                    pass
+
             with c2:
                 target_language = st.text_input(t("Target Lang"), value=load_key("target_language"), help=t("Input any language in natural language, as long as llm can understand"))
                 if target_language != load_key("target_language"):
                     update_key("target_language", target_language)
+
+            # GPU 状态与硬件加速设置（仅非 macOS 显示）
+            if _platform.system() != "Darwin":
+                try:
+                    from core.utils.gpu_utils import get_gpu_status_text, check_cuda_available, check_ffmpeg_nvenc_available
+                    gpu_status = get_gpu_status_text()
+                    if check_cuda_available():
+                        st.success(f"🎮 GPU: {gpu_status}")
+                    else:
+                        st.info(f"🖥️ GPU: {gpu_status}")
+                except ImportError:
+                    pass
+
+                ffmpeg_gpu = st.toggle(t("FFmpeg GPU Acceleration"), value=load_key("ffmpeg_gpu") or False, help=t("Enable NVIDIA NVENC hardware encoding for FFmpeg. Significantly speeds up video encoding. Auto-detected on startup."))
+                if ffmpeg_gpu != (load_key("ffmpeg_gpu") or False):
+                    update_key("ffmpeg_gpu", ffmpeg_gpu)
 
             demucs = st.toggle(t("Vocal separation enhance"), value=load_key("demucs"), help=t("Recommended for videos with loud background noise, but will increase processing time"))
             if demucs != load_key("demucs"):

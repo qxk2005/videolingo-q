@@ -117,5 +117,8 @@
     "Enter Authorization Code from browser": "請輸入瀏覽器登錄後返回的授權碼(Code)",
     "When your agy login expires during run, paste the google authorization code here and click retry to automatically authenticate and resume.": "當 agy 命令行登錄過期時，在此處粘貼瀏覽器獲得的 Google 授權碼並點擊重新運行，系統會自動在後台登錄激活並無縫繼續任務。",
     "Batch Translate Size": "效率模式批量翻譯數",
-    "Maximum number of subtitle lines translated by LLM in one batch. Set to 0 to send all. Reduce this value if translation experiences timeouts.": "單次翻譯提交給大模型的最大字幕行數。設為 0 代表一次性提交所有字幕。如果您在翻譯過程中遇到連接超時報錯，請降低此數值。"
+    "Maximum number of subtitle lines translated by LLM in one batch. Set to 0 to send all. Reduce this value if translation experiences timeouts.": "單次翻譯提交給大模型的最大字幕行數。設為 0 代表一次性提交所有字幕。如果您在翻譯過程中遇到連接超時報錯，請降低此數值。",
+    "FFmpeg GPU Acceleration": "FFmpeg GPU 加速",
+    "Enable NVIDIA NVENC hardware encoding for FFmpeg. Significantly speeds up video encoding. Auto-detected on startup.": "啟用 NVIDIA NVENC 硬件編碼加速 FFmpeg 視頻編碼。可顯著提升編碼速度。該選項在程式啟動時自動偵測。",
+    "No NVIDIA GPU detected. Local Whisper will run on CPU, which may be significantly slower. Consider using 'cloud' or 'elevenlabs' runtime for better performance.": "未偵測到 NVIDIA GPU。本地 Whisper 將使用 CPU 運行，速度可能明顯較慢。建議切換到 'cloud' 或 'elevenlabs' 模式以獲得更好的效能。"
 }

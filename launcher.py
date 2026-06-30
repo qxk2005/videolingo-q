@@ -68,6 +68,17 @@ def main():
     else:
         print("⚠️  未检测到内建 FFmpeg，将使用系统自带的 FFmpeg。")
 
+    # GPU 自动检测与配置（仅 Windows）
+    if SYSTEM == "Windows":
+        try:
+            # 确保 VideoLingo 项目根目录在 Python 路径中
+            if SCRIPT_DIR not in sys.path:
+                sys.path.insert(0, SCRIPT_DIR)
+            from core.utils.gpu_utils import auto_configure_gpu
+            auto_configure_gpu(verbose=True)
+        except Exception as e:
+            print(f"⚠️  GPU 自动检测跳过: {e}")
+
     print("\n🚀 正在启动服务，请稍候...\n")
     
     # 启动 streamlit

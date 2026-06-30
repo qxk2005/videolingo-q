@@ -61,7 +61,8 @@ batch_split_size: 100
 batch_translate_size: 15
 
 ## ======================== Advanced Settings ======================== ##
-# *🔬 FFmpeg hardware video encoding acceleration. On macOS uses h264_videotoolbox (Apple Silicon/VideoToolbox), on other platforms uses h264_nvenc (NVIDIA). Set to true to enable.
+# *🔬 FFmpeg hardware video encoding acceleration. On macOS uses h264_videotoolbox (Apple Silicon/VideoToolbox), on Windows/Linux uses h264_nvenc (NVIDIA). 
+# This setting is auto-detected on Windows startup: if NVIDIA GPU with NVENC is found, it's enabled; otherwise disabled. You can also manually toggle it in the UI.
 ffmpeg_gpu: true
 
 # *Youtube settings
