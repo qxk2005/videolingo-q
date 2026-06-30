@@ -14,24 +14,14 @@ permissions:
 
 jobs:
   # ============================================================
-  # macOS 构建 (ARM64 + x64) - 生成 DMG
+  # macOS 构建 (ARM64) - 生成 DMG
   # ============================================================
   build-macos:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-14
-            arch: arm64
-            arch_label: macOS-arm64
-            python_url: "https://github.com/indygreg/python-build-standalone/releases/download/20240107/cpython-3.10.13+20240107-aarch64-apple-darwin-install_only.tar.gz"
-          - runner: macos-14
-            arch: x64
-            arch_label: macOS-x64
-            python_url: "https://github.com/indygreg/python-build-standalone/releases/download/20240107/cpython-3.10.13+20240107-x86_64-apple-darwin-install_only.tar.gz"
+    runs-on: macos-14
+    name: 构建 macOS-arm64 (DMG)
 
-    runs-on: ${{ matrix.runner }}
-    name: 构建 ${{ matrix.arch_label }} (DMG)
+    env:
+      PYTHON_URL: "https://github.com/indygreg/python-build-standalone/releases/download/20240107/cpython-3.10.13+20240107-aarch64-apple-darwin-install_only.tar.gz"
 
     steps:
       - name: 📥 检出代码
@@ -41,7 +31,7 @@ jobs:
         run: |
           mkdir -p runtime
           echo "下载 Portable Python..."
-          curl -fSL -o python.tar.gz "${{ matrix.python_url }}"
+          curl -fSL -o python.tar.gz "${{ env.PYTHON_URL }}"
           tar -xzf python.tar.gz
           mv python runtime/python
           ./runtime/python/bin/python3 --version
@@ -69,18 +59,10 @@ jobs:
       - name: 📦 获取 FFmpeg 静态二进制
         run: |
           mkdir -p runtime/ffmpeg
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            brew install ffmpeg 2>/dev/null || true
-            cp "$(which ffmpeg)" runtime/ffmpeg/ffmpeg
-            cp "$(which ffprobe)" runtime/ffmpeg/ffprobe
-            chmod +x runtime/ffmpeg/ffmpeg runtime/ffmpeg/ffprobe
-          else
-            curl -fSL -o ffmpeg.zip "https://evermeet.cx/ffmpeg/getrelease/zip"
-            curl -fSL -o ffprobe.zip "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip"
-            unzip -oq ffmpeg.zip -d runtime/ffmpeg/
-            unzip -oq ffprobe.zip -d runtime/ffmpeg/
-            chmod +x runtime/ffmpeg/ffmpeg runtime/ffmpeg/ffprobe
-          fi
+          brew install ffmpeg 2>/dev/null || true
+          cp "$(which ffmpeg)" runtime/ffmpeg/ffmpeg
+          cp "$(which ffprobe)" runtime/ffmpeg/ffprobe
+          chmod +x runtime/ffmpeg/ffmpeg runtime/ffmpeg/ffprobe
           echo "✅ FFmpeg 已准备"
 
       - name: 📋 准备 Mac App Bundle
@@ -129,15 +111,15 @@ jobs:
             -srcfolder "VideoLingo Q.app" \
             -ov \
             -format UDZO \
-            "VideoLingo-Q-${{ matrix.arch_label }}.dmg"
+            "VideoLingo-Q-macOS-arm64.dmg"
           echo "✅ DMG 打包完成"
-          ls -lh "VideoLingo-Q-${{ matrix.arch_label }}.dmg"
+          ls -lh "VideoLingo-Q-macOS-arm64.dmg"
 
       - name: 📤 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: VideoLingo-Q-${{ matrix.arch_label }}-DMG
-          path: VideoLingo-Q-${{ matrix.arch_label }}.dmg
+          name: VideoLingo-Q-macOS-arm64-DMG
+          path: VideoLingo-Q-macOS-arm64.dmg
           retention-days: 7
 
 
