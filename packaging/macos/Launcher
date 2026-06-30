@@ -1,0 +1,6 @@
+#!/bin/bash
+# VideoLingo Q - macOS App Bundle Launcher
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+APP_DIR="$DIR/../Resources/app"
+cd "$APP_DIR"
+exec ./start_macos.command
