@@ -54,6 +54,10 @@ jobs:
           $PIP install "demucs[dev] @ git+https://github.com/adefossez/demucs" || echo "⚠️ demucs 安装失败，跳过"
           $PIP install "whisperx @ git+https://github.com/m-bain/whisperx.git@7307306a9d8dd0d261e588cc933322454f853853" || echo "⚠️ whisperx 安装失败，跳过"
 
+          # 4. 下载常用 SpaCy 模型以支持离线运行
+          ./runtime/python/bin/python3 -m spacy download en_core_web_md || echo "⚠️ en_core_web_md 下载失败"
+          ./runtime/python/bin/python3 -m spacy download zh_core_web_md || echo "⚠️ zh_core_web_md 下载失败"
+
           echo "✅ 依赖安装完成"
 
       - name: 📦 获取 FFmpeg 静态二进制
@@ -171,6 +175,12 @@ jobs:
           & $py -m pip install "whisperx @ git+https://github.com/m-bain/whisperx.git@7307306a9d8dd0d261e588cc933322454f853853"
           if ($LASTEXITCODE -ne 0) { Write-Host "⚠️ whisperx 安装失败，跳过" }
 
+          # 4. 下载常用 SpaCy 模型以支持离线运行
+          & $py -m spacy download en_core_web_md
+          if ($LASTEXITCODE -ne 0) { Write-Host "⚠️ en_core_web_md 下载失败" }
+          & $py -m spacy download zh_core_web_md
+          if ($LASTEXITCODE -ne 0) { Write-Host "⚠️ zh_core_web_md 下载失败" }
+
           $global:LASTEXITCODE = 0
           Write-Host "✅ 依赖安装完成"
 
@@ -190,8 +200,18 @@ jobs:
         shell: pwsh
         run: |
           $releaseDir = "VideoLingo-Q-Windows-x64"
-          $excludeDirs = @('.git', '__pycache__', 'output', 'history', '_model_cache',
-                          'VideoLingo.egg-info', 'build', 'dist', 'ffmpeg_temp')
+          # 使用绝对路径以避免递归排除子目录（例如 pip 内部的 build 目录）
+          $excludeDirs = @(
+            "$PWD\.git",
+            "__pycache__",
+            "$PWD\output",
+            "$PWD\history",
+            "$PWD\_model_cache",
+            "$PWD\VideoLingo.egg-info",
+            "$PWD\build",
+            "$PWD\dist",
+            "$PWD\ffmpeg_temp"
+          )
 
           robocopy . $releaseDir /E `
             /XD $excludeDirs `
