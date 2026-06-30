@@ -425,13 +425,12 @@ def page_setting():
                 if st.button(f"🔊 {t('Listen Preview')}", key="preview_edge_tts", use_container_width=True):
                     preview_text = "这是您的配音预览，听起来还不错吧？" if selected_voice.startswith("zh-") else "This is your voice preview, sounds good, right?"
                     import tempfile
-                    import subprocess
+                    from core.tts_backend.edge_tts import edge_tts
                     with st.spinner(t("Generating preview...")):
                         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
                             tmp_path = tmp_file.name
                         try:
-                            cmd = ["edge-tts", "--voice", selected_voice, "--text", preview_text, "--write-media", tmp_path]
-                            subprocess.run(cmd, check=True, capture_output=True)
+                            edge_tts(preview_text, tmp_path)
                             with open(tmp_path, "rb") as f:
                                 audio_bytes = f.read()
                             st.audio(audio_bytes, format="audio/mp3")
