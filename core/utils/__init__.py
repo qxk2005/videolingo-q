@@ -47,14 +47,33 @@ def get_ffmpeg_video_encoder():
 
     system = platform.system()
     candidate = 'h264_videotoolbox' if system == 'Darwin' else 'h264_nvenc'
+    
+    # 1. Check if the encoder is supported in the ffmpeg binary compilation
     try:
         result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True)
-        if candidate in result.stdout:
-            print(f"ffmpeg hw encoder available: {candidate}")
-            return candidate
+        if candidate not in result.stdout:
+            print(f"ffmpeg hw encoder '{candidate}' not compiled in ffmpeg, falling back to software encoding")
+            return None
     except Exception:
-        pass
-    print(f"ffmpeg hw encoder '{candidate}' not found, falling back to software encoding")
+        return None
+
+    # 2. Runtime check to see if the hardware/driver actually supports initialized encoding
+    try:
+        test_cmd = [
+            'ffmpeg', '-y', 
+            '-f', 'lavfi', '-i', 'color=c=black:s=64x64:d=1', 
+            '-c:v', candidate, 
+            '-f', 'null', '-'
+        ]
+        test_result = subprocess.run(test_cmd, capture_output=True, text=True, timeout=3)
+        if test_result.returncode == 0:
+            print(f"ffmpeg hw encoder available and working: {candidate}")
+            return candidate
+        else:
+            print(f"ffmpeg hw encoder '{candidate}' runtime check failed, falling back to software encoding")
+    except Exception as e:
+        print(f"ffmpeg hw encoder '{candidate}' runtime check exception, falling back to software encoding: {e}")
+        
     return None
 
 __all__ = ["ask_gpt", "except_handler", "check_file_exists", "load_key", "update_key", "rprint", "get_joiner", "get_ffmpeg_video_encoder"]
