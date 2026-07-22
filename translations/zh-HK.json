@@ -120,5 +120,11 @@
     "Maximum number of subtitle lines translated by LLM in one batch. Set to 0 to send all. Reduce this value if translation experiences timeouts.": "單次翻譯提交給大模型的最大字幕行數。設為 0 代表一次性提交所有字幕。如果您在翻譯過程中遇到連接超時報錯，請降低此數值。",
     "FFmpeg GPU Acceleration": "FFmpeg GPU 加速",
     "Enable NVIDIA NVENC hardware encoding for FFmpeg. Significantly speeds up video encoding. Auto-detected on startup.": "啟用 NVIDIA NVENC 硬件編碼加速 FFmpeg 視頻編碼。可顯著提升編碼速度。該選項在程式啟動時自動偵測。",
-    "No NVIDIA GPU detected. Local Whisper will run on CPU, which may be significantly slower. Consider using 'cloud' or 'elevenlabs' runtime for better performance.": "未偵測到 NVIDIA GPU。本地 Whisper 將使用 CPU 運行，速度可能明顯較慢。建議切換到 'cloud' 或 'elevenlabs' 模式以獲得更好的效能。"
+    "No NVIDIA GPU detected. Local Whisper will run on CPU, which may be significantly slower. Consider using 'cloud' or 'elevenlabs' runtime for better performance.": "未偵測到 NVIDIA GPU。本地 Whisper 將使用 CPU 運行，速度可能明顯較慢。建議切換到 'cloud' 或 'elevenlabs' 模式以獲得更好的效能。",
+    "本地上传视频，无法重新下载 (Local Uploaded Video)": "本地上傳影片，無法重新下載",
+    "Generating timeline and subtitles...": "正在生成時間軸和字幕...",
+    "audio_processing_step": "音訊處理步驟",
+    "text_processing_step": "文字處理步驟",
+    "✅ Subtitle cache cleared.": "✅ 字幕快取已清除。",
+    "🗑️ Clearing subtitle cache...": "🗑️ 正在清除字幕快取..."
 }

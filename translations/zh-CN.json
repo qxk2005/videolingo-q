@@ -196,6 +196,11 @@
     "Cookies uploaded and saved successfully!": "Cookies 已成功上传并保存！",
     "FFmpeg GPU Acceleration": "FFmpeg GPU 加速",
     "Enable NVIDIA NVENC hardware encoding for FFmpeg. Significantly speeds up video encoding. Auto-detected on startup.": "启用 NVIDIA NVENC 硬件编码加速 FFmpeg 视频编码。可显著提升编码速度。该选项在程序启动时自动检测。",
-    "No NVIDIA GPU detected. Local Whisper will run on CPU, which may be significantly slower. Consider using 'cloud' or 'elevenlabs' runtime for better performance.": "未检测到 NVIDIA GPU。本地 Whisper 将使用 CPU 运行，速度可能明显较慢。建议切换到 'cloud' 或 'elevenlabs' 模式以获得更好的性能。"
+    "No NVIDIA GPU detected. Local Whisper will run on CPU, which may be significantly slower. Consider using 'cloud' or 'elevenlabs' runtime for better performance.": "未检测到 NVIDIA GPU。本地 Whisper 将使用 CPU 运行，速度可能明显较慢。建议切换到 'cloud' 或 'elevenlabs' 模式以获得更好的性能。",
+    "本地上传视频，无法重新下载 (Local Uploaded Video)": "本地上传视频，无法重新下载",
+    "Generating timeline and subtitles...": "正在生成时间轴和字幕...",
+    "audio_processing_step": "音频处理步骤",
+    "text_processing_step": "文本处理步骤",
+    "✅ Subtitle cache cleared.": "✅ 字幕缓存已清除。",
+    "🗑️ Clearing subtitle cache...": "🗑️ 正在清除字幕缓存..."
 }
-

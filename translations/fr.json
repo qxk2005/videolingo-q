@@ -113,5 +113,11 @@
     "Send all subtitle data to LLM in large batches to reduce API calls. Automatically falls back to standard mode on failure.": "Send all subtitle data to LLM in large batches to reduce API calls. Automatically falls back to standard mode on failure.",
     "FFmpeg GPU Acceleration": "Accélération GPU FFmpeg",
     "Enable NVIDIA NVENC hardware encoding for FFmpeg. Significantly speeds up video encoding. Auto-detected on startup.": "Activer l'encodage matériel NVIDIA NVENC pour FFmpeg. Accélère considérablement l'encodage vidéo. Détecté automatiquement au démarrage.",
-    "No NVIDIA GPU detected. Local Whisper will run on CPU, which may be significantly slower. Consider using 'cloud' or 'elevenlabs' runtime for better performance.": "Aucun GPU NVIDIA détecté. Le Whisper local fonctionnera sur CPU, ce qui peut être significativement plus lent. Envisagez d'utiliser le runtime 'cloud' ou 'elevenlabs' pour de meilleures performances."
+    "No NVIDIA GPU detected. Local Whisper will run on CPU, which may be significantly slower. Consider using 'cloud' or 'elevenlabs' runtime for better performance.": "Aucun GPU NVIDIA détecté. Le Whisper local fonctionnera sur CPU, ce qui peut être significativement plus lent. Envisagez d'utiliser le runtime 'cloud' ou 'elevenlabs' pour de meilleures performances.",
+    "本地上传视频，无法重新下载 (Local Uploaded Video)": "Vidéo téléchargée localement (impossible de télécharger à nouveau)",
+    "Generating timeline and subtitles...": "Génération de la chronologie et des sous-titres...",
+    "audio_processing_step": "Étape de traitement audio",
+    "text_processing_step": "Étape de traitement de texte",
+    "✅ Subtitle cache cleared.": "✅ Cache de sous-titres effacé.",
+    "🗑️ Clearing subtitle cache...": "🗑️ Effacement du cache de sous-titres..."
 }
