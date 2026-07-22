@@ -276,6 +276,11 @@ def _add_cookies_options(ydl_opts):
     except Exception:
         pass
 
+    if "js_runtimes" not in ydl_opts:
+        ydl_opts["js_runtimes"] = {'node': {}, 'deno': {}, 'quickjs': {}, 'bun': {}}
+    if "remote_components" not in ydl_opts:
+        ydl_opts["remote_components"] = {'ejs:github', 'ejs:npm'}
+
 _ytdlp_updated_in_session = False
 
 def update_ytdlp():
@@ -284,7 +289,7 @@ def update_ytdlp():
         try:
             rprint("[cyan]Checking and updating yt-dlp...[/cyan]")
             subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"],
+                [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp", "yt-dlp-ejs"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=15
