@@ -47,6 +47,8 @@ def srt_to_vtt(srt_path: str, vtt_path: str):
     if not os.path.exists(srt_path):
         return
     try:
+        from core._1_ytdlp import resolve_srt_overlaps_file
+        resolve_srt_overlaps_file(srt_path)
         with open(srt_path, 'r', encoding='utf-8') as f:
             content = f.read()
         # Replace timestamp commas with dots for VTT format compliance

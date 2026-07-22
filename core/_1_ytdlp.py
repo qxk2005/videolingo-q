@@ -57,7 +57,7 @@ def resolve_srt_overlaps_file(target_path):
                 continue
             ts_match = ts_idx = None
             for idx, line in enumerate(lines):
-                m = re.match(r'([\d:,]+)\s+-->\s+([\d:,]+)', line)
+                m = re.match(r'([\d:,.]+)\s+-->\s+([\d:,.]+)', line)
                 if m:
                     ts_match, ts_idx = m, idx
                     break
@@ -77,15 +77,16 @@ def resolve_srt_overlaps_file(target_path):
         if not items:
             return
             
-        # Resolve overlaps
+        # Resolve overlaps and inverted start times
         for i in range(len(items) - 1):
             curr = items[i]
             nxt = items[i+1]
+            if nxt['start'] < curr['start']:
+                nxt['start'] = curr['start']
+                if nxt['end'] < nxt['start']:
+                    nxt['end'] = nxt['start']
             if curr['end'] > nxt['start']:
-                new_end = nxt['start']
-                if new_end < curr['start']:
-                    new_end = curr['start']
-                curr['end'] = new_end
+                curr['end'] = nxt['start']
                 
         # Format back to SRT string
         new_blocks = []

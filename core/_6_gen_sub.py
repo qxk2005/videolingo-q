@@ -170,15 +170,27 @@ def align_timestamp(df_text, df_translate, subtitle_output_configs: list, output
     df_trans_time['timestamp'] = time_stamp_list
     df_trans_time['duration'] = df_trans_time['timestamp'].apply(lambda x: x[1] - x[0])
 
-    # Remove gaps 🕳️ (but keep a tiny gap of 0.15s for breathing room to make both subtitles and dubbing comfortable)
+    # Remove gaps and resolve overlaps 🕳️
     for i in range(len(df_trans_time)-1):
-        delta_time = df_trans_time.loc[i+1, 'timestamp'][0] - df_trans_time.loc[i, 'timestamp'][1]
-        if 0 < delta_time < 1:
-            tiny_gap = 0.15
-            if delta_time > tiny_gap:
-                df_trans_time.at[i, 'timestamp'] = (df_trans_time.loc[i, 'timestamp'][0], df_trans_time.loc[i+1, 'timestamp'][0] - tiny_gap)
-            else:
-                df_trans_time.at[i, 'timestamp'] = (df_trans_time.loc[i, 'timestamp'][0], df_trans_time.loc[i+1, 'timestamp'][0])
+        curr_start, curr_end = df_trans_time.loc[i, 'timestamp']
+        next_start, next_end = df_trans_time.loc[i+1, 'timestamp']
+        
+        if next_start < curr_start:
+            next_start = curr_start
+            next_end = max(next_start, next_end)
+            df_trans_time.at[i+1, 'timestamp'] = (next_start, next_end)
+
+        if curr_end > next_start:
+            new_end = next_start
+            df_trans_time.at[i, 'timestamp'] = (curr_start, new_end)
+        else:
+            delta_time = next_start - curr_end
+            if 0 < delta_time < 1:
+                tiny_gap = 0.15
+                if delta_time > tiny_gap:
+                    df_trans_time.at[i, 'timestamp'] = (curr_start, next_start - tiny_gap)
+                else:
+                    df_trans_time.at[i, 'timestamp'] = (curr_start, next_start)
 
     # Convert start and end timestamps to SRT format
     df_trans_time['timestamp'] = df_trans_time['timestamp'].apply(lambda x: convert_to_srt_format(x[0], x[1]))
@@ -203,11 +215,14 @@ def align_timestamp(df_text, df_translate, subtitle_output_configs: list, output
         return ''.join([f"{i+1}\n{row['timestamp']}\n{_get_val(row, disp[0])}\n{_get_val(row, disp[1]) if len(disp) > 1 else ''}\n\n" for i, row in df.iterrows()]).strip()
 
     if output_dir:
+        from core._1_ytdlp import resolve_srt_overlaps_file
         os.makedirs(output_dir, exist_ok=True)
         for filename, columns in subtitle_output_configs:
             subtitle_str = generate_subtitle_string(df_trans_time, columns)
-            with open(os.path.join(output_dir, filename), 'w', encoding='utf-8') as f:
+            target_path = os.path.join(output_dir, filename)
+            with open(target_path, 'w', encoding='utf-8') as f:
                 f.write(subtitle_str)
+            resolve_srt_overlaps_file(target_path)
     
     return df_trans_time
 
