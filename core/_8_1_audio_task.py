@@ -6,6 +6,7 @@ from rich.console import Console
 from rich.panel import Panel
 from core.prompts import get_subtitle_trim_prompt, get_batch_trim_prompt
 from core.tts_backend.estimate_duration import init_estimator, estimate_duration
+from core.utils.audio_gender import classify_subtitles_gender
 from core.utils import *
 from core.utils.models import *
 
@@ -231,6 +232,9 @@ def process_srt():
         df['duration'] = df['duration'] / video_slow_factor
         rprint(f"[bold cyan]🎬 Timestamps scaled by 1/{video_slow_factor:.2f} (video_slow_factor={video_slow_factor})[/bold cyan]")
 
+    # Automatic Voice Gender Classification
+    df = classify_subtitles_gender(df)
+
     return df
 
 def gen_audio_task_main():
@@ -240,6 +244,15 @@ def gen_audio_task_main():
             os.remove(_8_1_AUDIO_TASK)
             rprint("[yellow]🔄 Subtitle SRT is newer than audio task file, regenerating...[/yellow]")
     if os.path.exists(_8_1_AUDIO_TASK):
+        try:
+            existing_df = pd.read_excel(_8_1_AUDIO_TASK)
+            if 'gender' not in existing_df.columns:
+                rprint("[yellow]🔄 Existing audio task file missing 'gender' column, classifying and updating...[/yellow]")
+                existing_df = classify_subtitles_gender(existing_df)
+                existing_df.to_excel(_8_1_AUDIO_TASK, index=False)
+                return
+        except Exception:
+            pass
         rprint(f"[yellow]⚠️ File <{_8_1_AUDIO_TASK}> already exists, skip <gen_audio_task_main> step.[/yellow]")
         return
     df = process_srt()

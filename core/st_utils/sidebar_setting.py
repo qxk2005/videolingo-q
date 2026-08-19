@@ -360,49 +360,88 @@ def page_setting():
             if select_tts == "doubao_tts":
                 config_input("Volcengine AppID", "doubao_tts.appid")
                 config_input("Volcengine Access Token", "doubao_tts.access_token")
-                doubao_voices = {
-                    "vivi 2.0 (中女·旗舰)": "zh_female_vv_uranus_bigtts",
-                    "流畅女声 2.0 (视频配音)": "zh_female_liuchangnv_uranus_bigtts",
-                    "儒雅逸辰 2.0 (视频配音)": "zh_male_ruyayichen_uranus_bigtts",
-                    "温柔妈妈 2.0 (通用)": "zh_female_wenroumama_uranus_bigtts",
-                    "解说小明 2.0 (通用)": "zh_male_jieshuoxiaoming_uranus_bigtts",
-                    "TVB女声 2.0 (通用)": "zh_female_tvbnv_uranus_bigtts",
-                    "译制片男 2.0 (通用)": "zh_male_yizhipiannan_uranus_bigtts",
-                    "俏皮女声 2.0 (通用)": "zh_female_qiaopinv_uranus_bigtts",
-                    "直率英子 2.0 (通用)": "zh_female_zhishuaiyingzi_uranus_bigtts",
-                    "邻家男孩 2.0 (通用)": "zh_male_linjiananhai_uranus_bigtts",
-                    "四郎 2.0 (通用)": "zh_male_silang_uranus_bigtts",
-                    "小何 (中女·旗舰)": "zh_female_xiaohe_uranus_bigtts",
+                
+                doubao_male_voices = {
+                    "儒雅逸辰 2.0 (男·视频配音)": "zh_male_ruyayichen_uranus_bigtts",
+                    "解说小明 2.0 (男·通用)": "zh_male_jieshuoxiaoming_uranus_bigtts",
+                    "译制片男 2.0 (男·通用)": "zh_male_yizhipiannan_uranus_bigtts",
+                    "邻家男孩 2.0 (男·通用)": "zh_male_linjiananhai_uranus_bigtts",
+                    "四郎 2.0 (男·通用)": "zh_male_silang_uranus_bigtts",
                     "云舟 (中男·旗舰)": "zh_male_m191_uranus_bigtts",
                     "小天 (中男·旗舰)": "zh_male_taocheng_uranus_bigtts",
                     "Tim (英男·旗舰)": "en_male_tim_uranus_bigtts",
-                    "知性灿灿 (中女·Saturn)": "saturn_zh_female_cancan_tob",
-                    "可爱女生 (中女·Saturn)": "saturn_zh_female_keainvsheng_tob",
-                    "调皮公主 (中女·Saturn)": "saturn_zh_female_tiaopigongzhu_tob",
                     "爽朗少年 (中男·Saturn)": "saturn_zh_male_shuanglangshaonian_tob",
                     "天才同桌 (中男·Saturn)": "saturn_zh_male_tiancaitongzhu_tob",
                 }
-                current_doubao_voice = load_key("doubao_tts.voice")
-                current_display = next((k for k, v in doubao_voices.items() if v == current_doubao_voice), list(doubao_voices.keys())[0])
-                selected_display = st.selectbox(
-                    t("Doubao Voice"),
-                    options=list(doubao_voices.keys()),
-                    index=list(doubao_voices.keys()).index(current_display)
-                )
-                selected_voice = doubao_voices[selected_display]
-                if selected_voice != current_doubao_voice:
-                    update_key("doubao_tts.voice", selected_voice)
                 
-                # 🔊 Preview Button for Doubao TTS
-                if st.button(f"🔊 {t('Listen Preview')}", key="preview_doubao_tts", use_container_width=True):
-                    preview_text = "这是您的豆包2.0配音预览，听起来不错吧？" if load_key("display_language") == "zh-CN" else "This is your Doubao 2.0 voice preview, sounds good, right?"
+                doubao_female_voices = {
+                    "vivi 2.0 (中女·旗舰)": "zh_female_vv_uranus_bigtts",
+                    "流畅女声 2.0 (女·视频配音)": "zh_female_liuchangnv_uranus_bigtts",
+                    "温柔妈妈 2.0 (女·通用)": "zh_female_wenroumama_uranus_bigtts",
+                    "TVB女声 2.0 (女·通用)": "zh_female_tvbnv_uranus_bigtts",
+                    "俏皮女声 2.0 (女·通用)": "zh_female_qiaopinv_uranus_bigtts",
+                    "直率英子 2.0 (女·通用)": "zh_female_zhishuaiyingzi_uranus_bigtts",
+                    "小何 (中女·旗舰)": "zh_female_xiaohe_uranus_bigtts",
+                    "知性灿灿 (中女·Saturn)": "saturn_zh_female_cancan_tob",
+                    "可爱女生 (中女·Saturn)": "saturn_zh_female_keainvsheng_tob",
+                    "调皮公主 (中女·Saturn)": "saturn_zh_female_tiaopigongzhu_tob",
+                }
+
+                # 👨 Male Voice Selection
+                current_male_voice = load_key("doubao_tts.male_voice") or "zh_male_ruyayichen_uranus_bigtts"
+                current_male_display = next((k for k, v in doubao_male_voices.items() if v == current_male_voice), list(doubao_male_voices.keys())[0])
+                selected_male_display = st.selectbox(
+                    f"👨 {t('Doubao Male Voice')}",
+                    options=list(doubao_male_voices.keys()),
+                    index=list(doubao_male_voices.keys()).index(current_male_display),
+                    key="select_doubao_male_voice"
+                )
+                selected_male_voice = doubao_male_voices[selected_male_display]
+                if selected_male_voice != load_key("doubao_tts.male_voice"):
+                    update_key("doubao_tts.male_voice", selected_male_voice)
+
+                if st.button(f"🔊 {t('Preview Male Voice')}", key="preview_doubao_male_tts", use_container_width=True):
+                    preview_text = "这是您的豆包男声配音预览，听起来很有磁性吧？" if load_key("display_language") == "zh-CN" else "This is your Doubao male voice preview, sounds good, right?"
                     import tempfile
                     from core.tts_backend.doubao_tts import doubao_tts as gen_doubao_tts
                     with st.spinner(t("Generating preview...")):
                         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
                             tmp_path = tmp_file.name
                         try:
-                            gen_doubao_tts(preview_text, tmp_path)
+                            gen_doubao_tts(preview_text, tmp_path, voice_type=selected_male_voice)
+                            with open(tmp_path, "rb") as f:
+                                audio_bytes = f.read()
+                            st.audio(audio_bytes, format="audio/mp3")
+                        except Exception as e:
+                            st.error(f"Preview failed: {str(e)}")
+                        finally:
+                            if os.path.exists(tmp_path):
+                                try: os.remove(tmp_path)
+                                except: pass
+
+                # 👩 Female Voice Selection
+                current_female_voice = load_key("doubao_tts.female_voice") or load_key("doubao_tts.voice") or "zh_female_vv_uranus_bigtts"
+                current_female_display = next((k for k, v in doubao_female_voices.items() if v == current_female_voice), list(doubao_female_voices.keys())[0])
+                selected_female_display = st.selectbox(
+                    f"👩 {t('Doubao Female Voice')}",
+                    options=list(doubao_female_voices.keys()),
+                    index=list(doubao_female_voices.keys()).index(current_female_display),
+                    key="select_doubao_female_voice"
+                )
+                selected_female_voice = doubao_female_voices[selected_female_display]
+                if selected_female_voice != load_key("doubao_tts.female_voice"):
+                    update_key("doubao_tts.female_voice", selected_female_voice)
+                    update_key("doubao_tts.voice", selected_female_voice)
+
+                if st.button(f"🔊 {t('Preview Female Voice')}", key="preview_doubao_female_tts", use_container_width=True):
+                    preview_text = "这是您的豆包女声配音预览，听起来自然优雅吧？" if load_key("display_language") == "zh-CN" else "This is your Doubao female voice preview, sounds natural, right?"
+                    import tempfile
+                    from core.tts_backend.doubao_tts import doubao_tts as gen_doubao_tts
+                    with st.spinner(t("Generating preview...")):
+                        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
+                            tmp_path = tmp_file.name
+                        try:
+                            gen_doubao_tts(preview_text, tmp_path, voice_type=selected_female_voice)
                             with open(tmp_path, "rb") as f:
                                 audio_bytes = f.read()
                             st.audio(audio_bytes, format="audio/mp3")
@@ -414,48 +453,85 @@ def page_setting():
                                 except: pass
             
             elif select_tts == "edge_tts":
-                edge_tts_voices = {
-                    "zh-CN-XiaoxiaoNeural (晓晓·女声·新闻)": "zh-CN-XiaoxiaoNeural",
+                edge_male_voices = {
                     "zh-CN-YunxiNeural (云希·男声·通用)": "zh-CN-YunxiNeural",
                     "zh-CN-YunjianNeural (云健·男声·解说)": "zh-CN-YunjianNeural",
-                    "zh-CN-XiaoyiNeural (晓伊·女声·故事)": "zh-CN-XiaoyiNeural",
-                    "zh-CN-YunxiaNeural (云夏·男声·卡通)": "zh-CN-YunxiaNeural",
                     "zh-CN-YunyangNeural (云扬·男声·新闻)": "zh-CN-YunyangNeural",
+                    "zh-CN-YunxiaNeural (云夏·男声·卡通)": "zh-CN-YunxiaNeural",
+                    "zh-HK-WanLungNeural (云龙·香港男声)": "zh-HK-WanLungNeural",
+                    "zh-TW-YunJheNeural (云哲·台湾男声)": "zh-TW-YunJheNeural",
+                    "en-US-GuyNeural (Guy·US Male)": "en-US-GuyNeural",
+                    "en-US-ChristopherNeural (Chris·US Male)": "en-US-ChristopherNeural",
+                    "en-GB-RyanNeural (Ryan·UK Male)": "en-GB-RyanNeural",
+                }
+
+                edge_female_voices = {
+                    "zh-CN-XiaoxiaoNeural (晓晓·女声·新闻)": "zh-CN-XiaoxiaoNeural",
+                    "zh-CN-XiaoyiNeural (晓伊·女声·故事)": "zh-CN-XiaoyiNeural",
                     "zh-CN-liaoning-XiaobeiNeural (晓北·辽宁方言)": "zh-CN-liaoning-XiaobeiNeural",
                     "zh-CN-shaanxi-XiaoniNeural (晓妮·陕西方言)": "zh-CN-shaanxi-XiaoniNeural",
                     "zh-HK-HiuMaanNeural (晓曼·港漫女声)": "zh-HK-HiuMaanNeural",
-                    "zh-HK-WanLungNeural (云龙·香港男声)": "zh-HK-WanLungNeural",
                     "zh-TW-HsiaoChenNeural (晓臻·台湾女声)": "zh-TW-HsiaoChenNeural",
-                    "zh-TW-YunJheNeural (云哲·台湾男声)": "zh-TW-YunJheNeural",
                     "en-US-JennyNeural (Jenny·US Female)": "en-US-JennyNeural",
-                    "en-US-GuyNeural (Guy·US Male)": "en-US-GuyNeural",
                     "en-US-AriaNeural (Aria·US Female)": "en-US-AriaNeural",
-                    "en-US-ChristopherNeural (Chris·US Male)": "en-US-ChristopherNeural",
                     "en-GB-SoniaNeural (Sonia·UK Female)": "en-GB-SoniaNeural",
-                    "en-GB-RyanNeural (Ryan·UK Male)": "en-GB-RyanNeural",
                 }
-                current_voice = load_key("edge_tts.voice")
-                # find display name for current value, fallback to first option
-                current_display = next((k for k, v in edge_tts_voices.items() if v == current_voice), list(edge_tts_voices.keys())[0])
-                selected_display = st.selectbox(
-                    t("Edge TTS Voice"),
-                    options=list(edge_tts_voices.keys()),
-                    index=list(edge_tts_voices.keys()).index(current_display)
+
+                # 👨 Male Voice Selection
+                current_male_voice = load_key("edge_tts.male_voice") or "zh-CN-YunxiNeural"
+                current_male_display = next((k for k, v in edge_male_voices.items() if v == current_male_voice), list(edge_male_voices.keys())[0])
+                selected_male_display = st.selectbox(
+                    f"👨 {t('Edge TTS Male Voice')}",
+                    options=list(edge_male_voices.keys()),
+                    index=list(edge_male_voices.keys()).index(current_male_display),
+                    key="select_edge_male_voice"
                 )
-                selected_voice = edge_tts_voices[selected_display]
-                if selected_voice != current_voice:
-                    update_key("edge_tts.voice", selected_voice)
-                
-                # 🔊 Preview Button for Edge TTS
-                if st.button(f"🔊 {t('Listen Preview')}", key="preview_edge_tts", use_container_width=True):
-                    preview_text = "这是您的配音预览，听起来还不错吧？" if selected_voice.startswith("zh-") else "This is your voice preview, sounds good, right?"
+                selected_male_voice = edge_male_voices[selected_male_display]
+                if selected_male_voice != load_key("edge_tts.male_voice"):
+                    update_key("edge_tts.male_voice", selected_male_voice)
+
+                if st.button(f"🔊 {t('Preview Male Voice')}", key="preview_edge_male_tts", use_container_width=True):
+                    preview_text = "这是您的 Edge TTS 男声配音预览，听起来不错吧？" if selected_male_voice.startswith("zh-") else "This is your Edge TTS male voice preview, sounds good, right?"
                     import tempfile
                     from core.tts_backend.edge_tts import edge_tts
                     with st.spinner(t("Generating preview...")):
                         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
                             tmp_path = tmp_file.name
                         try:
-                            edge_tts(preview_text, tmp_path)
+                            edge_tts(preview_text, tmp_path, voice=selected_male_voice)
+                            with open(tmp_path, "rb") as f:
+                                audio_bytes = f.read()
+                            st.audio(audio_bytes, format="audio/mp3")
+                        except Exception as e:
+                            st.error(f"Preview failed: {str(e)}")
+                        finally:
+                            if os.path.exists(tmp_path):
+                                try: os.remove(tmp_path)
+                                except: pass
+
+                # 👩 Female Voice Selection
+                current_female_voice = load_key("edge_tts.female_voice") or load_key("edge_tts.voice") or "zh-CN-XiaoxiaoNeural"
+                current_female_display = next((k for k, v in edge_female_voices.items() if v == current_female_voice), list(edge_female_voices.keys())[0])
+                selected_female_display = st.selectbox(
+                    f"👩 {t('Edge TTS Female Voice')}",
+                    options=list(edge_female_voices.keys()),
+                    index=list(edge_female_voices.keys()).index(current_female_display),
+                    key="select_edge_female_voice"
+                )
+                selected_female_voice = edge_female_voices[selected_female_display]
+                if selected_female_voice != load_key("edge_tts.female_voice"):
+                    update_key("edge_tts.female_voice", selected_female_voice)
+                    update_key("edge_tts.voice", selected_female_voice)
+
+                if st.button(f"🔊 {t('Preview Female Voice')}", key="preview_edge_female_tts", use_container_width=True):
+                    preview_text = "这是您的 Edge TTS 女声配音预览，听起来还不错吧？" if selected_female_voice.startswith("zh-") else "This is your Edge TTS female voice preview, sounds good, right?"
+                    import tempfile
+                    from core.tts_backend.edge_tts import edge_tts
+                    with st.spinner(t("Generating preview...")):
+                        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
+                            tmp_path = tmp_file.name
+                        try:
+                            edge_tts(preview_text, tmp_path, voice=selected_female_voice)
                             with open(tmp_path, "rb") as f:
                                 audio_bytes = f.read()
                             st.audio(audio_bytes, format="audio/mp3")

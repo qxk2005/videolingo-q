@@ -57,7 +57,7 @@ def is_audio_valid(file_path: str, text: str) -> bool:
         
     return True
 
-def tts_main(text, save_as, number, task_df):
+def tts_main(text, save_as, number=None, task_df=None, gender=None):
     text = clean_text_for_tts(text)
     # Check if text is empty or single character, single character voiceovers are prone to bugs
     cleaned_text = re.sub(r'[^\w\s]', '', text).strip()
@@ -66,6 +66,15 @@ def tts_main(text, save_as, number, task_df):
         silence.export(save_as, format="wav")
         rprint(f"Created silent audio for empty/single-char text: {save_as}")
         return
+    
+    # Resolve gender from task_df if not explicitly provided
+    if gender is None and task_df is not None and number is not None:
+        try:
+            matching_rows = task_df[task_df['number'] == number]
+            if not matching_rows.empty and 'gender' in matching_rows.columns:
+                gender = matching_rows['gender'].values[0]
+        except Exception:
+            pass
     
     # Skip if file exists, is non-empty and is valid
     if os.path.exists(save_as) and os.path.getsize(save_as) > 0:
@@ -78,7 +87,7 @@ def tts_main(text, save_as, number, task_df):
             except Exception:
                 pass
     
-    print(f"Generating <{text}...>")
+    print(f"Generating ({gender or 'default'}) <{text}...>")
     TTS_METHOD = load_key("tts_method")
     
     max_retries = 3
@@ -91,9 +100,9 @@ def tts_main(text, save_as, number, task_df):
                 text = correct_text['text']
             
             if TTS_METHOD == 'edge_tts':
-                edge_tts(text, save_as)
+                edge_tts(text, save_as, gender=gender)
             elif TTS_METHOD == 'doubao_tts':
-                doubao_tts(text, save_as)
+                doubao_tts(text, save_as, gender=gender)
             else:
                 raise ValueError(f"Unsupported TTS method: {TTS_METHOD}")
                 

@@ -101,12 +101,16 @@ tts_max_workers: 1
 
 # Edge TTS configuration
 edge_tts:
-  voice: 'zh-CN-YunyangNeural'
+  male_voice: 'zh-CN-YunxiNeural'
+  female_voice: 'zh-CN-XiaoxiaoNeural'
+  voice: 'zh-CN-YunxiNeural'
 
 # Volcengine Doubao TTS configuration
 doubao_tts:
   appid: 'YOUR_APPID'
   access_token: 'YOUR_ACCESS_TOKEN'
+  male_voice: 'zh_male_ruyayichen_uranus_bigtts'
+  female_voice: 'zh_female_vv_uranus_bigtts'
   voice: 'zh_female_vv_uranus_bigtts'
 
 # *Audio speed range

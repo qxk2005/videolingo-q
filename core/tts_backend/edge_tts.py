@@ -3,10 +3,16 @@ import edge_tts as edge_tts_sdk
 from core.utils import *
 import asyncio
 
-def edge_tts(text, save_path):
+def edge_tts(text, save_path, voice=None, gender=None):
     # Load settings from config file
     edge_set = load_key("edge_tts")
-    voice = edge_set.get("voice", "en-US-JennyNeural")
+    if not voice:
+        if gender == "male":
+            voice = edge_set.get("male_voice") or edge_set.get("voice", "zh-CN-YunxiNeural")
+        elif gender == "female":
+            voice = edge_set.get("female_voice") or edge_set.get("voice", "zh-CN-XiaoxiaoNeural")
+        else:
+            voice = edge_set.get("voice", "zh-CN-YunxiNeural")
     
     # Create output directory if it doesn't exist
     speech_file_path = Path(save_path)

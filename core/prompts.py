@@ -495,7 +495,59 @@ Consider phonetically similar words or common ASR errors.
 [
   {{"wrong_phrase": "what was recognized", "correct_phrase": "the correct domain term"}}
 ]
-```
 If no corrections are needed, return an empty list `[]`.
 Note: Start your answer with ```json and end with ```, do not add any other text.
 '''.strip()
+
+def get_gender_classification_prompt(context_lines, target_line):
+    return f'''
+## Role
+You are an expert dialogue speaker and gender classifier.
+
+## Task
+Based on the context of the dialogue and the target line, infer the most likely gender (male or female) of the speaker saying the target line.
+If it's impossible to tell, make a reasonable guess based on the tone or common speech patterns.
+
+## Context Dialogue
+{context_lines}
+
+## Target Line to Classify
+{target_line}
+
+## Output Format
+Return strictly a JSON object with a single key "gender" whose value is either "male" or "female":
+```json
+{{
+    "gender": "male"
+}}
+```
+Note: Start your answer with ```json and end with ```, do not add any other text.
+'''.strip()
+
+def get_batch_gender_classification_prompt(items):
+    """
+    items: list of (item_id, text, context)
+    """
+    lines_block = "\n".join([f"ID {item_id}: Text: '{text}' | Context: '{ctx}'" for item_id, text, ctx in items])
+    sample_id = str(items[0][0]) if items else "1"
+    return f'''
+## Role
+You are an expert dialogue speaker and gender classifier.
+
+## Task
+For each numbered subtitle line below, determine the most likely speaker gender ("male" or "female") using the text and context.
+
+## Lines to Classify
+{lines_block}
+
+## Output Format
+Return strictly a JSON object mapping each ID (as string) to "male" or "female":
+```json
+{{
+    "{sample_id}": "male"
+}}
+```
+Note: Start your answer with ```json and end with ```, do not add any other text.
+'''.strip()
+
+

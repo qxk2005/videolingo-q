@@ -6,7 +6,7 @@ import base64
 from core.utils import load_key, except_handler
 
 @except_handler("Failed to generate audio using Doubao TTS 2.0", retry=1, delay=1)
-def doubao_tts(text, save_path):
+def doubao_tts(text, save_path, voice_type=None, gender=None):
     """
     Generate audio using Volcengine Doubao TTS Model 2.0 (V1 HTTP Interface)
     Reference: https://www.volcengine.com/docs/6561/1329505?lang=zh
@@ -15,7 +15,13 @@ def doubao_tts(text, save_path):
     # 1. Load minimalist configurations
     appid = str(load_key("doubao_tts.appid") or "").strip()
     access_token = str(load_key("doubao_tts.access_token") or "").strip()
-    voice_type = load_key("doubao_tts.voice") or "zh_female_vv_uranus_bigtts"
+    if not voice_type:
+        if gender == "male":
+            voice_type = load_key("doubao_tts.male_voice") or load_key("doubao_tts.voice") or "zh_male_ruyayichen_uranus_bigtts"
+        elif gender == "female":
+            voice_type = load_key("doubao_tts.female_voice") or load_key("doubao_tts.voice") or "zh_female_vv_uranus_bigtts"
+        else:
+            voice_type = load_key("doubao_tts.voice") or load_key("doubao_tts.female_voice") or "zh_female_vv_uranus_bigtts"
     
     if not appid or not access_token:
         raise ValueError("Doubao AppID or Access Token not found. Please set them in the sidebar.")

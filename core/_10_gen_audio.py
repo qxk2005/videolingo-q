@@ -30,6 +30,12 @@ def get_tts_fingerprint():
     try:
         if tts_method == "edge_tts":
             settings["voice"] = load_key("edge_tts.voice")
+            settings["male_voice"] = load_key("edge_tts.male_voice")
+            settings["female_voice"] = load_key("edge_tts.female_voice")
+        elif tts_method == "doubao_tts":
+            settings["voice"] = load_key("doubao_tts.voice")
+            settings["male_voice"] = load_key("doubao_tts.male_voice")
+            settings["female_voice"] = load_key("doubao_tts.female_voice")
         elif tts_method == "openai_tts":
             settings["voice"] = load_key("openai_tts.voice")
         elif tts_method == "azure_tts":
@@ -150,6 +156,7 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
     """Helper function for processing single row data with continuous dubbing optimization"""
     number = row['number']
     lines = eval(row['lines']) if isinstance(row['lines'], str) else row['lines']
+    gender = row.get('gender', None)
     real_dur = 0
     
     tts_method = load_key("tts_method")
@@ -179,7 +186,7 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
                 combined_temp_path = tmp_file.name
             
             # Generate continuous paragraph audio
-            tts_main(combined_text, combined_temp_path, number, tasks_df)
+            tts_main(combined_text, combined_temp_path, number, tasks_df, gender=gender)
             
             # Load the continuous audio
             combined_audio = AudioSegment.from_file(combined_temp_path)
@@ -196,7 +203,7 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
             
             if best_ranges is not None:
                 # Successfully identified and split all sentence segments!
-                rprint(f"[bold green]✨ Continuous Dubbing Success: Chunk {number} with {len(lines)} lines successfully aligned and split on silence![/bold green]")
+                rprint(f"[bold green]✨ Continuous Dubbing Success: Chunk {number} ({gender or 'default'}) with {len(lines)} lines successfully aligned and split on silence![/bold green]")
                 for line_index, (start_ms, end_ms) in enumerate(best_ranges):
                     temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
                     # Extract segment with 100ms padding for smooth start/end transition
@@ -253,12 +260,12 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
         real_dur = 0
         for line_index, line in enumerate(lines):
             temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
-            tts_main(line, temp_file, number, tasks_df)
+            tts_main(line, temp_file, number, tasks_df, gender=gender)
             trim_tts_silence(temp_file)  # Remove TTS leading/trailing silence before measuring
             dur = get_audio_duration(temp_file)
             if dur <= 0 and os.path.exists(temp_file):
                 os.remove(temp_file)
-                tts_main(line, temp_file, number, tasks_df)
+                tts_main(line, temp_file, number, tasks_df, gender=gender)
                 trim_tts_silence(temp_file)
                 dur = get_audio_duration(temp_file)
             real_dur += dur
