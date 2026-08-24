@@ -92,10 +92,16 @@ def run_diarization(
 
     rprint("[bold cyan]🎯 Loading pyannote speaker-diarization-3.1 model...[/bold cyan]")
 
-    pipeline = Pipeline.from_pretrained(
-        "pyannote/speaker-diarization-3.1",
-        use_auth_token=hf_token,
-    )
+    try:
+        pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1",
+            token=hf_token,
+        )
+    except TypeError:
+        pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1",
+            use_auth_token=hf_token,
+        )
 
     # Use GPU if available
     import torch
