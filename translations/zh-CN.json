@@ -171,7 +171,7 @@
     "Skip extracting reference audio from the original video. Useful when using fixed TTS voices.": "跳过从原始视频中提取参考音频。当使用固定 TTS 音色时非常有用。",
     "Speaker Diarization": "说话人分离",
     "Enhance gender classification accuracy using pyannote speaker diarization. Requires a HuggingFace token.": "使用 pyannote 说话人分离增强性别分类准确率。需要 HuggingFace token。",
-    "Get a token at https://huggingface.co/settings/tokens. You must also accept model agreements for pyannote/speaker-diarization-3.1 and pyannote/segmentation-3.0.": "在 https://huggingface.co/settings/tokens 获取 token。你还需要同意 pyannote/speaker-diarization-3.1 和 pyannote/segmentation-3.0 模型的使用协议。",
+    "Get a token at https://huggingface.co/settings/tokens. You must also accept model agreements for pyannote/speaker-diarization-3.1, pyannote/segmentation-3.0, and pyannote/speaker-diarization-community-1.": "在 https://huggingface.co/settings/tokens 获取 token。你还需要同意 pyannote/speaker-diarization-3.1、pyannote/segmentation-3.0 以及 pyannote/speaker-diarization-community-1 模型的使用协议。",
     "Min Speakers": "最少说话人数",
     "Max Speakers": "最多说话人数",
     "Minimum expected number of speakers in the video.": "视频中预期的最少说话人数量。",

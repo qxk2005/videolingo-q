@@ -249,7 +249,8 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
             
     # Fallback to original sentence-by-sentence generation
     if not success_continuous:
-        rprint(f"[yellow]⚠️ Continuous dubbing split failed for chunk {number}, cleaning up temporary slices and falling back to individual sentence generation...[/yellow]")
+        if len(lines) > 1 and tts_method == "doubao_tts":
+            rprint(f"[cyan]ℹ️ Continuous dubbing: switched to individual sentence generation for chunk {number}...[/cyan]")
         for line_index in range(len(lines)):
             temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
             if os.path.exists(temp_file):
