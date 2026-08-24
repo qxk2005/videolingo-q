@@ -24,6 +24,8 @@ streamlit==1.38.0
 yt-dlp
 yt-dlp-ejs
 youtube-transcript-api
+socksio
+PySocks
 json-repair
 ruamel.yaml
 InquirerPy
