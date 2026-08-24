@@ -356,6 +356,59 @@ def page_setting():
             if skip_refer != load_key("skip_refer"):
                 update_key("skip_refer", skip_refer)
 
+            # ── Pyannote Speaker Diarization Settings ──
+            st.divider()
+            st.markdown(f"**🎙️ {t('Speaker Diarization')}**")
+            st.caption(t("Enhance gender classification accuracy using pyannote speaker diarization. Requires a HuggingFace token."))
+
+            pyannote_hf_token = st.text_input(
+                "HuggingFace Token",
+                value=load_key("pyannote.hf_token") or "",
+                type="password",
+                help=t("Get a token at https://huggingface.co/settings/tokens. You must also accept model agreements for pyannote/speaker-diarization-3.1 and pyannote/segmentation-3.0."),
+                key="pyannote_hf_token_input"
+            )
+            if pyannote_hf_token != (load_key("pyannote.hf_token") or ""):
+                update_key("pyannote.hf_token", pyannote_hf_token)
+
+            pyannote_hf_endpoint = st.text_input(
+                t("HF Mirror Endpoint"),
+                value=load_key("pyannote.hf_endpoint") or "",
+                placeholder="https://hf-mirror.com",
+                help=t("HuggingFace mirror site URL for users in China mainland. Leave empty to use the default huggingface.co. Common mirror: https://hf-mirror.com"),
+                key="pyannote_hf_endpoint_input"
+            )
+            if pyannote_hf_endpoint != (load_key("pyannote.hf_endpoint") or ""):
+                update_key("pyannote.hf_endpoint", pyannote_hf_endpoint)
+
+            if pyannote_hf_token:
+                col_min_spk, col_max_spk = st.columns(2)
+                with col_min_spk:
+                    min_spk = st.number_input(
+                        t("Min Speakers"),
+                        min_value=1, max_value=20,
+                        value=load_key("pyannote.min_speakers") or 1,
+                        help=t("Minimum expected number of speakers in the video."),
+                        key="pyannote_min_speakers"
+                    )
+                    if min_spk != load_key("pyannote.min_speakers"):
+                        update_key("pyannote.min_speakers", min_spk)
+                with col_max_spk:
+                    max_spk = st.number_input(
+                        t("Max Speakers"),
+                        min_value=1, max_value=20,
+                        value=load_key("pyannote.max_speakers") or 10,
+                        help=t("Maximum expected number of speakers in the video."),
+                        key="pyannote_max_speakers"
+                    )
+                    if max_spk != load_key("pyannote.max_speakers"):
+                        update_key("pyannote.max_speakers", max_spk)
+                st.success(f"✅ {t('Pyannote diarization enabled')}")
+            else:
+                st.info(f"ℹ️ {t('Set HuggingFace token to enable speaker diarization for better gender classification')}")
+
+            st.divider()
+
             # sub settings for each tts method
             if select_tts == "doubao_tts":
                 config_input("Volcengine AppID", "doubao_tts.appid")

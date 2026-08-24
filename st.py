@@ -254,6 +254,7 @@ def text_processing_section():
             try:
                 if step == 1:
                     with st.spinner(t("Using Whisper for transcription...")): _2_asr.transcribe()
+                    with st.spinner(t("Running speaker diarization...")): _2_5_diarize.diarize_main()
                     st.session_state.text_processing_step = 2
                     st.rerun()
                 elif step == 2:

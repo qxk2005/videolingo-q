@@ -37,6 +37,14 @@ g2p-en
 xmltodict
 
 # ==========================================
+# Speaker Diarization (Gender Classification Enhancement)
+# ==========================================
+# pyannote.audio provides speaker diarization to improve voice gender classification accuracy.
+# Requires a HuggingFace token configured in config.yaml (pyannote.hf_token).
+# Models used: pyannote/speaker-diarization-3.1, pyannote/segmentation-3.0
+pyannote.audio>=3.1
+
+# ==========================================
 # macOS (Apple Silicon / Intel) Dependencies
 # ==========================================
 # mlx-whisper provides metal-accelerated transcription on macOS ARM64 (M1/M2/M3)

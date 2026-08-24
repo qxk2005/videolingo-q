@@ -176,7 +176,15 @@ def get_named_speaker_gender(text: str) -> str:
 
 def classify_subtitles_gender(df_tasks: pd.DataFrame) -> pd.DataFrame:
     """
-    High-precision voice gender classification via Gaussian Likelihood Semi-Markov Sequence Modeling:
+    High-precision voice gender classification with optional pyannote speaker diarization enhancement.
+    
+    Enhanced pipeline (when pyannote is available and configured):
+    1. Uses pyannote speaker-diarization-3.1 to identify different speakers via voice embeddings.
+    2. Assigns each subtitle line to a speaker cluster based on temporal overlap.
+    3. For each speaker cluster, aggregates F0 pitch data and classifies gender at the cluster level.
+    This is far more accurate than per-sentence classification because intonation noise is averaged out.
+    
+    Fallback pipeline (when pyannote is not available):
     1. Loads full audio into memory once (fast & error-free).
     2. Fits video-level 2-component GMM on log(F0) to learn exact pitch centers and variances.
     3. Computes exact Gaussian log-likelihood emission evidence for each subtitle line.
@@ -191,6 +199,21 @@ def classify_subtitles_gender(df_tasks: pd.DataFrame) -> pd.DataFrame:
         rprint(f"[yellow]⚠️ Audio file not found at {audio_path}, defaulting all to female voice.[/yellow]")
         df_tasks['gender'] = 'female'
         return df_tasks
+
+    # ── Pyannote-Enhanced Path ──────────────────────────────────────────────────
+    # Try to use pyannote speaker diarization for more accurate gender classification.
+    # If pyannote is not installed or HF token is not configured, fall through to GMM-only.
+    try:
+        hf_token = load_key("pyannote.hf_token")
+        if hf_token:  # Only attempt if token is configured
+            result = _try_pyannote_enhanced_classification(df_tasks, audio_path, hf_token)
+            if result is not None:
+                return result
+    except Exception as e:
+        rprint(f"[yellow]⚠️ Pyannote config lookup failed ({e}), using GMM-only method.[/yellow]")
+
+    # ── GMM-Only Fallback Path ─────────────────────────────────────────────────
+    rprint("[cyan]📊 Using GMM-only gender classification (no pyannote enhancement)...[/cyan]")
 
     # 2. Load entire audio into memory once
     sr = 16000
@@ -309,4 +332,137 @@ def classify_subtitles_gender(df_tasks: pd.DataFrame) -> pd.DataFrame:
         border_style="green"
     ))
     
+    return df_tasks
+
+
+def _try_pyannote_enhanced_classification(
+    df_tasks: pd.DataFrame,
+    audio_path: str,
+    hf_token: str,
+) -> pd.DataFrame:
+    """
+    Attempt pyannote-enhanced gender classification.
+    Returns the classified DataFrame on success, or None if pyannote is unavailable.
+    """
+    try:
+        from core.utils.speaker_diarize import (
+            run_diarization,
+            assign_speakers_to_subtitles,
+            save_diarization_result,
+            load_diarization_cache,
+            assign_speakers_from_cache,
+        )
+    except ImportError:
+        rprint("[yellow]⚠️ pyannote.audio not installed. Install with: pip install 'pyannote.audio>=3.1'[/yellow]")
+        rprint("[yellow]   Falling back to GMM-only gender classification.[/yellow]")
+        return None
+
+    rprint("[bold cyan]🎯 Pyannote speaker diarization enabled — using enhanced gender classification[/bold cyan]")
+
+    # Check for cached diarization results
+    cached = load_diarization_cache()
+    if cached is not None:
+        df_tasks = assign_speakers_from_cache(cached, df_tasks)
+    else:
+        try:
+            min_spk = 1
+            max_spk = 10
+            try:
+                min_spk = int(load_key("pyannote.min_speakers"))
+                max_spk = int(load_key("pyannote.max_speakers"))
+            except Exception:
+                pass
+
+            diarization = run_diarization(audio_path, hf_token, min_spk, max_spk)
+            df_tasks = assign_speakers_to_subtitles(diarization, df_tasks)
+            save_diarization_result(diarization)
+        except Exception as e:
+            rprint(f"[yellow]⚠️ Pyannote diarization failed: {e}[/yellow]")
+            rprint("[yellow]   Falling back to GMM-only gender classification.[/yellow]")
+            return None
+
+    # Now classify gender at the cluster level
+    return _classify_gender_by_cluster(df_tasks, audio_path)
+
+
+def _classify_gender_by_cluster(
+    df_tasks: pd.DataFrame,
+    audio_path: str,
+) -> pd.DataFrame:
+    """
+    Classify gender at the speaker-cluster level rather than per-sentence.
+
+    For each unique speaker_id in df_tasks:
+    1. Collect all subtitle segments belonging to that speaker.
+    2. Extract F0 pitch from each segment and aggregate.
+    3. Compute the median F0 across all segments.
+    4. Classify the speaker as male (< threshold) or female (>= threshold).
+
+    This is far more accurate than per-sentence classification because:
+    - Intonation spikes in individual sentences are averaged out.
+    - Each speaker typically has 5-50+ sentences, giving a robust F0 estimate.
+    """
+    import librosa
+
+    rprint("[cyan]🔬 Classifying gender at speaker-cluster level...[/cyan]")
+
+    sr = 16000
+    try:
+        full_audio, sr = librosa.load(audio_path, sr=sr, mono=True)
+    except Exception as e:
+        rprint(f"[red]❌ Failed to load audio: {e}. Defaulting to female voice.[/red]")
+        df_tasks['gender'] = 'female'
+        return df_tasks
+
+    unique_speakers = df_tasks['speaker_id'].unique()
+    speaker_genders = {}
+
+    for speaker in unique_speakers:
+        speaker_rows = df_tasks[df_tasks['speaker_id'] == speaker]
+        all_f0_values = []
+
+        for _, row in speaker_rows.iterrows():
+            start_sec = parse_time_to_seconds(row['start_time'])
+            end_sec = parse_time_to_seconds(row['end_time'])
+            s_idx = max(0, int(start_sec * sr))
+            e_idx = min(len(full_audio), int(end_sec * sr))
+            seg = full_audio[s_idx:e_idx]
+
+            if len(seg) >= 1024:
+                info = extract_f0_and_spectral_features(seg, sr)
+                if info['median_f0'] and info['voiced_ratio'] >= 0.08 and info['voiced_frames'] >= 3:
+                    all_f0_values.append(info['median_f0'])
+
+        if len(all_f0_values) >= 2:
+            median_f0 = float(np.median(all_f0_values))
+            # Use 145 Hz as the default male/female boundary
+            # This is the same threshold used in the GMM approach
+            gender = 'male' if median_f0 < 145.0 else 'female'
+            rprint(f"  {speaker}: median F0 = {median_f0:.1f} Hz → {gender.upper()} ({len(all_f0_values)} voiced segments)")
+        elif len(all_f0_values) == 1:
+            median_f0 = all_f0_values[0]
+            gender = 'male' if median_f0 < 145.0 else 'female'
+            rprint(f"  {speaker}: single F0 = {median_f0:.1f} Hz → {gender.upper()} (low confidence)")
+        else:
+            gender = 'female'  # Default fallback
+            rprint(f"  {speaker}: no voiced segments → defaulting to {gender.upper()}")
+
+        speaker_genders[speaker] = gender
+
+    # Apply cluster-level gender to all subtitle lines
+    df_tasks['gender'] = df_tasks['speaker_id'].map(speaker_genders)
+
+    male_count = (df_tasks['gender'] == 'male').sum()
+    female_count = (df_tasks['gender'] == 'female').sum()
+
+    rprint(Panel(
+        f"🎯 Pyannote-Enhanced Gender Classification\n"
+        f"📊 Speakers Found: {len(unique_speakers)} ({', '.join(f'{s}={speaker_genders[s]}' for s in sorted(unique_speakers))})\n"
+        f"👨 Male Segments: {male_count} 句\n"
+        f"👩 Female Segments: {female_count} 句\n"
+        f"🎙️ Total: {len(df_tasks)} 句",
+        title="🎙️ Pyannote + F0 Voice Gender Classification",
+        border_style="green"
+    ))
+
     return df_tasks

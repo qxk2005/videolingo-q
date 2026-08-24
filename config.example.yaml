@@ -92,6 +92,24 @@ reflect_translate: true
 # *Whether to pause after extracting professional terms and before translation, allowing users to manually adjust the terminology table output\log\terminology.json
 pause_before_translate: false
 
+## ======================== Speaker Diarization Settings ======================== ##
+# Pyannote speaker diarization enhances gender classification accuracy by first
+# identifying different speakers (via voice embeddings), then classifying each
+# speaker's gender using F0 pitch analysis. Falls back to pure GMM when disabled.
+pyannote:
+  # HuggingFace token (required to download pyannote models).
+  # Get one at: https://huggingface.co/settings/tokens
+  # You must also accept the model agreements at:
+  #   https://huggingface.co/pyannote/speaker-diarization-3.1
+  #   https://huggingface.co/pyannote/segmentation-3.0
+  hf_token: ''
+  # HuggingFace mirror site for China mainland users (e.g. https://hf-mirror.com)
+  # Leave empty to use the default huggingface.co endpoint
+  hf_endpoint: ''
+  # Minimum and maximum expected number of speakers in the video
+  min_speakers: 1
+  max_speakers: 10
+
 ## ======================== Dubbing Settings ======================== ##
 # TTS selection [edge_tts, doubao_tts]
 tts_method: 'edge_tts'
