@@ -378,6 +378,12 @@ def _try_pyannote_enhanced_classification(
             save_diarization_result(diarization)
         except Exception as e:
             rprint(f"[yellow]⚠️ Pyannote diarization failed: {e}[/yellow]")
+            err_str = str(e).lower()
+            if "gated" in err_str or "403" in err_str or "restricted" in err_str:
+                rprint("[bold yellow]💡 HuggingFace gated model access required. Please make sure your token has access to:[/bold yellow]")
+                rprint("[cyan]   1. https://huggingface.co/pyannote/speaker-diarization-3.1[/cyan]")
+                rprint("[cyan]   2. https://huggingface.co/pyannote/segmentation-3.0[/cyan]")
+                rprint("[cyan]   3. https://huggingface.co/pyannote/speaker-diarization-community-1[/cyan]")
             rprint("[yellow]   Falling back to GMM-only gender classification.[/yellow]")
             return None
 

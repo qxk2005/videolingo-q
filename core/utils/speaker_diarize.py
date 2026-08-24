@@ -88,20 +88,48 @@ def run_diarization(
         rprint("[yellow]⚠️ No proxy configured. pyannote models require access to huggingface.co.[/yellow]")
         rprint("[yellow]   Set 'proxy' in config.yaml (e.g., http://127.0.0.1:7890) to download gated models.[/yellow]")
 
+    # ── PyTorch 2.6+ / Lightning Compatibility Patches ───────────────────────
+    import functools
+    import torch
+
+    _orig_torch_load = torch.load
+    if not getattr(torch.load, "_is_pyannote_patched", False):
+        @functools.wraps(_orig_torch_load)
+        def _patched_torch_load(*args, **kwargs):
+            if "weights_only" not in kwargs:
+                kwargs["weights_only"] = False
+            return _orig_torch_load(*args, **kwargs)
+        _patched_torch_load._is_pyannote_patched = True
+        torch.load = _patched_torch_load
+
+    try:
+        import lightning.fabric.utilities.cloud_io as cloud_io
+        _orig_pl_load = cloud_io._load
+        if not getattr(cloud_io._load, "_is_pyannote_patched", False):
+            def _patched_pl_load(path_or_url, map_location=None, weights_only=False, **kwargs):
+                try:
+                    return _orig_pl_load(path_or_url, map_location=map_location, weights_only=weights_only)
+                except TypeError:
+                    return _orig_pl_load(path_or_url, map_location=map_location)
+            _patched_pl_load._is_pyannote_patched = True
+            cloud_io._load = _patched_pl_load
+
+            try:
+                import lightning.pytorch.core.saving as pl_saving
+                pl_saving.pl_load = _patched_pl_load
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     from pyannote.audio import Pipeline
 
     rprint("[bold cyan]🎯 Loading pyannote speaker-diarization-3.1 model...[/bold cyan]")
 
-    try:
-        pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1",
-            token=hf_token,
-        )
-    except TypeError:
-        pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1",
-            use_auth_token=hf_token,
-        )
+    pipeline = Pipeline.from_pretrained(
+        "pyannote/speaker-diarization-3.1",
+        token=hf_token,
+    )
 
     # Use GPU if available
     import torch

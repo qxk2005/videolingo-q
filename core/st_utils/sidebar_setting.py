@@ -365,7 +365,7 @@ def page_setting():
                 "HuggingFace Token",
                 value=load_key("pyannote.hf_token") or "",
                 type="password",
-                help=t("Get a token at https://huggingface.co/settings/tokens. You must also accept model agreements for pyannote/speaker-diarization-3.1 and pyannote/segmentation-3.0."),
+                help=t("Get a token at https://huggingface.co/settings/tokens. You must also accept model agreements for pyannote/speaker-diarization-3.1, pyannote/segmentation-3.0, and pyannote/speaker-diarization-community-1."),
                 key="pyannote_hf_token_input"
             )
             if pyannote_hf_token != (load_key("pyannote.hf_token") or ""):
