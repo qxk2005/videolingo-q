@@ -144,8 +144,22 @@ def run_diarization(
 
     rprint(f"[cyan]🔊 Running speaker diarization on {audio_path}...[/cyan]")
 
+    # pyannote.audio 4.x on Windows may lack torchcodec backend dlls.
+    # Preload audio into memory as {"waveform": Tensor, "sample_rate": int} to avoid relying on torchcodec AudioDecoder.
+    try:
+        import soundfile as sf
+        data, sample_rate = sf.read(audio_path)
+        if data.ndim == 1:
+            waveform = torch.from_numpy(data).unsqueeze(0).float()
+        else:
+            waveform = torch.from_numpy(data.T).float()
+        audio_input = {"waveform": waveform, "sample_rate": int(sample_rate)}
+    except Exception as e:
+        rprint(f"[yellow]⚠️ Failed to preload audio into memory with soundfile ({e}), falling back to file path.[/yellow]")
+        audio_input = audio_path
+
     diarization = pipeline(
-        audio_path,
+        audio_input,
         min_speakers=min_speakers,
         max_speakers=max_speakers,
     )
