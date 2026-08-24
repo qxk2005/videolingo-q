@@ -158,11 +158,17 @@ def run_diarization(
         rprint(f"[yellow]⚠️ Failed to preload audio into memory with soundfile ({e}), falling back to file path.[/yellow]")
         audio_input = audio_path
 
-    diarization = pipeline(
+    diarization_result = pipeline(
         audio_input,
         min_speakers=min_speakers,
         max_speakers=max_speakers,
     )
+
+    # In pyannote.audio 4.x, pipeline returns a DiarizeOutput dataclass containing .speaker_diarization
+    if hasattr(diarization_result, "speaker_diarization"):
+        diarization = diarization_result.speaker_diarization
+    else:
+        diarization = diarization_result
 
     # Log discovered speakers
     speakers = set()
