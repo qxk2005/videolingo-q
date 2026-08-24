@@ -281,6 +281,12 @@ def _add_cookies_options(ydl_opts):
         ydl_opts["js_runtimes"] = {'node': {}, 'deno': {}, 'quickjs': {}, 'bun': {}}
     if "remote_components" not in ydl_opts:
         ydl_opts["remote_components"] = {'ejs:github', 'ejs:npm'}
+    if "extractor_args" not in ydl_opts:
+        ydl_opts["extractor_args"] = {
+            'youtube': {
+                'player_client': ['tv_embedded', 'android', 'web', 'mweb']
+            }
+        }
 
 _ytdlp_updated_in_session = False
 
@@ -293,24 +299,27 @@ def update_ytdlp():
                 [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp", "yt-dlp-ejs"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=15
+                timeout=60
             )
             # Clear all cached yt_dlp modules and submodules to prevent version mismatches
             for mod in list(sys.modules.keys()):
                 if mod == 'yt_dlp' or mod.startswith('yt_dlp.'):
                     del sys.modules[mod]
             rprint("[green]yt-dlp updated[/green]")
+            _ytdlp_updated_in_session = True
         except subprocess.TimeoutExpired:
             rprint("[yellow]Warning: Check for yt-dlp update timed out. Using local version.[/yellow]")
         except Exception as e:
             rprint(f"[yellow]Warning: Failed to update yt-dlp: {e}[/yellow]")
-        _ytdlp_updated_in_session = True
         
     from yt_dlp import YoutubeDL
     return YoutubeDL
 
 def download_video_ytdlp(url, save_path='output', resolution='1080'):
     os.makedirs(save_path, exist_ok=True)
+    # Get YoutubeDL class after updating
+    YoutubeDL = update_ytdlp()
+
     ydl_opts = {
         'format': 'bestvideo+bestaudio/best' if resolution == 'best' else f'bestvideo[height<={resolution}]+bestaudio/best[height<={resolution}]',
         'outtmpl': f'{save_path}/%(title)s.%(ext)s',
@@ -328,9 +337,6 @@ def download_video_ytdlp(url, save_path='output', resolution='1080'):
         ydl_opts['ffmpeg_location'] = ffmpeg_path
 
     _add_cookies_options(ydl_opts)
-
-    # Get YoutubeDL class after updating
-    YoutubeDL = update_ytdlp()
 
     # Fetch and save metadata (title and cover) first
     try:
