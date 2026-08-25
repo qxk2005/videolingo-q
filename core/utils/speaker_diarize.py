@@ -68,25 +68,34 @@ def run_diarization(
         os.environ["HTTPS_PROXY"] = proxy
         os.environ["http_proxy"] = proxy
         os.environ["https_proxy"] = proxy
-        rprint(f"[cyan]🌐 Using network proxy for HuggingFace: {proxy}[/cyan]")
-
-    # Also support HF_ENDPOINT mirror (may work for non-gated models)
-    try:
-        hf_endpoint = load_key("pyannote.hf_endpoint")
-    except Exception:
-        hf_endpoint = ""
-    if hf_endpoint:
-        os.environ["HF_ENDPOINT"] = hf_endpoint
+        # When a network proxy is configured, use the official huggingface.co endpoint
+        # because hf-mirror.com does NOT support gated models (it redirects and fails).
+        if "HF_ENDPOINT" in os.environ:
+            del os.environ["HF_ENDPOINT"]
         try:
             import huggingface_hub.constants
-            huggingface_hub.constants.ENDPOINT = hf_endpoint
+            huggingface_hub.constants.ENDPOINT = "https://huggingface.co"
+            huggingface_hub.constants.HUGGINGFACE_CO_URL_TEMPLATE = "https://huggingface.co/{repo_id}/resolve/{revision}/{filename}"
         except Exception:
             pass
-        rprint(f"[cyan]🌐 HF Endpoint: {hf_endpoint}[/cyan]")
+        rprint(f"[cyan]🌐 Using network proxy for HuggingFace: {proxy}[/cyan]")
+    else:
+        # Support HF_ENDPOINT mirror (works for non-gated models) only if no proxy is configured
+        try:
+            hf_endpoint = load_key("pyannote.hf_endpoint")
+        except Exception:
+            hf_endpoint = ""
+        if hf_endpoint:
+            os.environ["HF_ENDPOINT"] = hf_endpoint
+            try:
+                import huggingface_hub.constants
+                huggingface_hub.constants.ENDPOINT = hf_endpoint
+            except Exception:
+                pass
+            rprint(f"[cyan]🌐 HF Endpoint: {hf_endpoint}[/cyan]")
 
-    if not proxy and not hf_endpoint:
-        rprint("[yellow]⚠️ No proxy configured. pyannote models require access to huggingface.co.[/yellow]")
-        rprint("[yellow]   Set 'proxy' in config.yaml (e.g., http://127.0.0.1:7890) to download gated models.[/yellow]")
+    if not proxy:
+        rprint("[yellow]⚠️ No proxy configured. pyannote gated models require direct or proxied access to huggingface.co.[/yellow]")
 
     # ── PyTorch 2.6+ / Lightning Compatibility Patches ───────────────────────
     import functools
