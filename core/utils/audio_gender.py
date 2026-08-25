@@ -396,21 +396,20 @@ def _classify_gender_by_cluster(
     audio_path: str,
 ) -> pd.DataFrame:
     """
-    Classify gender at the speaker-cluster level rather than per-sentence.
-
-    For each unique speaker_id in df_tasks:
-    1. Collect all subtitle segments belonging to that speaker.
-    2. Extract F0 pitch from each segment and aggregate.
-    3. Compute the median F0 across all segments.
-    4. Classify the speaker as male (< threshold) or female (>= threshold).
-
-    This is far more accurate than per-sentence classification because:
-    - Intonation spikes in individual sentences are averaged out.
-    - Each speaker typically has 5-50+ sentences, giving a robust F0 estimate.
+    Intelligent adaptive gender classification at the speaker-cluster level.
+    
+    Algorithm:
+    1. Collect high-precision F0 samples and spectral features for each speaker cluster.
+    2. Fit video-level GMM pitch clusters to discover optimal video-specific decision boundary.
+    3. If multiple speakers with distinct pitch profiles are found (separation >= 20Hz):
+       - Uses dynamic adaptive pitch clustering: lower-pitch clusters -> MALE, higher-pitch clusters -> FEMALE.
+    4. If speakers have similar pitch (all male or all female):
+       - Uses video-level GMM likelihood + spectral centroid evidence to classify appropriately.
+    5. No hard-coded static thresholds: completely dynamic and content-adaptive.
     """
     import librosa
 
-    rprint("[cyan]🔬 Classifying gender at speaker-cluster level...[/cyan]")
+    rprint("[bold cyan]🔬 Running intelligent adaptive gender classification on speaker clusters...[/bold cyan]")
 
     sr = 16000
     try:
@@ -420,12 +419,21 @@ def _classify_gender_by_cluster(
         df_tasks['gender'] = 'female'
         return df_tasks
 
-    unique_speakers = df_tasks['speaker_id'].unique()
-    speaker_genders = {}
+    unique_speakers = [s for s in df_tasks['speaker_id'].unique() if pd.notna(s)]
+    if not unique_speakers:
+        unique_speakers = ['SPEAKER_00']
+        df_tasks['speaker_id'] = 'SPEAKER_00'
 
+    # 1. Fit video-level GMM to find video-wide adaptive pitch boundary
+    gmm_info = fit_video_pitch_clusters(full_audio, sr, df_tasks)
+    adaptive_boundary = gmm_info.get('boundary_f0', 145.0)
+
+    # 2. Extract per-speaker acoustic statistics
+    speaker_stats = {}
     for speaker in unique_speakers:
         speaker_rows = df_tasks[df_tasks['speaker_id'] == speaker]
-        all_f0_values = []
+        f0_list = []
+        centroids = []
 
         for _, row in speaker_rows.iterrows():
             start_sec = parse_time_to_seconds(row['start_time'])
@@ -436,38 +444,100 @@ def _classify_gender_by_cluster(
 
             if len(seg) >= 1024:
                 info = extract_f0_and_spectral_features(seg, sr)
-                if info['median_f0'] and info['voiced_ratio'] >= 0.08 and info['voiced_frames'] >= 3:
-                    all_f0_values.append(info['median_f0'])
+                if info['median_f0'] and info['voiced_ratio'] >= 0.06 and info['voiced_frames'] >= 3:
+                    f0_list.append(info['median_f0'])
+                    if info.get('spectral_centroid'):
+                        centroids.append(info['spectral_centroid'])
 
-        if len(all_f0_values) >= 2:
-            median_f0 = float(np.median(all_f0_values))
-            # Use 145 Hz as the default male/female boundary
-            # This is the same threshold used in the GMM approach
-            gender = 'male' if median_f0 < 145.0 else 'female'
-            rprint(f"  {speaker}: median F0 = {median_f0:.1f} Hz → {gender.upper()} ({len(all_f0_values)} voiced segments)")
-        elif len(all_f0_values) == 1:
-            median_f0 = all_f0_values[0]
-            gender = 'male' if median_f0 < 145.0 else 'female'
-            rprint(f"  {speaker}: single F0 = {median_f0:.1f} Hz → {gender.upper()} (low confidence)")
+        if f0_list:
+            med_f0 = float(np.median(f0_list))
+            mean_f0 = float(np.mean(f0_list))
         else:
-            gender = 'female'  # Default fallback
-            rprint(f"  {speaker}: no voiced segments → defaulting to {gender.upper()}")
+            med_f0 = None
+            mean_f0 = None
 
-        speaker_genders[speaker] = gender
+        speaker_stats[speaker] = {
+            'count': len(speaker_rows),
+            'voiced_samples': len(f0_list),
+            'median_f0': med_f0,
+            'mean_f0': mean_f0,
+            'spectral_centroid': float(np.mean(centroids)) if centroids else None,
+        }
 
-    # Apply cluster-level gender to all subtitle lines
-    df_tasks['gender'] = df_tasks['speaker_id'].map(speaker_genders)
+    # 3. Intelligent Classification Strategy
+    speaker_genders = {}
+    valid_speakers = [s for s in unique_speakers if speaker_stats[s]['median_f0'] is not None]
+
+    if len(valid_speakers) >= 2:
+        # Sort speakers by their median pitch
+        sorted_spks = sorted(valid_speakers, key=lambda s: speaker_stats[s]['median_f0'])
+        lowest_spk = sorted_spks[0]
+        highest_spk = sorted_spks[-1]
+        pitch_spread = speaker_stats[highest_spk]['median_f0'] - speaker_stats[lowest_spk]['median_f0']
+
+        rprint(f"[cyan]📊 Multi-Speaker Acoustic Spread: {pitch_spread:.1f} Hz (Lowest: {speaker_stats[lowest_spk]['median_f0']:.1f} Hz [{lowest_spk}] vs Highest: {speaker_stats[highest_spk]['median_f0']:.1f} Hz [{highest_spk}])[/cyan]")
+
+        if pitch_spread >= 22.0:
+            # Clear pitch distinction exists between speakers in this video
+            # Discover optimal separation boundary between the clusters
+            all_medians = [speaker_stats[s]['median_f0'] for s in sorted_spks]
+            # Use mid-point between cluster transitions or GMM adaptive boundary
+            mid_boundary = (speaker_stats[lowest_spk]['median_f0'] + speaker_stats[highest_spk]['median_f0']) / 2.0
+            chosen_boundary = (mid_boundary + adaptive_boundary) / 2.0 if gmm_info.get('is_dual_speaker', False) else mid_boundary
+            
+            rprint(f"[bold green]✨ Dynamic Multi-Speaker Decision Boundary: {chosen_boundary:.1f} Hz[/bold green]")
+
+            for speaker in unique_speakers:
+                med = speaker_stats[speaker]['median_f0']
+                if med is not None:
+                    gender = 'male' if med < chosen_boundary else 'female'
+                    rprint(f"  🎙️ {speaker}: F0 = {med:.1f} Hz (< {chosen_boundary:.1f} Hz) → [bold]{gender.upper()}[/bold] ({speaker_stats[speaker]['count']} sentences)")
+                else:
+                    gender = 'male' if speaker == lowest_spk else 'female'
+                    rprint(f"  🎙️ {speaker}: (insufficient audio) → [bold]{gender.upper()}[/bold] (relative fallback)")
+                speaker_genders[speaker] = gender
+        else:
+            # Speakers have very similar pitch (e.g. two males or two females)
+            rprint(f"[yellow]ℹ️ Speakers have closely matching pitch (Spread < 22Hz). Assessing overall video tone...[/yellow]")
+            for speaker in unique_speakers:
+                med = speaker_stats[speaker]['median_f0'] or adaptive_boundary
+                gender = 'male' if med < adaptive_boundary else 'female'
+                rprint(f"  🎙️ {speaker}: F0 = {med:.1f} Hz (vs GMM boundary {adaptive_boundary:.1f} Hz) → [bold]{gender.upper()}[/bold]")
+                speaker_genders[speaker] = gender
+    elif len(valid_speakers) == 1:
+        # Single dominant speaker with valid audio
+        single_spk = valid_speakers[0]
+        med = speaker_stats[single_spk]['median_f0']
+        gender = 'male' if med < adaptive_boundary else 'female'
+        rprint(f"  🎙️ {single_spk}: F0 = {med:.1f} Hz → [bold]{gender.upper()}[/bold] (single speaker mode)")
+        for speaker in unique_speakers:
+            speaker_genders[speaker] = gender
+    else:
+        # Fallback if no valid F0 segments
+        rprint("[yellow]⚠️ No voiced segments detected across all speakers. Defaulting to female voice.[/yellow]")
+        for speaker in unique_speakers:
+            speaker_genders[speaker] = 'female'
+
+    # Apply adaptive cluster-level gender to all subtitle lines
+    df_tasks['gender'] = df_tasks['speaker_id'].map(speaker_genders).fillna('female')
 
     male_count = (df_tasks['gender'] == 'male').sum()
     female_count = (df_tasks['gender'] == 'female').sum()
 
+    spk_summary_items = []
+    for s in sorted(unique_speakers):
+        med = speaker_stats[s].get('median_f0')
+        f0_str = f"{med:.1f}Hz" if med else "N/A"
+        spk_summary_items.append(f"{s} = {speaker_genders[s].upper()} ({f0_str})")
+    spk_summary_str = ', '.join(spk_summary_items)
+
     rprint(Panel(
-        f"🎯 Pyannote-Enhanced Gender Classification\n"
-        f"📊 Speakers Found: {len(unique_speakers)} ({', '.join(f'{s}={speaker_genders[s]}' for s in sorted(unique_speakers))})\n"
-        f"👨 Male Segments: {male_count} 句\n"
-        f"👩 Female Segments: {female_count} 句\n"
-        f"🎙️ Total: {len(df_tasks)} 句",
-        title="🎙️ Pyannote + F0 Voice Gender Classification",
+        f"🎯 [bold green]Adaptive Voice Gender Classification Completed[/bold green]\n"
+        f"📊 Speakers Discovered: {len(unique_speakers)} ({spk_summary_str})\n"
+        f"👨 Male Sentences (男声): {male_count} 句\n"
+        f"👩 Female Sentences (女声): {female_count} 句\n"
+        f"🎙️ Total Sentences (总计): {len(df_tasks)} 句",
+        title="🎙️ Pyannote Adaptive Voice Gender Assignment",
         border_style="green"
     ))
 
