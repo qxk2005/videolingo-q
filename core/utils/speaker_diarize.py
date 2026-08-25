@@ -123,13 +123,27 @@ def run_diarization(
         pass
 
     from pyannote.audio import Pipeline
+    import inspect
 
     rprint("[bold cyan]🎯 Loading pyannote speaker-diarization-3.1 model...[/bold cyan]")
 
-    pipeline = Pipeline.from_pretrained(
-        "pyannote/speaker-diarization-3.1",
-        token=hf_token,
-    )
+    # Inspect Pipeline.from_pretrained signature to maintain cross-platform & cross-version compatibility:
+    # pyannote.audio <=3.1 uses `use_auth_token`, while >=3.2 / 4.x uses `token`.
+    sig = inspect.signature(Pipeline.from_pretrained)
+    auth_kwargs = {"token": hf_token} if "token" in sig.parameters else {"use_auth_token": hf_token}
+
+    try:
+        pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1",
+            **auth_kwargs
+        )
+    except TypeError:
+        # Fallback if signature check missed dynamic kwargs
+        fallback_kwargs = {"use_auth_token": hf_token} if "token" in auth_kwargs else {"token": hf_token}
+        pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1",
+            **fallback_kwargs
+        )
 
     # Use GPU if available
     import torch
@@ -137,8 +151,12 @@ def run_diarization(
         pipeline.to(torch.device("cuda"))
         rprint("[green]✓ Using CUDA GPU for diarization[/green]")
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        pipeline.to(torch.device("mps"))
-        rprint("[green]✓ Using Apple MPS for diarization[/green]")
+        try:
+            pipeline.to(torch.device("mps"))
+            rprint("[green]✓ Using Apple MPS for diarization[/green]")
+        except Exception as e:
+            rprint(f"[yellow]⚠️ Apple MPS device move failed ({e}), falling back to CPU[/yellow]")
+            pipeline.to(torch.device("cpu"))
     else:
         rprint("[yellow]ℹ️ Using CPU for diarization (this may take a while)[/yellow]")
 
