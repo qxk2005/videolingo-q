@@ -9,12 +9,28 @@ for path in ["/opt/homebrew/bin", "/usr/local/bin", current_dir]:
         os.environ['PATH'] = path + os.pathsep + os.environ.get('PATH', '')
 sys.path.append(current_dir)
 
+import importlib
 import streamlit as st
 import shutil, subprocess
 import pandas as pd
 from core.st_utils.imports_and_utils import *
+import core.st_utils.sidebar_setting as _sidebar_setting_mod
+importlib.reload(_sidebar_setting_mod)
+from core.st_utils.sidebar_setting import page_setting
 from core.utils.models import *
 from core import *
+for _mod_name in (
+    "core.utils.audio_gender",
+    "core.tts_backend.tts_main",
+    "core._8_1_audio_task",
+    "core._8_2_dub_chunks",
+    "core._10_gen_audio",
+):
+    if _mod_name in sys.modules:
+        try:
+            importlib.reload(sys.modules[_mod_name])
+        except Exception:
+            pass
 from core.asr_backend.audio_preprocess import reapply_vocab_correction_to_cleaned_chunks, detect_suspicious_terms_from_srt, convert_video_to_audio
 from core.asr_backend.ytb_subtitle_asr import use_subtitle_file
 from core import _1_ytdlp
@@ -352,6 +368,193 @@ def text_processing_section():
                 reset_subtitle_cache()
                 st.rerun()
 
+def _render_speaker_review_section():
+    """
+    Render the interactive Speaker & Voice Review / Override panel in the Dubbing section.
+    Features:
+      1. Role Cards: Per-speaker original audio clip preview (st.audio), line count, sample line,
+         one-click gender toggle (Male/Female), and optional per-speaker TTS voice override.
+      2. Expandable Sentence-level Table (st.data_editor): Fine-grained per-line speaker/gender/voice override.
+      3. Smart Incremental Rebuild: Only invalidates and regenerates modified sentences' TTS cache.
+    """
+    if not os.path.exists(_8_1_AUDIO_TASK):
+        return
+
+    try:
+        df_tasks = pd.read_excel(_8_1_AUDIO_TASK)
+    except Exception as e:
+        st.warning(f"无法读取配音任务表 ({e})")
+        return
+
+    if df_tasks.empty:
+        return
+
+    # Ensure required columns exist
+    if 'gender' not in df_tasks.columns:
+        df_tasks['gender'] = 'female'
+    if 'speaker_id' not in df_tasks.columns:
+        df_tasks['speaker_id'] = ['SPEAKER_00' if g == 'male' else 'SPEAKER_01' for g in df_tasks['gender']]
+    if 'voice' not in df_tasks.columns:
+        df_tasks['voice'] = ''
+    df_tasks['voice'] = df_tasks['voice'].fillna('').astype(str)
+    df_tasks['speaker_id'] = df_tasks['speaker_id'].fillna('SPEAKER_00').astype(str)
+    df_tasks['gender'] = df_tasks['gender'].fillna('female').astype(str)
+
+    from core.utils.audio_gender import extract_speaker_sample_clips
+    from core.st_utils.sidebar_setting import get_available_tts_voices
+    from core._10_gen_audio import invalidate_audio_cache_for_numbers
+    from core._8_2_dub_chunks import process_cutoffs
+
+    sample_clips = extract_speaker_sample_clips(df_tasks)
+    voice_catalog = get_available_tts_voices()  # {display_label: voice_id}
+    voice_id_to_label = {v: k for k, v in voice_catalog.items()}
+    voice_labels = list(voice_catalog.keys())
+
+    is_paused_for_review = bool(st.session_state.get("awaiting_speaker_review", False))
+
+    with st.expander(f"🎙️ {t('Speaker & Voice Review / Override')}", expanded=is_paused_for_review or not os.path.exists(DUB_VIDEO)):
+        if is_paused_for_review:
+            st.info(f"⏸️ {t('Paused after speaker identification. Please review or adjust speaker genders/voices below, then click Confirm & Continue Dubbing.')}")
+        else:
+            st.caption(t("Preview each detected speaker's original voice, switch gender or assign dedicated voices per speaker, and incrementally re-synthesize only modified lines."))
+
+        unique_speakers = sorted(df_tasks['speaker_id'].unique())
+        speaker_updates = {}
+
+        tab_cards, tab_table = st.tabs([
+            "🎭 按说话人角色卡片调整",
+            f"📝 {t('Sentence-Level Fine-Tuning Table (Optional)')}"
+        ])
+
+        with tab_cards:
+            # Render Speaker Role Cards (up to 2 columns per row; no inner st.columns to respect Streamlit nesting limit)
+            cols_per_row = 2 if len(unique_speakers) > 1 else 1
+            for i in range(0, len(unique_speakers), cols_per_row):
+                row_spks = unique_speakers[i:i + cols_per_row]
+                cols = st.columns(cols_per_row)
+                for col_idx, spk in enumerate(row_spks):
+                    spk_rows = df_tasks[df_tasks['speaker_id'] == spk]
+                    line_count = len(spk_rows)
+                    # Majority gender & voice for this speaker
+                    maj_gender = spk_rows['gender'].mode().iloc[0] if not spk_rows['gender'].mode().empty else 'female'
+                    if maj_gender not in ('male', 'female'):
+                        maj_gender = 'female'
+                    non_empty_voices = [v for v in spk_rows['voice'].tolist() if v]
+                    cur_spk_voice = non_empty_voices[0] if non_empty_voices else ''
+                    cur_voice_label = voice_id_to_label.get(cur_spk_voice, voice_labels[0])
+
+                    sample_text = str(spk_rows.iloc[0].get('text', '') or spk_rows.iloc[0].get('origin', ''))[:48]
+                    with cols[col_idx]:
+                        with st.container(border=True):
+                            badge_icon = "👨" if maj_gender == "male" else "👩"
+                            st.markdown(f"**{badge_icon} `{spk}`** · 共 **{line_count}** 句")
+                            st.caption(f"💬 示例：*{sample_text}*")
+
+                            if spk in sample_clips and os.path.exists(sample_clips[spk]):
+                                st.audio(sample_clips[spk], format="audio/wav")
+
+                            gender_opts = ["male", "female"]
+                            gender_fmt = {"male": f"👨 {t('Male')}", "female": f"👩 {t('Female')}"}
+                            new_gen = st.selectbox(
+                                t("Gender"),
+                                options=gender_opts,
+                                index=gender_opts.index(maj_gender),
+                                format_func=lambda x: gender_fmt.get(x, x),
+                                key=f"spk_card_gender_{spk}"
+                            )
+                            new_v_label = st.selectbox(
+                                t("Dedicated Voice"),
+                                options=voice_labels,
+                                index=voice_labels.index(cur_voice_label) if cur_voice_label in voice_labels else 0,
+                                key=f"spk_card_voice_{spk}"
+                            )
+                            new_v_id = voice_catalog.get(new_v_label, "")
+
+                            speaker_updates[spk] = {
+                                "old_gender": maj_gender,
+                                "new_gender": new_gen,
+                                "old_voice": cur_spk_voice,
+                                "new_voice": new_v_id,
+                            }
+
+        with tab_table:
+            edit_cols = ['number', 'start_time', 'end_time', 'speaker_id', 'gender', 'voice', 'text']
+            avail_cols = [c for c in edit_cols if c in df_tasks.columns]
+            edited_df = st.data_editor(
+                df_tasks[avail_cols],
+                column_config={
+                    "number": st.column_config.NumberColumn("序号", disabled=True, width="small"),
+                    "start_time": st.column_config.TextColumn("开始时间", disabled=True, width="small"),
+                    "end_time": st.column_config.TextColumn("结束时间", disabled=True, width="small"),
+                    "speaker_id": st.column_config.TextColumn(t("Speaker"), width="small"),
+                    "gender": st.column_config.SelectboxColumn(t("Gender"), options=["male", "female"], required=True, width="small"),
+                    "voice": st.column_config.SelectboxColumn(t("Dedicated Voice"), options=[""] + [v for v in voice_catalog.values() if v], width="medium"),
+                    "text": st.column_config.TextColumn("配音台词", width="large"),
+                },
+                hide_index=True,
+                use_container_width=True,
+                key="sentence_level_dub_editor"
+            )
+
+        def _apply_speaker_and_table_edits() -> list:
+            """Apply speaker-card and table edits to df_tasks, persist to Excel, and return modified task numbers."""
+            orig_df = df_tasks.copy()
+            updated_df = df_tasks.copy()
+
+            # 1. Apply per-row edits from st.data_editor first
+            for col in ['speaker_id', 'gender', 'voice', 'text']:
+                if col in edited_df.columns:
+                    updated_df[col] = edited_df[col].fillna('').astype(str)
+
+            # 2. Apply speaker-card level bulk updates (if user changed a speaker card's gender or voice)
+            for spk, upd in speaker_updates.items():
+                mask = updated_df['speaker_id'] == spk
+                if upd['new_gender'] != upd['old_gender']:
+                    updated_df.loc[mask, 'gender'] = upd['new_gender']
+                if upd['new_voice'] != upd['old_voice']:
+                    updated_df.loc[mask, 'voice'] = upd['new_voice']
+
+            # 3. Identify which task numbers actually changed
+            changed_nums = []
+            for idx_row in range(len(updated_df)):
+                num = int(updated_df.iloc[idx_row]['number'])
+                for col in ['speaker_id', 'gender', 'voice', 'text']:
+                    if str(orig_df.iloc[idx_row].get(col, '') or '') != str(updated_df.iloc[idx_row].get(col, '') or ''):
+                        changed_nums.append(num)
+                        break
+
+            if changed_nums:
+                # Recompute chunk cutoffs so speaker/gender/voice transitions always have cut_off = 1
+                try:
+                    updated_df = process_cutoffs(updated_df)
+                except Exception:
+                    pass
+                updated_df.to_excel(_8_1_AUDIO_TASK, index=False)
+                invalidate_audio_cache_for_numbers(changed_nums)
+
+            return changed_nums
+
+        col_act1, col_act2 = st.columns(2)
+        with col_act1:
+            if st.button(f"💾 {t('Save Adjustments & Incremental Rebuild')}", key="save_speaker_adjustments_btn", use_container_width=True):
+                changed_nums = _apply_speaker_and_table_edits()
+                st.session_state.awaiting_speaker_review = False
+                if changed_nums:
+                    st.toast(f"✅ 已更新 {len(changed_nums)} 句配音配置并清理对应缓存，正在增量重新合成...", icon="🎙️")
+                    st.session_state.audio_processing_step = 2
+                else:
+                    st.toast("ℹ️ 未检测到配置变更", icon="ℹ️")
+                st.rerun()
+
+        with col_act2:
+            if is_paused_for_review or not os.path.exists(DUB_VIDEO):
+                if st.button(f"▶️ {t('Confirm Speakers & Continue Dubbing')}", key="confirm_speakers_continue_btn", type="primary", use_container_width=True):
+                    _apply_speaker_and_table_edits()
+                    st.session_state.awaiting_speaker_review = False
+                    st.session_state.audio_processing_step = 2
+                    st.rerun()
+
+
 def audio_processing_section():
     st.header(t("c. Dubbing"))
     with st.container(border=True):
@@ -375,8 +578,11 @@ def audio_processing_section():
         
         def check_audio_step_completed(step_idx):
             if step_idx == 1: return os.path.exists(_8_1_AUDIO_TASK)
-            if step_idx == 2: return os.path.exists(_AUDIO_REFERS_DIR) and any(os.listdir(_AUDIO_REFERS_DIR))
-            if step_idx == 3: return os.path.exists(os.path.join(_AUDIO_DIR, "full_dub.wav")) # Assuming this name based on merge_full_audio
+            if step_idx == 2:
+                if load_key("skip_refer") and (os.path.exists("output/dub.mp3") or os.path.exists(DUB_VIDEO)):
+                    return True
+                return os.path.exists(_AUDIO_REFERS_DIR) and any(os.listdir(_AUDIO_REFERS_DIR))
+            if step_idx == 3: return os.path.exists("output/dub.mp3") or os.path.exists("output/dub.wav")
             if step_idx == 4: return os.path.exists(DUB_VIDEO)
             return False
 
@@ -391,7 +597,15 @@ def audio_processing_section():
                         convert_video_to_audio(video_file)
                         _8_1_audio_task.gen_audio_task_main()
                         _8_2_dub_chunks.gen_dub_chunks()
-                    st.session_state.audio_processing_step = 2
+                    try:
+                        pause_dub = bool(load_key("pause_before_dub"))
+                    except Exception:
+                        pause_dub = False
+                    if pause_dub:
+                        st.session_state.audio_processing_step = None
+                        st.session_state.awaiting_speaker_review = True
+                    else:
+                        st.session_state.audio_processing_step = 2
                     st.rerun()
                 elif step == 2:
                     if not load_key("skip_refer"):
@@ -407,6 +621,7 @@ def audio_processing_section():
                 elif step == 4:
                     with st.spinner(t("Merge dubbing to the video")): _12_dub_to_vid.merge_video_audio()
                     st.session_state.audio_processing_step = None
+                    st.session_state.awaiting_speaker_review = False
                     st.success(t("Audio processing complete! 🎇"))
                     st.balloons()
                     st.rerun()
@@ -415,6 +630,9 @@ def audio_processing_section():
                 st.session_state.dubbing_error = str(e)
                 st.session_state.audio_processing_step = None
                 st.rerun()
+
+        # ── 常驻展示「🎙️ 说话人识别与配音微调」面板（只要已完成第 1 步任务生成） ──
+        _render_speaker_review_section()
 
         video_file_found = False
         try:
@@ -425,10 +643,12 @@ def audio_processing_section():
         if not os.path.exists(DUB_VIDEO):
             if not video_file_found: st.warning(t("Please download or upload a video first in section 'a.' before starting the audio processing."))
             if st.button(t("Start Audio Processing"), key="audio_processing_button", disabled=not video_file_found):
+                st.session_state.awaiting_speaker_review = False
                 st.session_state.audio_processing_step = 1
                 st.rerun()
             if os.path.exists(_8_1_AUDIO_TASK):
                 if st.button(t("Delete dubbing files"), key="delete_dubbing_files_retry"):
+                    st.session_state.awaiting_speaker_review = False
                     delete_dubbing_files()
                     st.rerun()
         else:
@@ -436,9 +656,11 @@ def audio_processing_section():
             if load_key("burn_subtitles"): 
                 safe_video_display(DUB_VIDEO)
             if st.button(t("Delete dubbing files"), key="delete_dubbing_files"):
+                st.session_state.awaiting_speaker_review = False
                 delete_dubbing_files()
                 st.rerun()
             if st.button(t("Archive to 'history'"), key="cleanup_in_audio_processing"):
+                st.session_state.awaiting_speaker_review = False
                 cleanup()
                 st.rerun()
 

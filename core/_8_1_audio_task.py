@@ -155,27 +155,48 @@ def process_srt():
         subtitles.append({'number': number, 'start_time': start_time, 'end_time': end_time, 'duration': duration, 'text': text, 'origin': origin})
     
     df = pd.DataFrame(subtitles)
-    
+
+    # 1. Run Speaker & Voice Gender Classification FIRST on raw unmerged, unscaled timestamps
+    #    so short Q&A turns are never merged across different speakers before classification,
+    #    and timestamps match the original audio file (before video_slow_factor scaling).
+    df = classify_subtitles_gender(df)
+    if 'voice' not in df.columns:
+        df['voice'] = ''
+
+    # 2. Merge or extend short subtitles with strict speaker-boundary isolation
     i = 0
     MIN_SUB_DUR = load_key("min_subtitle_duration")
     while i < len(df):
         today = datetime.date.today()
         if df.loc[i, 'duration'] < MIN_SUB_DUR:
-            if i < len(df) - 1 and time_diff_seconds(df.loc[i, 'start_time'],df.loc[i+1, 'start_time'],today) < MIN_SUB_DUR:
-                rprint(f"[bold yellow]Merging subtitles {i+1} and {i+2}[/bold yellow]")
-                df.loc[i, 'text'] += ' ' + df.loc[i+1, 'text']
-                df.loc[i, 'origin'] += ' ' + df.loc[i+1, 'origin']
-                df.loc[i, 'end_time'] = df.loc[i+1, 'end_time']
-                df.loc[i, 'duration'] = time_diff_seconds(df.loc[i, 'start_time'],df.loc[i, 'end_time'],today)
-                df = df.drop(i+1).reset_index(drop=True)
+            if i < len(df) - 1:
+                gap_to_nextStart = time_diff_seconds(df.loc[i, 'start_time'], df.loc[i + 1, 'start_time'], today)
+                same_speaker = (
+                    str(df.loc[i, 'speaker_id']) == str(df.loc[i + 1, 'speaker_id'])
+                    and str(df.loc[i, 'gender']) == str(df.loc[i + 1, 'gender'])
+                    and str(df.loc[i, 'voice'] or '') == str(df.loc[i + 1, 'voice'] or '')
+                )
+                if same_speaker and gap_to_nextStart < MIN_SUB_DUR:
+                    rprint(f"[bold yellow]Merging subtitles {i+1} and {i+2} (same speaker: {df.loc[i, 'speaker_id']})[/bold yellow]")
+                    df.loc[i, 'text'] += ' ' + df.loc[i + 1, 'text']
+                    df.loc[i, 'origin'] += ' ' + df.loc[i + 1, 'origin']
+                    df.loc[i, 'end_time'] = df.loc[i + 1, 'end_time']
+                    df.loc[i, 'duration'] = time_diff_seconds(df.loc[i, 'start_time'], df.loc[i, 'end_time'], today)
+                    df = df.drop(i + 1).reset_index(drop=True)
+                    continue
+
+                # If different speaker, extend only up to next speaker's start_time to prevent cross-speaker overlap
+                target_dur = MIN_SUB_DUR if same_speaker else min(MIN_SUB_DUR, max(df.loc[i, 'duration'], gap_to_nextStart))
+                if target_dur > df.loc[i, 'duration']:
+                    rprint(f"[bold blue]Extending subtitle {i+1} duration to {target_dur:.2f} seconds[/bold blue]")
+                    df.loc[i, 'end_time'] = (
+                        datetime.datetime.combine(today, df.loc[i, 'start_time']) +
+                        datetime.timedelta(seconds=target_dur)
+                    ).time()
+                    df.loc[i, 'duration'] = target_dur
+                i += 1
             else:
-                if i < len(df) - 1:  # Not the last audio
-                    rprint(f"[bold blue]Extending subtitle {i+1} duration to {MIN_SUB_DUR} seconds[/bold blue]")
-                    df.loc[i, 'end_time'] = (datetime.datetime.combine(today, df.loc[i, 'start_time']) + 
-                                            datetime.timedelta(seconds=MIN_SUB_DUR)).time()
-                    df.loc[i, 'duration'] = MIN_SUB_DUR
-                else:
-                    rprint(f"[bold red]The last subtitle {i+1} duration is less than {MIN_SUB_DUR} seconds, but not extending[/bold red]")
+                rprint(f"[bold red]The last subtitle {i+1} duration is less than {MIN_SUB_DUR} seconds, but not extending[/bold red]")
                 i += 1
         else:
             i += 1
@@ -232,9 +253,6 @@ def process_srt():
         df['duration'] = df['duration'] / video_slow_factor
         rprint(f"[bold cyan]🎬 Timestamps scaled by 1/{video_slow_factor:.2f} (video_slow_factor={video_slow_factor})[/bold cyan]")
 
-    # Automatic Voice Gender Classification
-    df = classify_subtitles_gender(df)
-
     return df
 
 def gen_audio_task_main():
@@ -246,9 +264,15 @@ def gen_audio_task_main():
     if os.path.exists(_8_1_AUDIO_TASK):
         try:
             existing_df = pd.read_excel(_8_1_AUDIO_TASK)
-            if 'gender' not in existing_df.columns:
-                rprint("[yellow]🔄 Existing audio task file missing 'gender' column, classifying and updating...[/yellow]")
+            updated = False
+            if 'gender' not in existing_df.columns or 'speaker_id' not in existing_df.columns:
+                rprint("[yellow]🔄 Existing audio task file missing speaker/gender columns, classifying and updating...[/yellow]")
                 existing_df = classify_subtitles_gender(existing_df)
+                updated = True
+            if 'voice' not in existing_df.columns:
+                existing_df['voice'] = ''
+                updated = True
+            if updated:
                 existing_df.to_excel(_8_1_AUDIO_TASK, index=False)
                 return
         except Exception:

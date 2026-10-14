@@ -6,6 +6,79 @@ from translations.translations import translate as t
 from translations.translations import DISPLAY_LANGUAGES
 from core.utils import *
 
+# ── Shared TTS Voice Catalogs ────────────────────────────────────────────────
+DOUBAO_MALE_VOICES = {
+    "儒雅逸辰 2.0 (男·视频配音)": "zh_male_ruyayichen_uranus_bigtts",
+    "解说小明 2.0 (男·通用)": "zh_male_jieshuoxiaoming_uranus_bigtts",
+    "译制片男 2.0 (男·通用)": "zh_male_yizhipiannan_uranus_bigtts",
+    "邻家男孩 2.0 (男·通用)": "zh_male_linjiananhai_uranus_bigtts",
+    "四郎 2.0 (男·通用)": "zh_male_silang_uranus_bigtts",
+    "云舟 (中男·旗舰)": "zh_male_m191_uranus_bigtts",
+    "小天 (中男·旗舰)": "zh_male_taocheng_uranus_bigtts",
+    "Tim (英男·旗舰)": "en_male_tim_uranus_bigtts",
+    "爽朗少年 (中男·Saturn)": "saturn_zh_male_shuanglangshaonian_tob",
+    "天才同桌 (中男·Saturn)": "saturn_zh_male_tiancaitongzhu_tob",
+}
+
+DOUBAO_FEMALE_VOICES = {
+    "vivi 2.0 (中女·旗舰)": "zh_female_vv_uranus_bigtts",
+    "流畅女声 2.0 (女·视频配音)": "zh_female_liuchangnv_uranus_bigtts",
+    "温柔妈妈 2.0 (女·通用)": "zh_female_wenroumama_uranus_bigtts",
+    "TVB女声 2.0 (女·通用)": "zh_female_tvbnv_uranus_bigtts",
+    "俏皮女声 2.0 (女·通用)": "zh_female_qiaopinv_uranus_bigtts",
+    "直率英子 2.0 (女·通用)": "zh_female_zhishuaiyingzi_uranus_bigtts",
+    "小何 (中女·旗舰)": "zh_female_xiaohe_uranus_bigtts",
+    "知性灿灿 (中女·Saturn)": "saturn_zh_female_cancan_tob",
+    "可爱女生 (中女·Saturn)": "saturn_zh_female_keainvsheng_tob",
+    "调皮公主 (中女·Saturn)": "saturn_zh_female_tiaopigongzhu_tob",
+}
+
+EDGE_MALE_VOICES = {
+    "zh-CN-YunxiNeural (云希·男声·通用)": "zh-CN-YunxiNeural",
+    "zh-CN-YunjianNeural (云健·男声·解说)": "zh-CN-YunjianNeural",
+    "zh-CN-YunyangNeural (云扬·男声·新闻)": "zh-CN-YunyangNeural",
+    "zh-CN-YunxiaNeural (云夏·男声·卡通)": "zh-CN-YunxiaNeural",
+    "zh-HK-WanLungNeural (云龙·香港男声)": "zh-HK-WanLungNeural",
+    "zh-TW-YunJheNeural (云哲·台湾男声)": "zh-TW-YunJheNeural",
+    "en-US-GuyNeural (Guy·US Male)": "en-US-GuyNeural",
+    "en-US-ChristopherNeural (Chris·US Male)": "en-US-ChristopherNeural",
+    "en-GB-RyanNeural (Ryan·UK Male)": "en-GB-RyanNeural",
+}
+
+EDGE_FEMALE_VOICES = {
+    "zh-CN-XiaoxiaoNeural (晓晓·女声·新闻)": "zh-CN-XiaoxiaoNeural",
+    "zh-CN-XiaoyiNeural (晓伊·女声·故事)": "zh-CN-XiaoyiNeural",
+    "zh-CN-liaoning-XiaobeiNeural (晓北·辽宁方言)": "zh-CN-liaoning-XiaobeiNeural",
+    "zh-CN-shaanxi-XiaoniNeural (晓妮·陕西方言)": "zh-CN-shaanxi-XiaoniNeural",
+    "zh-HK-HiuMaanNeural (晓曼·港漫女声)": "zh-HK-HiuMaanNeural",
+    "zh-TW-HsiaoChenNeural (晓臻·台湾女声)": "zh-TW-HsiaoChenNeural",
+    "en-US-JennyNeural (Jenny·US Female)": "en-US-JennyNeural",
+    "en-US-AriaNeural (Aria·US Female)": "en-US-AriaNeural",
+    "en-GB-SoniaNeural (Sonia·UK Female)": "en-GB-SoniaNeural",
+}
+
+
+def get_available_tts_voices(tts_method: str = None) -> dict:
+    """Return {display_label: voice_id} for the active TTS method, starting with default option."""
+    if not tts_method:
+        try:
+            tts_method = load_key("tts_method")
+        except Exception:
+            tts_method = "edge_tts"
+    options = {"(跟随默认男/女音色)": ""}
+    if tts_method == "doubao_tts":
+        for k, v in DOUBAO_MALE_VOICES.items():
+            options[f"👨 {k}"] = v
+        for k, v in DOUBAO_FEMALE_VOICES.items():
+            options[f"👩 {k}"] = v
+    else:
+        for k, v in EDGE_MALE_VOICES.items():
+            options[f"👨 {k}"] = v
+        for k, v in EDGE_FEMALE_VOICES.items():
+            options[f"👩 {k}"] = v
+    return options
+
+
 # ── LLM Profile helpers ──────────────────────────────────────────────────────
 LLM_PROFILES_PATH = "llm_profiles.json"
 LLM_PROFILES_EXAMPLE_PATH = "llm_profiles.example.json"
@@ -356,6 +429,18 @@ def page_setting():
             if skip_refer != load_key("skip_refer"):
                 update_key("skip_refer", skip_refer)
 
+            try:
+                cur_pause_dub = bool(load_key("pause_before_dub"))
+            except Exception:
+                cur_pause_dub = False
+            pause_before_dub = st.toggle(
+                t("Pause Before Dubbing (Review Speakers)"),
+                value=cur_pause_dub,
+                help=t("When enabled, dubbing will automatically pause after Step 1 (speaker & gender identification) so you can preview speaker voices and adjust gender/voice assignments before generating TTS audio.")
+            )
+            if pause_before_dub != cur_pause_dub:
+                update_key("pause_before_dub", pause_before_dub)
+
             # ── Pyannote Speaker Diarization Settings ──
             st.divider()
             st.markdown(f"**🎙️ {t('Speaker Diarization')}**")
@@ -414,31 +499,8 @@ def page_setting():
                 config_input("Volcengine AppID", "doubao_tts.appid")
                 config_input("Volcengine Access Token", "doubao_tts.access_token")
                 
-                doubao_male_voices = {
-                    "儒雅逸辰 2.0 (男·视频配音)": "zh_male_ruyayichen_uranus_bigtts",
-                    "解说小明 2.0 (男·通用)": "zh_male_jieshuoxiaoming_uranus_bigtts",
-                    "译制片男 2.0 (男·通用)": "zh_male_yizhipiannan_uranus_bigtts",
-                    "邻家男孩 2.0 (男·通用)": "zh_male_linjiananhai_uranus_bigtts",
-                    "四郎 2.0 (男·通用)": "zh_male_silang_uranus_bigtts",
-                    "云舟 (中男·旗舰)": "zh_male_m191_uranus_bigtts",
-                    "小天 (中男·旗舰)": "zh_male_taocheng_uranus_bigtts",
-                    "Tim (英男·旗舰)": "en_male_tim_uranus_bigtts",
-                    "爽朗少年 (中男·Saturn)": "saturn_zh_male_shuanglangshaonian_tob",
-                    "天才同桌 (中男·Saturn)": "saturn_zh_male_tiancaitongzhu_tob",
-                }
-                
-                doubao_female_voices = {
-                    "vivi 2.0 (中女·旗舰)": "zh_female_vv_uranus_bigtts",
-                    "流畅女声 2.0 (女·视频配音)": "zh_female_liuchangnv_uranus_bigtts",
-                    "温柔妈妈 2.0 (女·通用)": "zh_female_wenroumama_uranus_bigtts",
-                    "TVB女声 2.0 (女·通用)": "zh_female_tvbnv_uranus_bigtts",
-                    "俏皮女声 2.0 (女·通用)": "zh_female_qiaopinv_uranus_bigtts",
-                    "直率英子 2.0 (女·通用)": "zh_female_zhishuaiyingzi_uranus_bigtts",
-                    "小何 (中女·旗舰)": "zh_female_xiaohe_uranus_bigtts",
-                    "知性灿灿 (中女·Saturn)": "saturn_zh_female_cancan_tob",
-                    "可爱女生 (中女·Saturn)": "saturn_zh_female_keainvsheng_tob",
-                    "调皮公主 (中女·Saturn)": "saturn_zh_female_tiaopigongzhu_tob",
-                }
+                doubao_male_voices = DOUBAO_MALE_VOICES
+                doubao_female_voices = DOUBAO_FEMALE_VOICES
 
                 # 👨 Male Voice Selection
                 current_male_voice = load_key("doubao_tts.male_voice") or "zh_male_ruyayichen_uranus_bigtts"
@@ -506,29 +568,8 @@ def page_setting():
                                 except: pass
             
             elif select_tts == "edge_tts":
-                edge_male_voices = {
-                    "zh-CN-YunxiNeural (云希·男声·通用)": "zh-CN-YunxiNeural",
-                    "zh-CN-YunjianNeural (云健·男声·解说)": "zh-CN-YunjianNeural",
-                    "zh-CN-YunyangNeural (云扬·男声·新闻)": "zh-CN-YunyangNeural",
-                    "zh-CN-YunxiaNeural (云夏·男声·卡通)": "zh-CN-YunxiaNeural",
-                    "zh-HK-WanLungNeural (云龙·香港男声)": "zh-HK-WanLungNeural",
-                    "zh-TW-YunJheNeural (云哲·台湾男声)": "zh-TW-YunJheNeural",
-                    "en-US-GuyNeural (Guy·US Male)": "en-US-GuyNeural",
-                    "en-US-ChristopherNeural (Chris·US Male)": "en-US-ChristopherNeural",
-                    "en-GB-RyanNeural (Ryan·UK Male)": "en-GB-RyanNeural",
-                }
-
-                edge_female_voices = {
-                    "zh-CN-XiaoxiaoNeural (晓晓·女声·新闻)": "zh-CN-XiaoxiaoNeural",
-                    "zh-CN-XiaoyiNeural (晓伊·女声·故事)": "zh-CN-XiaoyiNeural",
-                    "zh-CN-liaoning-XiaobeiNeural (晓北·辽宁方言)": "zh-CN-liaoning-XiaobeiNeural",
-                    "zh-CN-shaanxi-XiaoniNeural (晓妮·陕西方言)": "zh-CN-shaanxi-XiaoniNeural",
-                    "zh-HK-HiuMaanNeural (晓曼·港漫女声)": "zh-HK-HiuMaanNeural",
-                    "zh-TW-HsiaoChenNeural (晓臻·台湾女声)": "zh-TW-HsiaoChenNeural",
-                    "en-US-JennyNeural (Jenny·US Female)": "en-US-JennyNeural",
-                    "en-US-AriaNeural (Aria·US Female)": "en-US-AriaNeural",
-                    "en-GB-SoniaNeural (Sonia·UK Female)": "en-GB-SoniaNeural",
-                }
+                edge_male_voices = EDGE_MALE_VOICES
+                edge_female_voices = EDGE_FEMALE_VOICES
 
                 # 👨 Male Voice Selection
                 current_male_voice = load_key("edge_tts.male_voice") or "zh-CN-YunxiNeural"

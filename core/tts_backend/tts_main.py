@@ -57,7 +57,7 @@ def is_audio_valid(file_path: str, text: str) -> bool:
         
     return True
 
-def tts_main(text, save_as, number=None, task_df=None, gender=None):
+def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
     text = clean_text_for_tts(text)
     # Check if text is empty or single character, single character voiceovers are prone to bugs
     cleaned_text = re.sub(r'[^\w\s]', '', text).strip()
@@ -67,14 +67,21 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None):
         rprint(f"Created silent audio for empty/single-char text: {save_as}")
         return
     
-    # Resolve gender from task_df if not explicitly provided
-    if gender is None and task_df is not None and number is not None:
+    # Resolve gender and custom voice from task_df if not explicitly provided
+    if task_df is not None and number is not None:
         try:
             matching_rows = task_df[task_df['number'] == number]
-            if not matching_rows.empty and 'gender' in matching_rows.columns:
-                gender = matching_rows['gender'].values[0]
+            if not matching_rows.empty:
+                if gender is None and 'gender' in matching_rows.columns:
+                    gender = matching_rows['gender'].values[0]
+                if not voice and 'voice' in matching_rows.columns:
+                    raw_v = matching_rows['voice'].values[0]
+                    if pd.notna(raw_v) and str(raw_v).strip():
+                        voice = str(raw_v).strip()
         except Exception:
             pass
+    if voice and (pd.isna(voice) or not str(voice).strip()):
+        voice = None
     
     # Skip if file exists, is non-empty and is valid
     if os.path.exists(save_as) and os.path.getsize(save_as) > 0:
@@ -87,7 +94,7 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None):
             except Exception:
                 pass
     
-    print(f"Generating ({gender or 'default'}) <{text}...>")
+    print(f"Generating ({voice or gender or 'default'}) <{text}...>")
     TTS_METHOD = load_key("tts_method")
     
     max_retries = 3
@@ -100,9 +107,9 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None):
                 text = correct_text['text']
             
             if TTS_METHOD == 'edge_tts':
-                edge_tts(text, save_as, gender=gender)
+                edge_tts(text, save_as, voice=voice, gender=gender)
             elif TTS_METHOD == 'doubao_tts':
-                doubao_tts(text, save_as, gender=gender)
+                doubao_tts(text, save_as, voice_type=voice, gender=gender)
             else:
                 raise ValueError(f"Unsupported TTS method: {TTS_METHOD}")
                 

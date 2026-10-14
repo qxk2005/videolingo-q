@@ -152,16 +152,61 @@ def trim_tts_silence(input_file: str) -> None:
             os.remove(temp_file)
 
 
+def invalidate_audio_cache_for_numbers(numbers: list) -> int:
+    """
+    Delete cached TTS audio files (both tmp and speed-adjusted segs) ONLY for the specified
+    task numbers, enabling fast incremental re-dubbing when user modifies speaker/gender/voice.
+    Returns count of deleted files.
+    """
+    import glob
+    deleted = 0
+    for num in numbers:
+        for base_dir in [_AUDIO_TMP_DIR, _AUDIO_SEGS_DIR]:
+            if not os.path.exists(base_dir):
+                continue
+            for pattern in [f"{num}_*.wav", f"{num}.wav"]:
+                for fpath in glob.glob(os.path.join(base_dir, pattern)):
+                    try:
+                        os.remove(fpath)
+                        deleted += 1
+                    except Exception:
+                        pass
+    # Also remove final merged dub files so steps 3 & 4 re-merge cleanly
+    for final_f in ["output/dub.wav", "output/dub.mp3", "output/output_dub.mp4", "output/normalized_dub.wav"]:
+        if os.path.exists(final_f):
+            try:
+                os.remove(final_f)
+            except Exception:
+                pass
+    return deleted
+
+
 def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
     """Helper function for processing single row data with continuous dubbing optimization"""
     number = row['number']
     lines = eval(row['lines']) if isinstance(row['lines'], str) else row['lines']
     gender = row.get('gender', None)
+    raw_voice = row.get('voice', None)
+    voice = str(raw_voice).strip() if (raw_voice is not None and pd.notna(raw_voice) and str(raw_voice).strip()) else None
     real_dur = 0
     
     tts_method = load_key("tts_method")
     success_continuous = False
     
+    # If all slice temp files already exist and are valid, skip re-synthesis (enables incremental rebuild!)
+    from core.tts_backend.tts_main import is_audio_valid
+    all_cached_valid = True
+    cached_dur = 0.0
+    for line_index, line in enumerate(lines):
+        temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
+        if os.path.exists(temp_file) and os.path.getsize(temp_file) > 0 and is_audio_valid(temp_file, line):
+            cached_dur += get_audio_duration(temp_file)
+        else:
+            all_cached_valid = False
+            break
+    if all_cached_valid and len(lines) > 0 and cached_dur > 0:
+        return number, cached_dur
+
     # Apply continuous dubbing optimization for multi-line chunks in doubao_tts
     if len(lines) > 1 and tts_method == "doubao_tts":
         try:
@@ -186,7 +231,7 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
                 combined_temp_path = tmp_file.name
             
             # Generate continuous paragraph audio
-            tts_main(combined_text, combined_temp_path, number, tasks_df, gender=gender)
+            tts_main(combined_text, combined_temp_path, number, tasks_df, gender=gender, voice=voice)
             
             # Load the continuous audio
             combined_audio = AudioSegment.from_file(combined_temp_path)
@@ -203,7 +248,7 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
             
             if best_ranges is not None:
                 # Successfully identified and split all sentence segments!
-                rprint(f"[bold green]✨ Continuous Dubbing Success: Chunk {number} ({gender or 'default'}) with {len(lines)} lines successfully aligned and split on silence![/bold green]")
+                rprint(f"[bold green]✨ Continuous Dubbing Success: Chunk {number} ({voice or gender or 'default'}) with {len(lines)} lines successfully aligned and split on silence![/bold green]")
                 for line_index, (start_ms, end_ms) in enumerate(best_ranges):
                     temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
                     # Extract segment with 100ms padding for smooth start/end transition
@@ -218,7 +263,6 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
                     real_dur += dur
                 
                 # 🎯 Deep sanity check: verify if the split slices are actually healthy and valid
-                from core.tts_backend.tts_main import is_audio_valid
                 all_slices_valid = True
                 for line_index, line in enumerate(lines):
                     temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
@@ -261,12 +305,12 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
         real_dur = 0
         for line_index, line in enumerate(lines):
             temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
-            tts_main(line, temp_file, number, tasks_df, gender=gender)
+            tts_main(line, temp_file, number, tasks_df, gender=gender, voice=voice)
             trim_tts_silence(temp_file)  # Remove TTS leading/trailing silence before measuring
             dur = get_audio_duration(temp_file)
             if dur <= 0 and os.path.exists(temp_file):
                 os.remove(temp_file)
-                tts_main(line, temp_file, number, tasks_df, gender=gender)
+                tts_main(line, temp_file, number, tasks_df, gender=gender, voice=voice)
                 trim_tts_silence(temp_file)
                 dur = get_audio_duration(temp_file)
             real_dur += dur

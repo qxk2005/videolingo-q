@@ -221,5 +221,18 @@
     "audio_processing_step": "音频处理步骤",
     "text_processing_step": "文本处理步骤",
     "✅ Subtitle cache cleared.": "✅ 字幕缓存已清除。",
-    "🗑️ Clearing subtitle cache...": "🗑️ 正在清除字幕缓存..."
+    "🗑️ Clearing subtitle cache...": "🗑️ 正在清除字幕缓存...",
+    "Pause Before Dubbing (Review Speakers)": "配音前暂停确认说话人",
+    "When enabled, dubbing will automatically pause after Step 1 (speaker & gender identification) so you can preview speaker voices and adjust gender/voice assignments before generating TTS audio.": "开启后，配音流程将在完成第1步（说话人与性别识别）后自动暂停，方便您先试听各说话人原声、调整男女声或独立音色后再继续生成配音。",
+    "Speaker & Voice Review / Override": "说话人识别结果与配音角色微调",
+    "Paused after speaker identification. Please review or adjust speaker genders/voices below, then click Confirm & Continue Dubbing.": "已完成说话人与性别识别并暂停。请在下方试听原声、确认或调整各角色性别与专属音色，然后点击「确认说话人并继续配音」。",
+    "Preview each detected speaker's original voice, switch gender or assign dedicated voices per speaker, and incrementally re-synthesize only modified lines.": "支持试听每位说话人的原视频人声片段，一键切换角色男女声或指定独立音色；修改后仅增量重算变更台词的配音缓存。",
+    "Gender": "性别",
+    "Male": "男声",
+    "Female": "女声",
+    "Dedicated Voice": "专属音色",
+    "Speaker": "说话人",
+    "Sentence-Level Fine-Tuning Table (Optional)": "逐句台词性别与音色微调表（可选）",
+    "Save Adjustments & Incremental Rebuild": "保存修改并增量重配",
+    "Confirm Speakers & Continue Dubbing": "确认说话人并继续配音"
 }

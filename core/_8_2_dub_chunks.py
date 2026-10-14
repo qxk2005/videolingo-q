@@ -23,8 +23,19 @@ def calc_if_too_fast(est_dur, tol_dur, duration, tolerance):
     else:  # Normal speaking speed
         return 0
 
+def _is_same_speaker_row(row_a, row_b) -> bool:
+    """Return True only if two rows belong to the same speaker, gender, and voice override."""
+    spk_a = str(row_a.get('speaker_id', '') or '') if pd.notna(row_a.get('speaker_id', '')) else ''
+    spk_b = str(row_b.get('speaker_id', '') or '') if pd.notna(row_b.get('speaker_id', '')) else ''
+    gen_a = str(row_a.get('gender', '') or '') if pd.notna(row_a.get('gender', '')) else ''
+    gen_b = str(row_b.get('gender', '') or '') if pd.notna(row_b.get('gender', '')) else ''
+    v_a = str(row_a.get('voice', '') or '') if pd.notna(row_a.get('voice', '')) else ''
+    v_b = str(row_b.get('voice', '') or '') if pd.notna(row_b.get('voice', '')) else ''
+    return (spk_a == spk_b) and (gen_a == gen_b) and (v_a == v_b)
+
+
 def merge_rows(df, start_idx, merge_count):
-    """Merge multiple rows and calculate cumulative values"""
+    """Merge multiple rows and calculate cumulative values, strictly stopping at speaker boundaries"""
     merged = {
         'est_dur': df.iloc[start_idx]['est_dur'],
         'tol_dur': df.iloc[start_idx]['tol_dur'],
@@ -32,7 +43,14 @@ def merge_rows(df, start_idx, merge_count):
     }
     
     while merge_count < MAX_MERGE_COUNT and (start_idx + merge_count) < len(df):
+        prev_row = df.iloc[start_idx + merge_count - 1]
         next_row = df.iloc[start_idx + merge_count]
+
+        # Never merge across speaker / gender / voice boundaries
+        if not _is_same_speaker_row(prev_row, next_row):
+            df.at[start_idx + merge_count - 1, 'cut_off'] = 1
+            return merge_count
+
         merged['est_dur'] += next_row['est_dur']
         merged['tol_dur'] += next_row['tol_dur']
         merged['duration'] += next_row['duration']
@@ -99,9 +117,15 @@ def analyze_subtitle_timing_and_speed(df):
     return df
 
 def process_cutoffs(df):
-    rprint("[✂️ Processing] Generating cutoff points...")
+    rprint("[✂️ Processing] Generating cutoff points (with speaker-boundary isolation)...")
     df['cut_off'] = 0  # Initialize cut_off column
     df.loc[df['gap'] >= load_key("tolerance"), 'cut_off'] = 1  # Set to 1 when gap is greater than TOLERANCE
+
+    # Always force cut_off = 1 when speaker_id, gender, or custom voice changes between i and i+1
+    for i in range(len(df) - 1):
+        if not _is_same_speaker_row(df.iloc[i], df.iloc[i + 1]):
+            df.at[i, 'cut_off'] = 1
+
     idx = 0
     while idx < len(df):
         # Process marked split points

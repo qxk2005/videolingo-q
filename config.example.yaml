@@ -117,6 +117,12 @@ tts_method: 'edge_tts'
 # Number of concurrent TTS tasks
 tts_max_workers: 1
 
+# Skip extracting reference audio from original video
+skip_refer: false
+
+# Pause after speaker/gender identification (Step 1 of Dubbing) to review and adjust speaker voices before TTS synthesis
+pause_before_dub: false
+
 # Edge TTS configuration
 edge_tts:
   male_voice: 'zh-CN-YunxiNeural'
