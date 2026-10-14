@@ -29,6 +29,7 @@ from core.utils import load_key, update_key, get_ffmpeg_video_encoder
 from core.utils.config_utils import CONFIG_PATH, yaml as ruamel_yaml, lock as config_lock
 from core.utils.onekeycleanup import cleanup
 from core.utils.models import (
+    _RAW_AUDIO_FILE,
     _2_CLEANED_CHUNKS,
     _3_2_SPLIT_BY_MEANING,
     _4_2_TRANSLATION,
@@ -55,6 +56,7 @@ from core import (
     _12_dub_to_vid,
 )
 from core.asr_backend.audio_preprocess import (
+    convert_video_to_audio,
     reapply_vocab_correction_to_cleaned_chunks,
     detect_suspicious_terms_from_srt,
 )
@@ -759,7 +761,7 @@ def get_workspace_state():
     # Dubbing steps completion
     pause_before_dub = bool(load_key("pause_before_dub"))
     has_audio_tasks = os.path.exists(_8_1_AUDIO_TASK)
-    has_dub_mp3 = os.path.exists("output/audio/dub.mp3")
+    has_dub_mp3 = os.path.exists("output/dub.mp3") or os.path.exists("output/audio/dub.mp3")
     has_dub_video = os.path.exists(DUB_VIDEO)
 
     waiting_confirm = (
@@ -1134,10 +1136,19 @@ def start_dubbing_pipeline(force_continue: bool = False):
             STATE.start_task(
                 stage="dubbing",
                 total_steps=4,
-                step_name="1. 正在执行说话人性别识别与配音分块...",
+                step_name="1. 正在准备音频并执行说话人性别识别与配音分块...",
             )
 
         try:
+            # Ensure output/audio/raw.mp3 exists (especially when Stage B used official subtitles and skipped WhisperX)
+            if not os.path.exists(_RAW_AUDIO_FILE):
+                STATE.step_index = 1
+                STATE.percent = 8.0
+                STATE.sub_step = "正在从原视频提取基础音轨 (raw.mp3)..."
+                video_file = _1_ytdlp.find_video_files()
+                if video_file and os.path.exists(video_file):
+                    convert_video_to_audio(video_file)
+
             if not os.path.exists(_8_1_AUDIO_TASK):
                 STATE.step_index = 1
                 STATE.percent = 15.0
@@ -1147,22 +1158,38 @@ def start_dubbing_pipeline(force_continue: bool = False):
                 STATE.percent = 30.0
                 STATE.sub_step = "正在计算跨角色隔离的配音切分点..."
                 _8_2_dub_chunks.gen_dub_chunks()
-            elif "cut_off" not in pd.read_excel(_8_1_AUDIO_TASK).columns:
-                _8_2_dub_chunks.gen_dub_chunks()
+            else:
+                df_existing = pd.read_excel(_8_1_AUDIO_TASK)
+                needs_rechunk = (
+                    "cut_off" not in df_existing.columns
+                    or "gap" not in df_existing.columns
+                    or (len(df_existing) > 0 and float(df_existing["gap"].iloc[-1]) <= 0)
+                )
+                if needs_rechunk:
+                    STATE.step_index = 1
+                    STATE.percent = 30.0
+                    STATE.sub_step = "正在重新计算字幕时间容差与跨角色配音切分点..."
+                    _8_2_dub_chunks.gen_dub_chunks()
 
             if STATE.stop_requested:
                 return
-
-            STATE.step_index = 2
-            STATE.percent = 45.0
-            STATE.step_name = "2. 正在提取参考音频..."
-            STATE.sub_step = "正在为各说话人抽取清晰人声切片..."
-            _9_refer_audio.extract_refer_audio_main()
 
             pause_before_dub = bool(load_key("pause_before_dub"))
             if pause_before_dub and not STATE.speaker_review_confirmed:
                 STATE.percent = 50.0
                 STATE.toast = "⏸️ 已完成说话人识别，请确认角色性别与音色后点击「确认说话人并继续配音」"
+                return
+
+            STATE.step_index = 2
+            STATE.percent = 55.0
+            STATE.step_name = "2. 正在准备参考音频..."
+            if not load_key("skip_refer"):
+                STATE.sub_step = "正在分离人声并为各说话人抽取清晰参考音频切片..."
+                _9_refer_audio.extract_refer_audio_main()
+            else:
+                STATE.sub_step = "当前 TTS 无需提取参考音频，跳过 Demucs 分离..."
+
+            if STATE.stop_requested:
                 return
 
             STATE.step_index = 3
@@ -1219,6 +1246,11 @@ def save_speaker_overrides(payload: SaveSpeakerReviewPayload):
     if not os.path.exists(_8_1_AUDIO_TASK):
         raise HTTPException(status_code=404, detail="配音任务表尚未生成")
 
+    if not os.path.exists(_RAW_AUDIO_FILE):
+        video_file = _1_ytdlp.find_video_files()
+        if video_file and os.path.exists(video_file):
+            convert_video_to_audio(video_file)
+
     df = pd.read_excel(_8_1_AUDIO_TASK)
     for col, default in [("gender", "female"), ("speaker_id", "SPEAKER_00"), ("voice", "")]:
         if col not in df.columns:
@@ -1260,7 +1292,8 @@ def save_speaker_overrides(payload: SaveSpeakerReviewPayload):
                     df.at[idx, "text"] = l_item.text
                 affected_numbers.add(num)
 
-    # Re-evaluate cut_off boundaries across speakers
+    # Re-evaluate timing and cut_off boundaries across speakers
+    df = _8_2_dub_chunks.analyze_subtitle_timing_and_speed(df)
     df = _8_2_dub_chunks.process_cutoffs(df)
     df.to_excel(_8_1_AUDIO_TASK, index=False)
 
@@ -1280,7 +1313,7 @@ def save_speaker_overrides(payload: SaveSpeakerReviewPayload):
 @app.delete("/api/pipeline/dubbing")
 def delete_dubbing_files():
     STATE.speaker_review_confirmed = False
-    for f in [DUB_VIDEO, "output/audio/dub.mp3", "output/dub.srt", _8_1_AUDIO_TASK]:
+    for f in [DUB_VIDEO, "output/dub.mp3", "output/audio/dub.mp3", "output/dub.srt", _8_1_AUDIO_TASK]:
         if os.path.exists(f):
             os.remove(f)
     segs_dir = "output/audio/segs"

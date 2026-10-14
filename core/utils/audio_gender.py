@@ -412,6 +412,22 @@ def get_named_speaker_gender(text: str) -> str:
     return None
 
 
+def _ensure_audio_source() -> str:
+    """Return _VOCAL_AUDIO_FILE if available, else _RAW_AUDIO_FILE (extracting it from video if missing)."""
+    if os.path.exists(_VOCAL_AUDIO_FILE):
+        return _VOCAL_AUDIO_FILE
+    if not os.path.exists(_RAW_AUDIO_FILE):
+        try:
+            from core._1_ytdlp import find_video_files
+            from core.asr_backend.audio_preprocess import convert_video_to_audio
+            video_file = find_video_files()
+            if video_file and os.path.exists(video_file):
+                convert_video_to_audio(video_file)
+        except Exception as e:
+            rprint(f"[yellow]⚠️ Auto-extracting {_RAW_AUDIO_FILE} failed: {e}[/yellow]")
+    return _RAW_AUDIO_FILE
+
+
 def extract_speaker_sample_clips(
     df_tasks: pd.DataFrame,
     output_dir: str = "output/audio/speaker_samples",
@@ -423,7 +439,7 @@ def extract_speaker_sample_clips(
     """
     import soundfile as sf
 
-    audio_path = _VOCAL_AUDIO_FILE if os.path.exists(_VOCAL_AUDIO_FILE) else _RAW_AUDIO_FILE
+    audio_path = _ensure_audio_source()
     if not os.path.exists(audio_path) or df_tasks is None or df_tasks.empty:
         return {}
 
@@ -496,7 +512,7 @@ def classify_subtitles_gender(df_tasks: pd.DataFrame) -> pd.DataFrame:
     rprint("[bold cyan]🎙️ Starting acoustic & neural voice gender identification...[/bold cyan]")
     
     # 1. Determine audio file to use
-    audio_path = _VOCAL_AUDIO_FILE if os.path.exists(_VOCAL_AUDIO_FILE) else _RAW_AUDIO_FILE
+    audio_path = _ensure_audio_source()
     if not os.path.exists(audio_path):
         rprint(f"[yellow]⚠️ Audio file not found at {audio_path}, defaulting all to female voice.[/yellow]")
         df_tasks['gender'] = 'female'

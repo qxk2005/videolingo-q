@@ -26,7 +26,12 @@ def demucs_audio():
     
     console = Console()
     os.makedirs(_AUDIO_DIR, exist_ok=True)
-    
+    if not os.path.exists(_RAW_AUDIO_FILE):
+        from core._1_ytdlp import find_video_files
+        from core.asr_backend.audio_preprocess import convert_video_to_audio
+        video_file = find_video_files()
+        convert_video_to_audio(video_file)
+
     console.print("🤖 Loading <htdemucs_ft> model...")
     model = get_model('htdemucs_ft')
     separator = PreloadedSeparator(model=model, shifts=1, overlap=0.25)

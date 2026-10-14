@@ -79,6 +79,13 @@ def analyze_subtitle_timing_and_speed(df):
     if ESTIMATOR is None:
         ESTIMATOR = init_estimator()
     TOLERANCE = load_key("tolerance")
+    if not os.path.exists(_RAW_AUDIO_FILE):
+        try:
+            from core._1_ytdlp import find_video_files
+            from core.asr_backend.audio_preprocess import convert_video_to_audio
+            convert_video_to_audio(find_video_files())
+        except Exception:
+            pass
     whole_dur = get_audio_duration(_RAW_AUDIO_FILE)
     df['gap'] = 0.0  # Initialize gap column
     for i in range(len(df) - 1):
@@ -90,7 +97,7 @@ def analyze_subtitle_timing_and_speed(df):
     last_end = datetime.datetime.strptime(df.iloc[-1]['end_time'], '%H:%M:%S.%f').time()
     last_end_seconds = (last_end.hour * 3600 + last_end.minute * 60 + 
                        last_end.second + last_end.microsecond / 1000000)
-    df.iloc[-1, df.columns.get_loc('gap')] = whole_dur - last_end_seconds
+    df.iloc[-1, df.columns.get_loc('gap')] = max(0.0, whole_dur - last_end_seconds)
     
     df['tolerance'] = df['gap'].apply(lambda x: TOLERANCE if x > TOLERANCE else x)
     df['tol_dur'] = df['duration'] + df['tolerance']
