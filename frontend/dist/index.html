@@ -228,8 +228,8 @@
                 <button @click="downloadYoutube(true)" :disabled="wsState.task?.running" class="py-2.5 rounded-lg bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-semibold hover:bg-indigo-600 hover:text-white disabled:opacity-50 transition">
                   ⚡ 仅下载官方字幕 (秒级跳过转录)
                 </button>
-                <button v-if="wsState.video?.exists" @click="deleteVideo" class="py-2.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 font-semibold hover:bg-rose-500 hover:text-white transition">
-                  🗑️ 删除当前视频并重新选择
+                <button v-if="wsState.video?.exists || wsState.files?.length" @click="deleteVideo" class="py-2.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 font-semibold hover:bg-rose-500 hover:text-white transition">
+                  🗑️ 删除当前视频并清空工作区
                 </button>
               </div>
             </div>
@@ -484,8 +484,9 @@
           <div class="flex items-center justify-between">
             <span class="text-xs font-bold">📂 文件浏览 (output/)</span>
             <div class="flex gap-1">
-              <button @click="fetchWorkspaceState" class="studio-subtle px-2 py-0.5 rounded text-xs hover:border-blue-500">🔄 刷新</button>
+              <button @click="fetchWorkspaceState(true)" class="studio-subtle px-2 py-0.5 rounded text-xs hover:border-blue-500">🔄 刷新</button>
               <button @click="expandedDirs = {}" class="studio-subtle px-2 py-0.5 rounded text-xs hover:border-blue-500">📁 全部收起</button>
+              <button v-if="wsState.files?.length" @click="deleteVideo" class="studio-subtle px-2 py-0.5 rounded text-xs text-rose-500 hover:border-rose-500">🗑️ 清空</button>
             </div>
           </div>
 
@@ -1108,8 +1109,12 @@
         async function deleteVideo() {
           await fetch('/api/video', { method: 'DELETE' });
           ytbUrl.value = '';
-          showToast('🗑️ 已删除当前视频');
-          fetchWorkspaceState();
+          speakerReview.available = false;
+          speakerReview.speakers = [];
+          speakerReview.lines = [];
+          activeStage.value = 'a';
+          showToast('🗑️ 已清空当前任务视频与 output/ 工作区文件');
+          fetchWorkspaceState(true);
         }
 
         async function uploadSubtitleBypass(e) {

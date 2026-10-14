@@ -642,6 +642,24 @@ class YoutubeDownloadPayload(BaseModel):
     subtitle_only: bool = False
 
 
+def _wipe_output_workspace():
+    """Clean all current task files in output/ while preserving youtube_cookies.txt if present."""
+    STATE.speaker_review_confirmed = False
+    delete_existing_videos()
+    if os.path.exists("output"):
+        for item in os.listdir("output"):
+            if item == "youtube_cookies.txt":
+                continue
+            full_path = os.path.join("output", item)
+            try:
+                if os.path.isdir(full_path):
+                    shutil.rmtree(full_path)
+                else:
+                    os.remove(full_path)
+            except Exception:
+                pass
+
+
 @app.post("/api/video/download")
 def download_youtube(payload: YoutubeDownloadPayload):
     if STATE.running:
@@ -657,7 +675,7 @@ def download_youtube(payload: YoutubeDownloadPayload):
         try:
             url = payload.url.strip()
             if not payload.subtitle_only:
-                delete_existing_videos()
+                _wipe_output_workspace()
                 STATE.step_name = f"正在下载 YouTube 视频 ({payload.resolution}p)..."
                 _1_ytdlp.download_video_ytdlp(url, resolution=payload.resolution)
                 save_youtube_url(url)
@@ -687,17 +705,21 @@ def download_youtube(payload: YoutubeDownloadPayload):
 
 @app.post("/api/video/upload")
 def upload_local_video(file: UploadFile = File(...)):
-    delete_existing_videos()
+    _wipe_output_workspace()
     os.makedirs("output", exist_ok=True)
     raw_name = file.filename or "uploaded_video.mp4"
     ext = raw_name.rsplit(".", 1)[-1].lower() if "." in raw_name else "mp4"
     base_name = re.sub(r"[^\w\-_\.]", "_", raw_name.rsplit(".", 1)[0])
-    save_path = os.path.join("output", f"{base_name}.{ext}")
+    clean_filename = f"{base_name}.{ext}"
+    save_path = os.path.join("output", clean_filename)
     with open(save_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
+    with open(os.path.join("output", "video_title.txt"), "w", encoding="utf-8") as f:
+        f.write(clean_filename)
+
     if ext in ["mp3", "wav", "m4a", "flac"]:
-        vcodec = get_ffmpeg_video_encoder()
+        vcodec = get_ffmpeg_video_encoder() or "libx264"
         mp4_path = os.path.join("output", f"{base_name}.mp4")
         subprocess.run(
             [
@@ -729,7 +751,7 @@ def upload_local_video(file: UploadFile = File(...)):
 
 @app.delete("/api/video")
 def delete_video():
-    delete_existing_videos()
+    _wipe_output_workspace()
     return {"status": "ok"}
 
 
