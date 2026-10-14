@@ -103,18 +103,69 @@ _SUBTITLE_CACHE_DIRS = ["output/gpt_log"]
 # =====================================================================
 # Real-time Stdout/Stderr Log Interceptor & Task State Manager
 # =====================================================================
+class _BinaryTap:
+    def __init__(self, parent_tap: "LogTap"):
+        self._parent = parent_tap
+
+    def write(self, b):
+        orig_buf = getattr(self._parent.original_stream, "buffer", None)
+        if orig_buf:
+            try:
+                orig_buf.write(b)
+            except Exception:
+                pass
+        if isinstance(b, (bytes, bytearray)):
+            text = b.decode(self._parent.encoding or "utf-8", errors="replace")
+        else:
+            text = str(b)
+        self._parent._ingest_text(text)
+        return len(b) if b else 0
+
+    def flush(self):
+        self._parent.flush()
+
+
 class LogTap(io.TextIOBase):
-    def __init__(self, original_stream, buffer: deque):
+    def __init__(self, original_stream, log_deque: deque):
         self.original_stream = original_stream
-        self.buffer = buffer
+        self._log_deque = log_deque
         self._line_buf = ""
+        self._binary_tap = _BinaryTap(self)
+
+    @property
+    def buffer(self):
+        return self._binary_tap
 
     @property
     def encoding(self):
-        return getattr(self.original_stream, "encoding", "utf-8")
+        return getattr(self.original_stream, "encoding", "utf-8") or "utf-8"
+
+    @property
+    def errors(self):
+        return getattr(self.original_stream, "errors", "replace") or "replace"
 
     def isatty(self):
         return False
+
+    def writable(self):
+        return True
+
+    def fileno(self):
+        if self.original_stream and hasattr(self.original_stream, "fileno"):
+            return self.original_stream.fileno()
+        raise io.UnsupportedOperation("fileno")
+
+    def _ingest_text(self, s: str):
+        if not s:
+            return
+        normalized = str(s).replace("\r\n", "\n").replace("\r", "\n")
+        self._line_buf += normalized
+        while "\n" in self._line_buf:
+            line, self._line_buf = self._line_buf.split("\n", 1)
+            clean_line = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
+            if clean_line:
+                ts = time.strftime("%H:%M:%S")
+                self._log_deque.append(f"[{ts}] {clean_line}")
 
     def write(self, s: str):
         if self.original_stream:
@@ -124,13 +175,7 @@ class LogTap(io.TextIOBase):
                 pass
         if not s:
             return 0
-        self._line_buf += str(s)
-        while "\n" in self._line_buf:
-            line, self._line_buf = self._line_buf.split("\n", 1)
-            clean_line = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
-            if clean_line:
-                ts = time.strftime("%H:%M:%S")
-                self.buffer.append(f"[{ts}] {clean_line}")
+        self._ingest_text(s)
         return len(s)
 
     def flush(self):
