@@ -166,6 +166,10 @@ class LogTap(io.TextIOBase):
             if clean_line:
                 ts = time.strftime("%H:%M:%S")
                 self._log_deque.append(f"[{ts}] {clean_line}")
+                try:
+                    STATE.update_from_log(clean_line)
+                except Exception:
+                    pass
 
     def write(self, s: str):
         if self.original_stream:
@@ -196,12 +200,156 @@ class PipelineState:
         self.running: bool = False
         self.stage: Optional[str] = None  # "download" | "subtitle" | "dubbing" | "batch"
         self.step_index: int = 0
+        self.total_steps: int = 0
         self.step_name: str = ""
+        self.sub_step: str = ""
+        self.percent: float = 0.0
+        self.speed: str = ""
+        self.eta: str = ""
+        self.total_size: str = ""
+        self.started_at: float = 0.0
         self.error: Optional[str] = None
         self.toast: Optional[str] = None
         self.speaker_review_confirmed: bool = False
         self.stop_requested: bool = False
         self.lock = threading.Lock()
+
+    def start_task(self, stage: str, total_steps: int, step_name: str):
+        self.running = True
+        self.stage = stage
+        self.step_index = 1
+        self.total_steps = total_steps
+        self.step_name = step_name
+        self.sub_step = "正在初始化任务环境..."
+        self.percent = 2.0
+        self.speed = ""
+        self.eta = ""
+        self.total_size = ""
+        self.started_at = time.time()
+        self.error = None
+        self.stop_requested = False
+
+    def finish_task(self):
+        self.running = False
+        self.stage = None
+        self.step_index = 0
+        self.total_steps = 0
+        self.step_name = ""
+        self.sub_step = ""
+        self.percent = 0.0
+        self.speed = ""
+        self.eta = ""
+        self.total_size = ""
+        self.started_at = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        elapsed = int(max(0.0, time.time() - self.started_at)) if (self.running and self.started_at > 0) else 0
+        return {
+            "running": self.running,
+            "stage": self.stage,
+            "step_index": self.step_index,
+            "total_steps": self.total_steps,
+            "step_name": self.step_name,
+            "sub_step": self.sub_step,
+            "percent": round(self.percent, 1),
+            "speed": self.speed,
+            "eta": self.eta,
+            "total_size": self.total_size,
+            "elapsed_sec": elapsed,
+            "error": self.error,
+            "toast": self.toast,
+        }
+
+    def update_from_log(self, line: str):
+        if not self.running:
+            return
+
+        # 1. yt-dlp live download progress: [download]  68.4% of   69.48MiB at  212.86KiB/s ETA 01:45
+        m_dl = re.search(
+            r"\[download\]\s+(\d+(?:\.\d+)?)%\s+of\s+~?(\S+)(?:\s+at\s+(\S+))?(?:\s+ETA\s+(\S+))?",
+            line,
+        )
+        if m_dl:
+            pct = float(m_dl.group(1))
+            self.percent = pct
+            self.total_size = m_dl.group(2)
+            spd = m_dl.group(3) or ""
+            eta = m_dl.group(4) or ""
+            if spd and spd != "Unknown":
+                self.speed = spd
+            if eta and eta != "Unknown":
+                self.eta = eta
+            if self.stage == "download":
+                self.step_index = 2
+                self.sub_step = f"正在下载媒体数据流 ({pct:.1f}%)"
+            return
+
+        # 2. yt-dlp lifecycle events
+        if self.stage == "download":
+            if "Checking and updating yt-dlp" in line:
+                self.step_index = 1
+                self.sub_step = "正在检查并更新 yt-dlp 下载引擎..."
+                self.percent = max(self.percent, 4.0)
+            elif "Extracting URL:" in line or "Downloading webpage" in line:
+                self.step_index = 1
+                self.sub_step = "正在连接 YouTube 并解析视频网页..."
+                self.percent = max(self.percent, 8.0)
+            elif "Solving JS challenges" in line or "player API JSON" in line:
+                self.step_index = 1
+                self.sub_step = "正在解析 YouTube 播放流签名与高码率通道..."
+                self.percent = max(self.percent, 12.0)
+            elif "Extracting cookies from" in line or "Extracted" in line and "cookies" in line:
+                self.step_index = 1
+                self.sub_step = f"已加载浏览器 Cookie 登录态 ({line})"
+                self.percent = max(self.percent, 14.0)
+            elif "Writing video thumbnail" in line or "Downloading video thumbnail" in line:
+                self.step_index = 2
+                self.sub_step = "已获取视频高清封面与标题，开始拉取音视频流..."
+                self.percent = max(self.percent, 16.0)
+            elif "[download] Destination:" in line:
+                dest_file = os.path.basename(line.split("Destination:", 1)[1].strip())
+                self.step_index = 2
+                self.sub_step = f"正在下载流文件: {dest_file}"
+            elif "[Merger]" in line or "Merging formats" in line:
+                self.step_index = 3
+                self.sub_step = "正在使用 FFmpeg 封装合并高清视频与音频流..."
+                self.percent = 95.0
+                self.eta = "即将完成"
+            return
+
+        # 3. tqdm progress bars (WhisperX / Translation / TTS)
+        m_tqdm = re.search(
+            r"(\d{1,3})%\|.*\|\s*(\d+/\d+)\s*\[([^<]+)<([^,\]]+)(?:,\s*([^\]]+))?\]",
+            line,
+        )
+        if m_tqdm:
+            self.percent = float(m_tqdm.group(1))
+            self.sub_step = f"处理进度: {m_tqdm.group(2)} ({m_tqdm.group(1)}%)"
+            self.eta = m_tqdm.group(4).strip()
+            if m_tqdm.group(5):
+                self.speed = m_tqdm.group(5).strip()
+            return
+
+        # 4. Informative stage logs
+        if any(
+            k in line
+            for k in [
+                "[🎬",
+                "[📊",
+                "[🔍",
+                "[✂️",
+                "[📝",
+                "[✅",
+                "[🎙️",
+                "WhisperX",
+                "Pyannote",
+                "Translating",
+                " Splitting",
+                "Merging",
+                "Converting",
+            ]
+        ):
+            self.sub_step = line[:100]
 
 
 STATE = PipelineState()
@@ -581,6 +729,13 @@ def get_workspace_state():
 
     cover_path = "output/video_cover.jpg"
     cover_url = "/api/media/video_cover.jpg" if os.path.exists(cover_path) else None
+    if not cover_url and os.path.exists("output"):
+        for fname in sorted(os.listdir("output")):
+            if fname.lower().endswith((".webp", ".jpg", ".jpeg", ".png")):
+                cover_url = f"/api/media/{fname}"
+                if video_title == "暂未获取到视频标题":
+                    video_title = os.path.splitext(fname)[0]
+                break
 
     orig_rel = os.path.relpath(orig_video, "output") if orig_video and os.path.exists(orig_video) else None
 
@@ -664,14 +819,7 @@ def get_workspace_state():
             "dub_video_exists": has_dub_video,
             "speaker_review": _build_speaker_review_payload(),
         },
-        "task": {
-            "running": STATE.running,
-            "stage": STATE.stage,
-            "step_index": STATE.step_index,
-            "step_name": STATE.step_name,
-            "error": STATE.error,
-            "toast": STATE.toast,
-        },
+        "task": STATE.to_dict(),
         "files": _build_file_tree("output"),
         "encoding": encoding_rows,
         "logs": list(LOG_BUFFER)[-80:],
@@ -712,37 +860,45 @@ def download_youtube(payload: YoutubeDownloadPayload):
 
     def _worker():
         with STATE.lock:
-            STATE.running = True
-            STATE.stage = "download"
-            STATE.step_name = "正在下载 YouTube 视频/字幕..."
-            STATE.error = None
+            STATE.start_task(
+                stage="download",
+                total_steps=4,
+                step_name="正在解析并下载 YouTube 媒体..." if not payload.subtitle_only else "正在下载 YouTube 官方字幕...",
+            )
 
         try:
             url = payload.url.strip()
             if not payload.subtitle_only:
                 _wipe_output_workspace()
                 STATE.step_name = f"正在下载 YouTube 视频 ({payload.resolution}p)..."
+                STATE.sub_step = "正在启动 yt-dlp 解析链接与 Cookie 登录态..."
                 _1_ytdlp.download_video_ytdlp(url, resolution=payload.resolution)
                 save_youtube_url(url)
 
+            STATE.step_index = 4
+            STATE.percent = 97.0
+            STATE.speed = ""
+            STATE.eta = "即将完成"
             STATE.step_name = "正在检测并下载 YouTube 官方字幕..."
+            STATE.sub_step = "正在探测原片 CC 字幕或自动生成字幕轨道..."
             sub_path, sub_type = _1_ytdlp.download_subtitle_ytdlp(url)
             if sub_path:
                 save_youtube_url(url)
                 lang = load_key("whisper.language")
                 if lang == "auto":
                     lang = "en"
+                STATE.sub_step = f"正在清洗并应用官方字幕 ({sub_type})..."
                 use_subtitle_file(sub_path, lang)
-                STATE.toast = f"🎉 已成功下载并应用官方字幕 ({sub_type})，将自动跳过 WhisperX！"
+                STATE.percent = 100.0
+                STATE.toast = f"🎉 已成功下载并应用官方字幕 ({sub_type})，已自动跳过 WhisperX！"
             else:
+                STATE.percent = 100.0
                 STATE.toast = "✅ 视频下载完成（未检测到英文字幕，后续将使用 WhisperX 转录）"
         except Exception as e:
             traceback.print_exc()
             STATE.error = str(e)
         finally:
-            STATE.running = False
-            STATE.stage = None
-            STATE.step_name = ""
+            STATE.finish_task()
 
     threading.Thread(target=_worker, daemon=True).start()
     return {"status": "started"}
@@ -826,30 +982,40 @@ def start_subtitle_pipeline(burn_only: bool = False):
 
     def _worker():
         with STATE.lock:
-            STATE.running = True
-            STATE.stage = "subtitle"
-            STATE.error = None
-            STATE.stop_requested = False
+            STATE.start_task(
+                stage="subtitle",
+                total_steps=6,
+                step_name="6. 正在烧录字幕到视频..." if burn_only else "1. 正在准备字幕与三步翻译流水线...",
+            )
 
         try:
             if burn_only:
                 STATE.step_index = 6
+                STATE.percent = 85.0
                 STATE.step_name = "6. 正在烧录字幕到视频..."
+                STATE.sub_step = "正在调用 FFmpeg 将双语字幕渲染进视频画面..."
                 _7_sub_into_vid.merge_subtitles_to_video()
+                STATE.percent = 100.0
                 STATE.toast = "🎉 字幕烧录完成！"
                 return
 
             if not os.path.exists(_2_CLEANED_CHUNKS):
                 STATE.step_index = 1
+                STATE.percent = 10.0
                 STATE.step_name = "1. 正在执行 WhisperX 转录与说话人分离..."
+                STATE.sub_step = "正在提取人声并执行 WhisperX 语音识别..."
                 _2_asr.transcribe()
+                STATE.percent = 22.0
+                STATE.sub_step = "正在执行 Pyannote 多说话人声纹分离..."
                 _2_5_diarize.diarize_main()
                 if STATE.stop_requested:
                     return
 
             if not os.path.exists(_3_2_SPLIT_BY_MEANING):
                 STATE.step_index = 2
+                STATE.percent = 35.0
                 STATE.step_name = "2. 正在使用 NLP + LLM 进行语义分句..."
+                STATE.sub_step = "正在执行 SpaCy 语法切分与 LLM 语义断句..."
                 _3_1_split_nlp.split_by_spacy()
                 _3_2_split_meaning.split_sentences_by_meaning()
                 if STATE.stop_requested:
@@ -857,40 +1023,48 @@ def start_subtitle_pipeline(burn_only: bool = False):
 
             if not os.path.exists(_4_2_TRANSLATION):
                 STATE.step_index = 3
+                STATE.percent = 55.0
                 STATE.step_name = "3. 正在提取术语并执行三步翻译..."
+                STATE.sub_step = "正在提取视频主题摘要与专业领域术语..."
                 _4_1_summarize.get_summary()
+                STATE.percent = 65.0
+                STATE.sub_step = "正在并发执行「直译 -> 反思 -> 意译」三步翻译..."
                 _4_2_translate.translate_all()
                 if STATE.stop_requested:
                     return
 
             if not os.path.exists(_5_SPLIT_SUB):
                 STATE.step_index = 4
+                STATE.percent = 80.0
                 STATE.step_name = "4. 正在切分与对齐长字幕..."
+                STATE.sub_step = "正在根据屏幕单行字数限制自适应切分长句..."
                 _5_split_sub.split_for_sub_main()
                 if STATE.stop_requested:
                     return
 
             if not os.path.exists(SRC_SRT):
                 STATE.step_index = 5
+                STATE.percent = 90.0
                 STATE.step_name = "5. 正在生成双语字幕时间轴..."
+                STATE.sub_step = "正在对齐词级时间戳并执行去重叠平滑..."
                 _6_gen_sub.align_timestamp_main()
                 if STATE.stop_requested:
                     return
 
             if load_key("burn_subtitles") and load_key("auto_burn_subtitles") and not os.path.exists(SUB_VIDEO):
                 STATE.step_index = 6
+                STATE.percent = 95.0
                 STATE.step_name = "6. 正在烧录字幕到视频..."
+                STATE.sub_step = "正在调用 FFmpeg 硬字幕压制合成 output_sub.mp4..."
                 _7_sub_into_vid.merge_subtitles_to_video()
 
+            STATE.percent = 100.0
             STATE.toast = "🎉 字幕翻译与生成全部完成！"
         except Exception as e:
             traceback.print_exc()
             STATE.error = str(e)
         finally:
-            STATE.running = False
-            STATE.stage = None
-            STATE.step_index = 0
-            STATE.step_name = ""
+            STATE.finish_task()
 
     threading.Thread(target=_worker, daemon=True).start()
     return {"status": "started"}
@@ -957,16 +1131,21 @@ def start_dubbing_pipeline(force_continue: bool = False):
 
     def _worker():
         with STATE.lock:
-            STATE.running = True
-            STATE.stage = "dubbing"
-            STATE.error = None
-            STATE.stop_requested = False
+            STATE.start_task(
+                stage="dubbing",
+                total_steps=4,
+                step_name="1. 正在执行说话人性别识别与配音分块...",
+            )
 
         try:
             if not os.path.exists(_8_1_AUDIO_TASK):
                 STATE.step_index = 1
+                STATE.percent = 15.0
                 STATE.step_name = "1. 正在执行说话人性别识别与配音分块..."
+                STATE.sub_step = "正在使用 Wav2Vec2 + 基频特征判定每个说话人的性别与边界..."
                 _8_1_audio_task.gen_audio_task_main()
+                STATE.percent = 30.0
+                STATE.sub_step = "正在计算跨角色隔离的配音切分点..."
                 _8_2_dub_chunks.gen_dub_chunks()
             elif "cut_off" not in pd.read_excel(_8_1_AUDIO_TASK).columns:
                 _8_2_dub_chunks.gen_dub_chunks()
@@ -975,34 +1154,41 @@ def start_dubbing_pipeline(force_continue: bool = False):
                 return
 
             STATE.step_index = 2
+            STATE.percent = 45.0
             STATE.step_name = "2. 正在提取参考音频..."
+            STATE.sub_step = "正在为各说话人抽取清晰人声切片..."
             _9_refer_audio.extract_refer_audio_main()
 
             pause_before_dub = bool(load_key("pause_before_dub"))
             if pause_before_dub and not STATE.speaker_review_confirmed:
+                STATE.percent = 50.0
                 STATE.toast = "⏸️ 已完成说话人识别，请确认角色性别与音色后点击「确认说话人并继续配音」"
                 return
 
             STATE.step_index = 3
+            STATE.percent = 65.0
             STATE.step_name = "3. 正在并发生成多角色配音并对齐时间轴..."
+            STATE.sub_step = "正在调用 TTS 引擎并发合成各角色语音片段..."
             _10_gen_audio.gen_audio()
+            STATE.percent = 85.0
+            STATE.sub_step = "正在拼接完整配音轨道与对齐时间轴..."
             _11_merge_audio.merge_full_audio()
 
             if STATE.stop_requested:
                 return
 
             STATE.step_index = 4
+            STATE.percent = 95.0
             STATE.step_name = "4. 正在混流配音与背景音合成最终视频..."
+            STATE.sub_step = "正在调用 FFmpeg 混流配音、背景伴奏与画面..."
             _12_dub_to_vid.merge_video_audio()
+            STATE.percent = 100.0
             STATE.toast = "🎉 多角色配音视频合成完成！"
         except Exception as e:
             traceback.print_exc()
             STATE.error = str(e)
         finally:
-            STATE.running = False
-            STATE.stage = None
-            STATE.step_index = 0
-            STATE.step_name = ""
+            STATE.finish_task()
 
     threading.Thread(target=_worker, daemon=True).start()
     return {"status": "started"}
@@ -1188,26 +1374,18 @@ def stream_output_media(file_path: str, request: Request):
 async def websocket_logs(ws: WebSocket):
     import asyncio
     await ws.accept()
-    last_sent_len = 0
     try:
         while True:
             logs_Snapshot = list(LOG_BUFFER)
             await ws.send_json(
                 {
                     "logs": logs_Snapshot[-80:],
-                    "task": {
-                        "running": STATE.running,
-                        "stage": STATE.stage,
-                        "step_index": STATE.step_index,
-                        "step_name": STATE.step_name,
-                        "error": STATE.error,
-                        "toast": STATE.toast,
-                    },
+                    "task": STATE.to_dict(),
                 }
             )
             if STATE.toast:
                 STATE.toast = None
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.5)
     except WebSocketDisconnect:
         pass
     except Exception:

@@ -185,7 +185,8 @@
                 <div class="text-xs text-slate-400 font-medium">阶段 A · 片源获取</div>
                 <div class="text-sm font-bold mt-0.5">下载视频 / 提取字幕</div>
               </div>
-              <span class="text-sm font-bold">{{ wsState.video?.exists ? '✅' : '1' }}</span>
+              <span v-if="wsState.task?.running && wsState.task?.stage === 'download'" class="px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-bold animate-pulse">⏳ {{ (wsState.task.percent || 0).toFixed(0) }}%</span>
+              <span v-else class="text-sm font-bold">{{ wsState.video?.exists ? '✅' : '1' }}</span>
             </button>
 
             <button @click="activeStage = 'b'" :class="activeStage === 'b' ? 'border-2 border-blue-600 bg-blue-500/10' : 'studio-subtle hover:border-blue-500'" class="p-3 rounded-xl text-left transition flex items-center justify-between">
@@ -193,7 +194,8 @@
                 <div class="text-xs text-slate-400 font-medium">阶段 B · 字幕与翻译</div>
                 <div class="text-sm font-bold mt-0.5">三步翻译与术语纠错</div>
               </div>
-              <span class="text-sm font-bold">{{ wsState.stage_b?.src_srt_exists ? '✅' : '2' }}</span>
+              <span v-if="wsState.task?.running && wsState.task?.stage === 'subtitle'" class="px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-bold animate-pulse">⏳ {{ (wsState.task.percent || 0).toFixed(0) }}%</span>
+              <span v-else class="text-sm font-bold">{{ wsState.stage_b?.src_srt_exists ? '✅' : '2' }}</span>
             </button>
 
             <button @click="activeStage = 'c'" :class="activeStage === 'c' ? 'border-2 border-blue-600 bg-blue-500/10' : 'studio-subtle hover:border-blue-500'" class="p-3 rounded-xl text-left transition flex items-center justify-between">
@@ -201,9 +203,84 @@
                 <div class="text-xs text-slate-400 font-medium">阶段 C · 多角色配音</div>
                 <div class="text-sm font-bold mt-0.5">说话人微调与合成</div>
               </div>
-              <span v-if="wsState.stage_c?.waiting_confirm" class="px-2 py-0.5 rounded bg-amber-500 text-white text-xs font-bold whitespace-nowrap">⏸️ 待确认</span>
+              <span v-if="wsState.task?.running && wsState.task?.stage === 'dubbing'" class="px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-bold animate-pulse">⏳ {{ (wsState.task.percent || 0).toFixed(0) }}%</span>
+              <span v-else-if="wsState.stage_c?.waiting_confirm" class="px-2 py-0.5 rounded bg-amber-500 text-white text-xs font-bold whitespace-nowrap">⏸️ 待确认</span>
               <span v-else class="text-sm font-bold">{{ wsState.stage_c?.dub_video_exists ? '✅' : '3' }}</span>
             </button>
+          </div>
+
+          <!-- ==================== 实时任务进度监控卡片 (所有阶段共用内嵌反馈) ==================== -->
+          <div v-if="wsState.task?.running" class="rounded-xl p-4 border-2 border-blue-500/40 bg-blue-500/5 flex flex-col gap-3 shadow-sm">
+            <!-- Top Row: Step Title, Sub-step, and Live Speed/ETA/Percent Metrics -->
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2.5">
+                <span class="w-3 h-3 rounded-full bg-blue-600 animate-ping"></span>
+                <div>
+                  <div class="text-sm font-bold text-blue-600 dark:text-blue-400 flex items-center gap-2">
+                    <span>{{ wsState.task.step_name || '正在执行任务...' }}</span>
+                    <span v-if="wsState.task.elapsed_sec" class="px-2 py-0.5 rounded bg-slate-500/10 text-slate-500 dark:text-slate-400 font-mono text-xs font-normal">
+                      ⏱️ 已用时 {{ formatElapsed(wsState.task.elapsed_sec) }}
+                    </span>
+                  </div>
+                  <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
+                    {{ wsState.task.sub_step || '正在处理中，请稍候...' }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2 text-xs font-mono">
+                <span v-if="wsState.task.total_size" class="px-2.5 py-1 rounded-lg studio-card font-semibold">
+                  📦 大小: {{ wsState.task.total_size }}
+                </span>
+                <span v-if="wsState.task.speed" class="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-bold">
+                  🚀 速度: {{ wsState.task.speed }}
+                </span>
+                <span v-if="wsState.task.eta" class="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-bold">
+                  ⏳ 剩余: {{ wsState.task.eta }}
+                </span>
+                <span class="px-3 py-1 rounded-lg bg-blue-600 text-white font-bold text-sm">
+                  {{ Number(wsState.task.percent || 0).toFixed(1) }}%
+                </span>
+              </div>
+            </div>
+
+            <!-- Dynamic Progress Bar -->
+            <div class="w-full h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden p-0.5">
+              <div
+                class="h-full rounded-full bg-gradient-to-r from-blue-600 via-indigo-500 to-emerald-500 transition-all duration-300"
+                :style="{ width: Math.max(4, Number(wsState.task.percent || 4)) + '%' }"
+              ></div>
+            </div>
+
+            <!-- Stage A Download Sub-Step Flow -->
+            <div v-if="wsState.task.stage === 'download'" class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+              <div
+                v-for="(label, idx) in ['1. 解析链接与 Cookie', '2. 拉取封面与音视频流', '3. FFmpeg 音画合并', '4. 探测与清洗官方字幕']"
+                :key="idx"
+                class="px-2.5 py-1.5 rounded-lg flex items-center justify-between border"
+                :class="wsState.task.step_index > idx + 1 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-semibold' : (wsState.task.step_index === idx + 1 ? 'bg-blue-600 text-white border-blue-600 font-bold' : 'studio-card text-slate-400 border-transparent')"
+              >
+                <span class="truncate">{{ label }}</span>
+                <span>{{ wsState.task.step_index > idx + 1 ? '✅' : (wsState.task.step_index === idx + 1 ? '⏳' : '⚪') }}</span>
+              </div>
+            </div>
+
+            <!-- Live Rolling Console Mini-Preview (Last 5 Lines) -->
+            <div class="rounded-lg bg-slate-950 text-slate-300 p-2.5 font-mono text-xs flex flex-col gap-1 border border-slate-800">
+              <div class="flex items-center justify-between text-slate-400 pb-1 border-b border-slate-800/80">
+                <span class="flex items-center gap-1.5 text-emerald-400 font-semibold">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  实时执行日志流 (最近 5 条)
+                </span>
+                <button @click="showConsole = !showConsole" class="text-blue-400 hover:underline">
+                  {{ showConsole ? '收起底部完整终端' : '展开底部完整终端 ▲' }}
+                </button>
+              </div>
+              <div v-if="!wsState.logs?.length" class="text-slate-500 py-1">正在等待后端输出日志...</div>
+              <div v-for="(line, i) in (wsState.logs || []).slice(-5)" :key="i" class="truncate leading-relaxed text-slate-200">
+                {{ line }}
+              </div>
+            </div>
           </div>
 
           <!-- ==================== STAGE A: 下载或上传视频 ==================== -->
@@ -223,12 +300,12 @@
               </div>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5">
                 <button @click="downloadYoutube(false)" :disabled="wsState.task?.running" class="py-2.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50 transition">
-                  📥 下载视频 (自动探测官方字幕)
+                  {{ wsState.task?.running && wsState.task?.stage === 'download' ? `⏳ 正在下载 (${(wsState.task.percent || 0).toFixed(0)}%)...` : '📥 下载视频 (自动探测官方字幕)' }}
                 </button>
                 <button @click="downloadYoutube(true)" :disabled="wsState.task?.running" class="py-2.5 rounded-lg bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-semibold hover:bg-indigo-600 hover:text-white disabled:opacity-50 transition">
                   ⚡ 仅下载官方字幕 (秒级跳过转录)
                 </button>
-                <button v-if="wsState.video?.exists || wsState.files?.length" @click="deleteVideo" class="py-2.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 font-semibold hover:bg-rose-500 hover:text-white transition">
+                <button v-if="wsState.video?.exists || wsState.files?.length" @click="deleteVideo" :disabled="wsState.task?.running" class="py-2.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 font-semibold hover:bg-rose-500 hover:text-white disabled:opacity-50 transition">
                   🗑️ 删除当前视频并清空工作区
                 </button>
               </div>
@@ -1084,8 +1161,28 @@
           showToast(data.valid ? '✅ API 连接测试通过！' : '❌ API 连接失败，请检查密钥与地址');
         }
 
+        function formatElapsed(sec) {
+          const s = Math.max(0, Number(sec) || 0);
+          const m = Math.floor(s / 60);
+          const rem = s % 60;
+          return `${String(m).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
+        }
+
         async function downloadYoutube(subOnly) {
           if (!ytbUrl.value.trim()) return showToast('⚠️ 请输入 YouTube 视频链接');
+          wsState.task = {
+            running: true,
+            stage: 'download',
+            step_index: 1,
+            total_steps: 4,
+            step_name: subOnly ? '正在下载 YouTube 官方字幕...' : `正在下载 YouTube 视频 (${ytbRes.value}p)...`,
+            sub_step: '正在启动 yt-dlp 解析链接与 Cookie 登录态...',
+            percent: 3.0,
+            speed: '',
+            eta: '',
+            total_size: '',
+            elapsed_sec: 0,
+          };
           await fetch('/api/video/download', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1102,8 +1199,11 @@
           fd.append('file', file);
           showToast('📤 正在上传音视频文件...');
           await fetch('/api/video/upload', { method: 'POST', body: fd });
-          showToast('✅ 本地文件上传完成！');
-          fetchWorkspaceState();
+          showToast('✅ 本地文件上传完成！已自动切换至阶段 B');
+          await fetchWorkspaceState(true);
+          if (wsState.video?.exists) {
+            activeStage.value = 'b';
+          }
         }
 
         async function deleteVideo() {
@@ -1132,6 +1232,19 @@
         }
 
         async function startSubtitlePipeline(burnOnly) {
+          wsState.task = {
+            running: true,
+            stage: 'subtitle',
+            step_index: burnOnly ? 6 : 1,
+            total_steps: 6,
+            step_name: burnOnly ? '6. 正在烧录字幕到视频...' : '1. 正在准备字幕与三步翻译流水线...',
+            sub_step: '正在初始化字幕流水线任务...',
+            percent: burnOnly ? 85.0 : 5.0,
+            speed: '',
+            eta: '',
+            total_size: '',
+            elapsed_sec: 0,
+          };
           await fetch(`/api/pipeline/subtitle/start?burn_only=${burnOnly}`, { method: 'POST' });
           showToast('🚀 字幕处理流水线已启动');
           fetchWorkspaceState();
@@ -1156,6 +1269,19 @@
         }
 
         async function startDubbing(forceContinue) {
+          wsState.task = {
+            running: true,
+            stage: 'dubbing',
+            step_index: forceContinue ? 3 : 1,
+            total_steps: 4,
+            step_name: forceContinue ? '3. 正在并发生成多角色配音并对齐时间轴...' : '1. 正在执行说话人性别识别与配音分块...',
+            sub_step: '正在初始化多角色配音流水线...',
+            percent: forceContinue ? 60.0 : 8.0,
+            speed: '',
+            eta: '',
+            total_size: '',
+            elapsed_sec: 0,
+          };
           await fetch(`/api/pipeline/dubbing/start?force_continue=${forceContinue}`, { method: 'POST' });
           showToast('🎙️ 配音流水线已启动');
           fetchWorkspaceState(true);
@@ -1212,15 +1338,38 @@
           const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
           const ws = new WebSocket(`${proto}//${location.host}/ws/logs`);
           let wasRunning = false;
-          ws.onmessage = (ev) => {
+          let lastRunningStage = null;
+          let lastWorkspaceSyncTime = 0;
+
+          ws.onmessage = async (ev) => {
             try {
               const payload = JSON.parse(ev.data);
               if (payload.logs) wsState.logs = payload.logs;
               if (payload.task) {
                 if (payload.task.toast) showToast(payload.task.toast);
-                if (wasRunning && !payload.task.running) {
-                  fetchWorkspaceState(true);
+
+                if (payload.task.running) {
+                  lastRunningStage = payload.task.stage || lastRunningStage;
+                  const now = Date.now();
+                  // Periodically sync right-side cover, title, file tree, and step badges while task runs
+                  if (now - lastWorkspaceSyncTime > 2500) {
+                    lastWorkspaceSyncTime = now;
+                    fetchWorkspaceState(false);
+                  }
                 }
+
+                if (wasRunning && !payload.task.running) {
+                  const finishedStage = lastRunningStage;
+                  lastRunningStage = null;
+                  await fetchWorkspaceState(true);
+                  if (finishedStage === 'download' && !payload.task.error && wsState.video?.exists) {
+                    activeStage.value = 'b';
+                    showToast('🎬 视频与字幕准备就绪，已为您自动切换至「阶段 B · 字幕与翻译」');
+                  } else if (finishedStage === 'subtitle' && !payload.task.error && wsState.stage_b?.src_srt_exists) {
+                    activeStage.value = 'c';
+                  }
+                }
+
                 wasRunning = payload.task.running;
                 wsState.task = payload.task;
               }
@@ -1233,7 +1382,7 @@
           speakerSubTab, showSettingsModal, settingsTab, showConsole, toastMessage,
           videoPlayerRef, ytbUrl, ytbRes, expandedDirs, cfg, llmProfiles,
           selectedProfile, newProfileName, customTermsText, voiceCatalogs,
-          wsState, speakerReview, batchTasks, currentVideoUrl,
+          wsState, speakerReview, batchTasks, currentVideoUrl, formatElapsed,
           toggleTheme, selectVideoSource, seekToTime, toggleDir, openSettings,
           saveAllConfig, handleProfile, testLlmApi, downloadYoutube, uploadVideoFile,
           deleteVideo, uploadSubtitleBypass, startSubtitlePipeline, reapplyTerms,
