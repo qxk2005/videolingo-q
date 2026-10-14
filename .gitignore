@@ -182,3 +182,6 @@ llm_profiles.json
 requirements_portable.txt
 VideoLingo-Q-*/
 *.tar.gz
+node_modules/
+!frontend/dist/
+!frontend/dist/**
