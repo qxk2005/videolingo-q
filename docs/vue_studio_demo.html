@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>VideoLingo Q 2.0 — Vue Studio Interactive Demo</title>
+  <title>VideoLingo Q — Vue Studio</title>
   <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <style>
     :root, html.light {
       --bg-app: #f4f6fb;
@@ -54,1221 +55,1383 @@
       border-color: var(--accent);
       box-shadow: 0 0 0 2px var(--accent-soft);
     }
+    [v-cloak] { display: none; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.35); border-radius: 9999px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.6); }
-    @keyframes pulse-bar {
-      0%, 100% { transform: scaleY(0.35); }
-      50% { transform: scaleY(1); }
-    }
-    .wave-bar {
-      animation: pulse-bar 0.9s ease-in-out infinite;
-    }
   </style>
 </head>
-<body class="min-h-screen flex flex-col select-none">
+<body class="min-h-screen flex flex-col">
+  <div id="app" v-cloak class="min-h-screen flex flex-col">
 
-  <!-- ==================== 1. 极简顶部导航栏 (Simplified Top Header) ==================== -->
-  <header class="studio-card sticky top-0 z-30 px-5 py-2.5 flex items-center justify-between shadow-sm">
-    <!-- Left: Clean Brand Title -->
-    <div class="flex items-center gap-3">
-      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-sm shrink-0">
-        VL
+    <!-- ==================== 1. 极简顶部导航栏 (Simplified Top Header) ==================== -->
+    <header class="studio-card sticky top-0 z-30 px-5 py-2.5 flex items-center justify-between shadow-sm">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-sm shrink-0">
+          VL
+        </div>
+        <span class="font-bold text-base tracking-tight whitespace-nowrap">VideoLingo Q</span>
+        <span v-if="wsState.task?.running" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-500 border border-amber-500/30 animate-pulse">
+          ⏳ {{ wsState.task.step_name || '后台任务执行中...' }}
+        </span>
       </div>
-      <span class="font-bold text-base tracking-tight whitespace-nowrap">VideoLingo Q</span>
-    </div>
 
-    <!-- Center: Workspace Switcher (Single Video vs Batch Queue) -->
-    <div class="studio-subtle p-1 rounded-xl flex items-center gap-1">
-      <button id="modeSingleBtn" onclick="switchWorkspaceMode('single')" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white shadow-sm transition whitespace-nowrap">
-        🎬 单视频工作台
-      </button>
-      <button id="modeBatchBtn" onclick="switchWorkspaceMode('batch')" class="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition flex items-center gap-1.5 whitespace-nowrap">
-        📦 批量队列
-        <span class="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-bold">2/5</span>
-      </button>
-    </div>
+      <!-- Center: Mode Switcher -->
+      <div class="studio-subtle p-1 rounded-xl flex items-center gap-1">
+        <button @click="workspaceMode = 'single'" :class="workspaceMode === 'single' ? 'bg-blue-600 text-white shadow-sm font-semibold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-medium'" class="px-3.5 py-1.5 rounded-lg text-xs transition whitespace-nowrap">
+          🎬 单视频工作台
+        </button>
+        <button @click="switchBatchMode()" :class="workspaceMode === 'batch' ? 'bg-blue-600 text-white shadow-sm font-semibold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-medium'" class="px-3.5 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5 whitespace-nowrap">
+          📦 批量队列
+          <span v-if="batchTasks.length" class="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-500 text-xs font-bold">{{ batchTasks.length }}</span>
+        </button>
+      </div>
 
-    <!-- Right: Concise Action Controls (Settings Button, Theme Toggle, Stop Task) -->
-    <div class="flex items-center gap-2.5">
-      <button onclick="openSettingsModal('llm')" class="studio-subtle px-3.5 py-1.5 rounded-lg text-xs font-semibold hover:border-blue-500 transition flex items-center gap-1.5 whitespace-nowrap shadow-xs">
-        <span>⚙️</span>
-        <span>参数设置</span>
-        <span class="text-slate-400 font-normal hidden sm:inline">(LLM / 字幕 / 配音)</span>
-      </button>
+      <!-- Right: Concise Action Controls -->
+      <div class="flex items-center gap-2.5">
+        <button @click="openSettings('llm')" class="studio-subtle px-3.5 py-1.5 rounded-lg text-xs font-semibold hover:border-blue-500 transition flex items-center gap-1.5 whitespace-nowrap">
+          <span>⚙️</span>
+          <span>参数设置</span>
+          <span class="text-slate-400 font-normal hidden sm:inline">(LLM / 字幕 / 配音)</span>
+        </button>
 
-      <button onclick="toggleTheme()" id="themeToggleBtn" class="studio-subtle px-3 py-1.5 rounded-lg text-xs font-medium hover:border-blue-500 transition flex items-center gap-1.5 whitespace-nowrap">
-        <span id="themeIcon">🌙</span>
-        <span id="themeText">深色模式</span>
-      </button>
+        <button @click="toggleTheme" class="studio-subtle px-3 py-1.5 rounded-lg text-xs font-medium hover:border-blue-500 transition flex items-center gap-1.5 whitespace-nowrap">
+          <span>{{ isDark ? '☀️' : '🌙' }}</span>
+          <span>{{ isDark ? '浅色模式' : '深色模式' }}</span>
+        </button>
 
-      <button onclick="showToast('⏹️ 已向后端发送任务中断信号 (SIGINT)')" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500 hover:text-white transition whitespace-nowrap">
-        ⏹ 停止任务
-      </button>
-    </div>
-  </header>
+        <button v-if="wsState.task?.running" @click="stopTask" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500 text-white hover:bg-rose-600 transition whitespace-nowrap">
+          ⏹ 停止任务
+        </button>
+      </div>
+    </header>
 
-  <!-- ==================== 2. 主体双栏工作区 (Spacious 2-Column Studio: 9 + 3) ==================== -->
-  <div id="singleWorkspaceView" class="flex-1 grid grid-cols-12 gap-4 p-4 max-w-[1800px] w-full mx-auto">
+    <!-- ==================== 2. 主体双栏工作区 (2-Column Studio: 9 + 3) ==================== -->
+    <div v-if="workspaceMode === 'single'" class="flex-1 grid grid-cols-12 gap-4 p-4 max-w-[1800px] w-full mx-auto">
 
-    <!-- ==================== 左主栏 (9 Cols / 75% Width)：视频监视器 + 三阶段工作台 ==================== -->
-    <main class="col-span-12 lg:col-span-9 flex flex-col gap-4">
+      <!-- ==================== 左主栏 (9 Cols / 75% Width) ==================== -->
+      <main class="col-span-12 lg:col-span-9 flex flex-col gap-4">
 
-      <!-- 2A. 上方统一多源视频监视器 (Unified Multi-Source Video Monitor) -->
-      <section class="studio-card rounded-xl overflow-hidden shadow-sm">
-        <!-- Video Source Switcher Header -->
-        <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
-          <div class="flex items-center gap-1.5">
-            <span class="text-xs font-bold text-slate-400 mr-1">🎬 信号源:</span>
-            <button onclick="switchVideoSource('orig', this)" class="vid-src-btn px-3 py-1 rounded-md text-xs font-medium text-slate-500 hover:bg-slate-500/10 transition">
-              原始视频
-            </button>
-            <button onclick="switchVideoSource('vtt', this)" class="vid-src-btn px-3 py-1 rounded-md text-xs font-medium text-slate-500 hover:bg-slate-500/10 transition">
-              外挂官方字幕 (VTT)
-            </button>
-            <button onclick="switchVideoSource('sub', this)" class="vid-src-btn px-3 py-1 rounded-md text-xs font-medium text-slate-500 hover:bg-slate-500/10 transition">
-              烧录双语成片 (Sub)
-            </button>
-            <button onclick="switchVideoSource('dub', this)" class="vid-src-btn px-3 py-1 rounded-md text-xs font-semibold bg-blue-600 text-white shadow-sm transition">
-              🎙️ 多角色配音预览 (Dub)
-            </button>
+        <!-- 全局错误横幅 (如有) -->
+        <div v-if="wsState.task?.error" class="studio-card rounded-xl p-4 border-l-4 border-rose-500 bg-rose-500/5 flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-rose-500 text-sm">❌ 任务执行遇到异常</span>
+            <button @click="clearError" class="px-3 py-1 rounded-lg bg-rose-500 text-white text-xs font-semibold">清除错误并重试</button>
           </div>
-          <div class="flex items-center gap-2 text-xs">
-            <span id="playerTimecode" class="font-mono px-2 py-0.5 rounded bg-slate-900 text-emerald-400 font-semibold">00:01:24.300</span>
-            <span class="text-slate-400">/ 00:15:44.000</span>
-          </div>
+          <pre class="text-xs font-mono p-2.5 rounded bg-slate-950 text-rose-300 overflow-x-auto whitespace-pre-wrap max-h-40">{{ wsState.task.error }}</pre>
         </div>
 
-        <!-- Simulated High-Craft Video Viewport with Live Subtitle & Speaker Overlay -->
-        <div class="relative bg-slate-950 h-64 flex flex-col justify-between p-4 overflow-hidden" style="background: radial-gradient(circle at 50% 35%, #1e293b 0%, #020617 100%);">
-          <!-- Top Overlay: Active Speaker Acoustic Telemetry -->
-          <div class="flex items-center justify-between z-10 gap-2">
-            <div id="playerSpeakerBadge" class="px-3 py-1 rounded-full bg-blue-600/90 text-white text-xs font-semibold flex items-center gap-2 shadow-lg backdrop-blur">
-              <span>👨 SPEAKER_00 (云舟·男声)</span>
-              <span class="text-blue-200 font-mono">Med 164Hz · P15 116Hz</span>
-            </div>
-            <div id="videoSourceBadge" class="px-2.5 py-1 rounded bg-black/60 text-slate-300 text-xs font-mono border border-white/10">
-              output/output_dub.mp4 (1920x1080 · h264_videotoolbox)
-            </div>
-          </div>
-
-          <!-- Center Visual Cue -->
-          <div class="flex flex-col items-center justify-center text-center my-auto">
-            <div class="text-slate-400 text-xs uppercase tracking-widest mb-1.5">iPhone Duo — After The Hype</div>
-            <div class="flex items-end gap-1.5 h-8">
-              <span class="w-1.5 bg-blue-500 h-5 rounded-full wave-bar"></span>
-              <span class="w-1.5 bg-blue-400 h-8 rounded-full wave-bar" style="animation-delay:0.15s"></span>
-              <span class="w-1.5 bg-indigo-400 h-4 rounded-full wave-bar" style="animation-delay:0.3s"></span>
-              <span class="w-1.5 bg-blue-500 h-7 rounded-full wave-bar" style="animation-delay:0.45s"></span>
-              <span class="w-1.5 bg-emerald-400 h-6 rounded-full wave-bar" style="animation-delay:0.2s"></span>
-            </div>
-          </div>
-
-          <!-- Bottom Netflix-Grade Dual Subtitle Overlay -->
-          <div class="z-10 flex flex-col items-center text-center gap-1">
-            <div id="playerSubZh" class="px-4 py-1 rounded bg-black/75 text-white font-semibold text-sm tracking-wide shadow">
-              折叠屏 iPhone Duo 发布三个月后，它真的改变了我们的日常工作流吗？
-            </div>
-            <div id="playerSubEn" class="px-3 py-0.5 rounded bg-black/60 text-slate-300 text-xs">
-              Three months after the iPhone Duo launch, has it truly changed our daily workflow?
-            </div>
-          </div>
-        </div>
-
-        <!-- Interactive Timeline Scrubber with Speaker Color Track -->
-        <div class="px-4 py-2.5 bg-slate-900 text-slate-300 flex flex-col gap-1.5">
-          <div class="flex items-center gap-1 h-2 w-full rounded overflow-hidden cursor-pointer" title="点击说话人色块跳转对应段落">
-            <div onclick="jumpToLine(1, '00:00:12.400', 'SPEAKER_00', 'male', '云舟 (中男·旗舰)', '欢迎来到本期深度评测，今天我们来聊聊万众瞩目的 iPhone Duo。', 'Welcome back to our deep-dive review, today we are talking about the iPhone Duo.')" class="bg-blue-500 h-full w-1/4 hover:opacity-80" title="SPEAKER_00 (男)"></div>
-            <div onclick="jumpToLine(2, '00:01:24.300', 'SPEAKER_00', 'male', '云舟 (中男·旗舰)', '折叠屏 iPhone Duo 发布三个月后，它真的改变了我们的日常工作流吗？', 'Three months after the iPhone Duo launch, has it truly changed our daily workflow?')" class="bg-blue-500 h-full w-1/5 hover:opacity-80" title="SPEAKER_00 (激昂男声 164Hz)"></div>
-            <div onclick="jumpToLine(3, '00:02:10.850', 'SPEAKER_01', 'female', 'vivi 2.0 (中女·旗舰)', '说实话，当我第一次在旧金山发布会摸到真机时，铰链的手感非常惊艳。', 'Honestly, when I first held it at the SF keynote, the hinge felt incredible.')" class="bg-pink-500 h-full w-1/4 hover:opacity-80" title="SPEAKER_01 (女)"></div>
-            <div onclick="jumpToLine(4, '00:03:05.120', 'SPEAKER_02', 'male', '儒雅逸辰 2.0 (男·视频配音)', '但如果你看这块内屏的折痕控制，苹果确实用上了全新的液态金属工艺。', 'But if you look at the crease control on the inner display, Apple really used LiquidMetal.')" class="bg-emerald-500 h-full flex-1 hover:opacity-80" title="SPEAKER_02 (男嘉宾 B)"></div>
-          </div>
-          <div class="flex items-center justify-between text-xs text-slate-400">
-            <div class="flex items-center gap-4">
-              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-500"></span>SPEAKER_00 (男主讲)</span>
-              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-pink-500"></span>SPEAKER_01 (女嘉宾)</span>
-              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>SPEAKER_02 (男嘉宾 B)</span>
-            </div>
-            <span>💡 点击下方任意台词行或试听按钮可实时联动跳转视频</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- 2B. 下方三阶段步进工作台 (3-Stage Stepper Console) -->
-      <section class="studio-card rounded-xl p-4 flex flex-col gap-3.5 shadow-sm flex-1">
-        <!-- 3-Stage Stepper Header -->
-        <div class="grid grid-cols-3 gap-3">
-          <button onclick="switchStage('a')" id="stageBtn_a" class="studio-subtle p-3 rounded-xl text-left transition hover:border-blue-500 flex items-center justify-between">
-            <div>
-              <div class="text-xs text-slate-400 font-medium">阶段 A · 片源获取</div>
-              <div class="text-sm font-bold mt-0.5">下载视频 / 提取字幕</div>
-            </div>
-            <span class="text-emerald-500 text-sm font-bold">✅</span>
-          </button>
-
-          <button onclick="switchStage('b')" id="stageBtn_b" class="studio-subtle p-3 rounded-xl text-left transition hover:border-blue-500 flex items-center justify-between">
-            <div>
-              <div class="text-xs text-slate-400 font-medium">阶段 B · 字幕与翻译</div>
-              <div class="text-sm font-bold mt-0.5">三步翻译与术语纠错</div>
-            </div>
-            <span class="text-emerald-500 text-sm font-bold">✅</span>
-          </button>
-
-          <button onclick="switchStage('c')" id="stageBtn_c" class="p-3 rounded-xl text-left transition border-2 border-blue-600 bg-blue-500/10 flex items-center justify-between">
-            <div>
-              <div class="text-xs text-blue-600 dark:text-blue-400 font-semibold">阶段 C · 多角色配音</div>
-              <div class="text-sm font-bold mt-0.5">说话人微调与合成</div>
-            </div>
-            <span class="px-2 py-0.5 rounded bg-amber-500 text-white text-xs font-bold whitespace-nowrap">⏸️ 待确认</span>
-          </button>
-        </div>
-
-        <!-- ==================== STAGE A CONTENT: 下载或上传视频 ==================== -->
-        <div id="stagePanel_a" class="hidden flex-col gap-3 text-xs">
-          <div class="studio-subtle p-3.5 rounded-xl flex flex-col gap-2.5">
-            <div class="flex items-center justify-between">
-              <span class="font-semibold text-sm">🔗 YouTube 视频链接与极速字幕通道</span>
-              <button onclick="openSettingsModal('sub')" class="text-blue-500 hover:underline font-medium">⚙️ 配置 Cookies 与下载参数</button>
-            </div>
-            <div class="flex gap-2">
-              <input type="text" value="https://www.youtube.com/watch?v=gqPPzfEXu8U" class="studio-input flex-1 px-3 py-2 rounded-lg font-mono text-xs" />
-              <select class="studio-input px-3 py-2 rounded-lg font-semibold">
-                <option value="1080">1080p 高清</option>
-                <option value="best">Best 最佳画质</option>
-                <option value="360">360p 极速</option>
-              </select>
-            </div>
-            <div class="grid grid-cols-3 gap-2.5">
-              <button onclick="showToast('📥 正在通过 yt-dlp 下载 1080p 视频并自动检测官方字幕...')" class="py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition">
-                📥 下载视频 (含官方字幕直达)
+        <!-- 2A. 上方统一多源视频监视器 -->
+        <section class="studio-card rounded-xl overflow-hidden shadow-sm">
+          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-1.5">
+              <span class="text-xs font-bold text-slate-400 mr-1">🎬 信号源:</span>
+              <button @click="selectVideoSource('orig')" :class="activeVideoSource === 'orig' ? 'bg-blue-600 text-white font-semibold shadow-sm' : 'text-slate-500 hover:bg-slate-500/10'" class="px-3 py-1 rounded-md text-xs transition">
+                原始视频
               </button>
-              <button onclick="showToast('⚡ 已通过 youtube-transcript-api 秒级下载官方英文字幕并完成时序去重合！')" class="py-2 rounded-lg bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-semibold hover:bg-indigo-600 hover:text-white transition">
-                ⚡ 仅下载官方字幕 (秒级跳过转录)
+              <button v-if="wsState.video?.vtt_url" @click="selectVideoSource('vtt')" :class="activeVideoSource === 'vtt' ? 'bg-blue-600 text-white font-semibold shadow-sm' : 'text-slate-500 hover:bg-slate-500/10'" class="px-3 py-1 rounded-md text-xs transition">
+                外挂官方字幕 (VTT)
               </button>
-              <button onclick="showToast('🗑️ 已清理当前视频，可重新上传或输入新链接')" class="py-2 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 font-semibold hover:bg-rose-500 hover:text-white transition">
-                🗑️ 删除并重新选择
+              <button v-if="wsState.video?.sub_url" @click="selectVideoSource('sub')" :class="activeVideoSource === 'sub' ? 'bg-blue-600 text-white font-semibold shadow-sm' : 'text-slate-500 hover:bg-slate-500/10'" class="px-3 py-1 rounded-md text-xs transition">
+                烧录双语成片 (Sub)
+              </button>
+              <button v-if="wsState.video?.dub_url" @click="selectVideoSource('dub')" :class="activeVideoSource === 'dub' ? 'bg-blue-600 text-white font-semibold shadow-sm' : 'text-slate-500 hover:bg-slate-500/10'" class="px-3 py-1 rounded-md text-xs transition">
+                🎙️ 多角色配音成片 (Dub)
               </button>
             </div>
+            <div class="flex items-center gap-2 text-xs">
+              <span v-if="activeLineInfo" class="px-2.5 py-0.5 rounded-full bg-blue-500/15 text-blue-500 font-semibold">
+                {{ activeLineInfo }}
+              </span>
+              <span class="font-mono text-slate-400">{{ wsState.video?.file_name || '未加载视频' }}</span>
+            </div>
           </div>
 
-          <div onclick="showToast('📂 已触发本地视频/音频文件选择器 (.mp4, .mov, .mkv, .webm, .mp3, .wav)')" class="studio-subtle border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl p-6 text-center cursor-pointer hover:border-blue-500 transition">
-            <div class="text-base font-semibold mb-1">📤 拖拽本地视频或音频文件到此处上传</div>
-            <div class="text-slate-400">支持 MP4, MOV, MKV, AVI, WEBM, MP3, WAV, M4A（纯音频将自动合成黑屏视频流）</div>
+          <!-- Real HTML5 Video Player or Empty Placeholder -->
+          <div class="relative bg-slate-950 flex items-center justify-center min-h-[260px] max-h-[420px]">
+            <video
+              v-if="currentVideoUrl"
+              ref="videoPlayerRef"
+              :key="currentVideoUrl + '_' + activeVideoSource"
+              :src="currentVideoUrl"
+              controls
+              crossorigin="anonymous"
+              class="w-full max-h-[420px] object-contain"
+            >
+              <track
+                v-if="activeVideoSource === 'vtt' && wsState.video?.vtt_url"
+                kind="subtitles"
+                label="Official Subtitle"
+                srclang="en"
+                :src="wsState.video.vtt_url"
+                default
+              />
+            </video>
+            <div v-else class="py-16 text-center text-slate-400 flex flex-col items-center gap-2">
+              <span class="text-3xl">🎬</span>
+              <span class="text-sm font-semibold">当前暂无视频文件</span>
+              <span class="text-xs text-slate-500">请在下方「阶段 A · 片源获取」下载 YouTube 视频或拖拽上传本地音视频</span>
+            </div>
           </div>
-        </div>
+        </section>
 
-        <!-- ==================== STAGE B CONTENT: 翻译并生成字幕 ==================== -->
-        <div id="stagePanel_b" class="hidden flex-col gap-3 text-xs">
-          <div class="studio-subtle p-3.5 rounded-xl flex flex-col gap-2">
-            <div class="flex items-center justify-between">
-              <span class="font-bold">🚀 字幕处理流水线已完成 (6 / 6 步)</span>
-              <div class="flex items-center gap-3">
-                <button onclick="openSettingsModal('sub')" class="text-blue-500 hover:underline font-medium">⚙️ 打开字幕与词汇表设置</button>
-                <span class="font-mono text-emerald-500 font-bold">100% (225 / 225 句)</span>
+        <!-- 2B. 下方三阶段步进工作台 -->
+        <section class="studio-card rounded-xl p-4 flex flex-col gap-4 shadow-sm flex-1">
+          <!-- 3-Stage Stepper Header -->
+          <div class="grid grid-cols-3 gap-3">
+            <button @click="activeStage = 'a'" :class="activeStage === 'a' ? 'border-2 border-blue-600 bg-blue-500/10' : 'studio-subtle hover:border-blue-500'" class="p-3 rounded-xl text-left transition flex items-center justify-between">
+              <div>
+                <div class="text-xs text-slate-400 font-medium">阶段 A · 片源获取</div>
+                <div class="text-sm font-bold mt-0.5">下载视频 / 提取字幕</div>
               </div>
-            </div>
-            <div class="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-              <div class="h-full bg-emerald-500 w-full"></div>
-            </div>
-            <div class="grid grid-cols-3 gap-2 pt-1">
-              <div class="studio-card p-2 rounded-lg flex items-center justify-between"><span>1. WhisperX / 官方字幕直达</span><span>✅</span></div>
-              <div class="studio-card p-2 rounded-lg flex items-center justify-between"><span>2. NLP + LLM 语义分句</span><span>✅</span></div>
-              <div class="studio-card p-2 rounded-lg flex items-center justify-between"><span>3. 摘要与三步法翻译</span><span>✅</span></div>
-              <div class="studio-card p-2 rounded-lg flex items-center justify-between"><span>4. 长字幕切分与对齐</span><span>✅</span></div>
-              <div class="studio-card p-2 rounded-lg flex items-center justify-between"><span>5. 生成时间轴与双语字幕</span><span>✅</span></div>
-              <div class="studio-card p-2 rounded-lg flex items-center justify-between"><span>6. 烧录字幕到视频</span><span>✅</span></div>
-            </div>
-          </div>
+              <span v-if="wsState.task?.running && wsState.task?.stage === 'download'" class="px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-bold animate-pulse">⏳ {{ (wsState.task.percent || 0).toFixed(0) }}%</span>
+              <span v-else class="text-sm font-bold">{{ wsState.video?.exists ? '✅' : '1' }}</span>
+            </button>
 
-          <div class="studio-subtle p-3.5 rounded-xl flex flex-col gap-2">
-            <div class="flex items-center justify-between">
-              <span class="font-bold">🔍 可疑或高频专业词汇审查 (Suspicious Terms Review)</span>
-              <button onclick="showToast('📄 已打开本地 .srt/.vtt 字幕上传器（跳过 WhisperX）')" class="text-blue-500 hover:underline font-medium">📄 上传本地字幕跳过 WhisperX</button>
-            </div>
-            <div class="overflow-x-auto">
-              <table class="w-full text-left border-collapse">
-                <thead>
-                  <tr class="border-b border-slate-200 dark:border-slate-700 text-slate-400">
-                    <th class="py-1.5 px-2">识别词汇 (Term)</th>
-                    <th class="py-1.5 px-2">类型</th>
-                    <th class="py-1.5 px-2">出现频次</th>
-                    <th class="py-1.5 px-2">原句上下文</th>
-                    <th class="py-1.5 px-2">快捷操作</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
-                  <tr>
-                    <td class="py-1.5 px-2 font-mono font-semibold text-amber-500">eye phone duo</td>
-                    <td class="py-1.5 px-2">疑似音近误识</td>
-                    <td class="py-1.5 px-2">4 次</td>
-                    <td class="py-1.5 px-2 text-slate-400">"...when the eye phone duo folds flat..."</td>
-                    <td class="py-1.5 px-2">
-                      <button onclick="showToast('✅ 已添加规则 `eye phone duo -> iPhone Duo` 到领域词汇表！')" class="px-2 py-0.5 rounded bg-blue-600/15 text-blue-500 font-medium">+ 加入纠错词表</button>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td class="py-1.5 px-2 font-mono font-semibold">LiquidMetal</td>
-                    <td class="py-1.5 px-2">高频专有名词</td>
-                    <td class="py-1.5 px-2">9 次</td>
-                    <td class="py-1.5 px-2 text-slate-400">"...Apple's LiquidMetal hinge assembly..."</td>
-                    <td class="py-1.5 px-2">
-                      <button onclick="showToast('✅ 已锁定术语 `LiquidMetal -> 液态金属`')" class="px-2 py-0.5 rounded bg-blue-600/15 text-blue-500 font-medium">+ 锁定术语</button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
+            <button @click="activeStage = 'b'" :class="activeStage === 'b' ? 'border-2 border-blue-600 bg-blue-500/10' : 'studio-subtle hover:border-blue-500'" class="p-3 rounded-xl text-left transition flex items-center justify-between">
+              <div>
+                <div class="text-xs text-slate-400 font-medium">阶段 B · 字幕与翻译</div>
+                <div class="text-sm font-bold mt-0.5">三步翻译与术语纠错</div>
+              </div>
+              <span v-if="wsState.task?.running && wsState.task?.stage === 'subtitle'" class="px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-bold animate-pulse">⏳ {{ (wsState.task.percent || 0).toFixed(0) }}%</span>
+              <span v-else class="text-sm font-bold">{{ wsState.stage_b?.src_srt_exists ? '✅' : '2' }}</span>
+            </button>
 
-          <div class="grid grid-cols-4 gap-2.5">
-            <button onclick="showToast('🔄 已将领域词汇表纠错重新应用到分块，并清理下游字幕缓存！')" class="py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition">
-              🔄 重新应用词汇并重建
-            </button>
-            <button onclick="showToast('📦 正在下载 subtitles.zip (含 src.srt, trans.srt, src_trans.srt, trans_src.srt)')" class="studio-subtle py-2 rounded-lg font-semibold hover:border-blue-500 transition">
-              📥 下载所有 SRT 字幕包
-            </button>
-            <button onclick="showToast('🗑️ 字幕缓存已清空，准备重新翻译')" class="studio-subtle py-2 rounded-lg font-semibold hover:border-amber-500 text-amber-600 transition">
-              ♻️ 重新生成字幕
-            </button>
-            <button onclick="showToast('🗂️ 当前项目所有产出已归档至 history/iPhone_Duo_After_The_Hype')" class="studio-subtle py-2 rounded-lg font-semibold hover:border-emerald-500 text-emerald-600 transition">
-              🗂️ 归档到 History
+            <button @click="activeStage = 'c'" :class="activeStage === 'c' ? 'border-2 border-blue-600 bg-blue-500/10' : 'studio-subtle hover:border-blue-500'" class="p-3 rounded-xl text-left transition flex items-center justify-between">
+              <div>
+                <div class="text-xs text-slate-400 font-medium">阶段 C · 多角色配音</div>
+                <div class="text-sm font-bold mt-0.5">说话人微调与合成</div>
+              </div>
+              <span v-if="wsState.task?.running && wsState.task?.stage === 'dubbing'" class="px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-bold animate-pulse">⏳ {{ (wsState.task.percent || 0).toFixed(0) }}%</span>
+              <span v-else-if="wsState.stage_c?.waiting_confirm" class="px-2 py-0.5 rounded bg-amber-500 text-white text-xs font-bold whitespace-nowrap">⏸️ 待确认</span>
+              <span v-else class="text-sm font-bold">{{ wsState.stage_c?.dub_video_exists ? '✅' : '3' }}</span>
             </button>
           </div>
-        </div>
 
-        <!-- ==================== STAGE C CONTENT: 说话人微调与多角色配音 (默认展开) ==================== -->
-        <div id="stagePanel_c" class="flex flex-col gap-3.5 text-xs">
-          <!-- 4-Step Dubbing Pipeline Progress -->
-          <div class="studio-subtle p-2.5 rounded-xl grid grid-cols-4 gap-2">
-            <div class="studio-card p-2.5 rounded-lg flex items-center justify-between border-l-4 border-emerald-500">
-              <span class="font-medium">1. 任务与说话人识别</span><span>✅</span>
-            </div>
-            <div class="studio-card p-2.5 rounded-lg flex items-center justify-between border-l-4 border-amber-500">
-              <span class="font-bold text-amber-500">2. 说话人音色确认</span><span>⏸️</span>
-            </div>
-            <div class="studio-card p-2.5 rounded-lg flex items-center justify-between opacity-60">
-              <span>3. 生成并对齐配音</span><span>⏳</span>
-            </div>
-            <div class="studio-card p-2.5 rounded-lg flex items-center justify-between opacity-60">
-              <span>4. 音画混流合成成片</span><span>⏳</span>
-            </div>
-          </div>
-
-          <!-- 🎙️ 说话人识别结果与配音角色微调面板 (现在双栏布局下宽度充裕！) -->
-          <div class="studio-subtle p-3.5 rounded-xl flex flex-col gap-3.5 border border-blue-500/30">
+          <!-- ==================== 实时任务进度监控卡片 (所有阶段共用内嵌反馈) ==================== -->
+          <div v-if="wsState.task?.running" class="rounded-xl p-4 border-2 border-blue-500/40 bg-blue-500/5 flex flex-col gap-3 shadow-sm">
+            <!-- Top Row: Step Title, Sub-step, and Live Speed/ETA/Percent Metrics -->
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div class="flex items-center gap-2.5">
-                <span class="text-sm font-bold">🎙️ 说话人识别结果与配音角色微调</span>
-                <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold">
-                  已隔离跨角色短句合并 · 强制 Chunk 切分
+                <span class="w-3 h-3 rounded-full bg-blue-600 animate-ping"></span>
+                <div>
+                  <div class="text-sm font-bold text-blue-600 dark:text-blue-400 flex items-center gap-2">
+                    <span>{{ wsState.task.step_name || '正在执行任务...' }}</span>
+                    <span v-if="wsState.task.elapsed_sec" class="px-2 py-0.5 rounded bg-slate-500/10 text-slate-500 dark:text-slate-400 font-mono text-xs font-normal">
+                      ⏱️ 已用时 {{ formatElapsed(wsState.task.elapsed_sec) }}
+                    </span>
+                  </div>
+                  <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
+                    {{ wsState.task.sub_step || '正在处理中，请稍候...' }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2 text-xs font-mono">
+                <span v-if="wsState.task.total_size" class="px-2.5 py-1 rounded-lg studio-card font-semibold">
+                  📦 大小: {{ wsState.task.total_size }}
                 </span>
-                <button onclick="openSettingsModal('dub')" class="text-blue-500 hover:underline font-medium ml-1">
-                  ⚙️ 默认音色与声纹设置
+                <span v-if="wsState.task.speed" class="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-bold">
+                  🚀 速度: {{ wsState.task.speed }}
+                </span>
+                <span v-if="wsState.task.eta" class="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-bold">
+                  ⏳ 剩余: {{ wsState.task.eta }}
+                </span>
+                <span class="px-3 py-1 rounded-lg bg-blue-600 text-white font-bold text-sm">
+                  {{ Number(wsState.task.percent || 0).toFixed(1) }}%
+                </span>
+              </div>
+            </div>
+
+            <!-- Dynamic Progress Bar -->
+            <div class="w-full h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden p-0.5">
+              <div
+                class="h-full rounded-full bg-gradient-to-r from-blue-600 via-indigo-500 to-emerald-500 transition-all duration-300"
+                :style="{ width: Math.max(4, Number(wsState.task.percent || 4)) + '%' }"
+              ></div>
+            </div>
+
+            <!-- Stage A Download Sub-Step Flow -->
+            <div v-if="wsState.task.stage === 'download'" class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+              <div
+                v-for="(label, idx) in ['1. 解析链接与 Cookie', '2. 拉取封面与音视频流', '3. FFmpeg 音画合并', '4. 探测与清洗官方字幕']"
+                :key="idx"
+                class="px-2.5 py-1.5 rounded-lg flex items-center justify-between border"
+                :class="wsState.task.step_index > idx + 1 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-semibold' : (wsState.task.step_index === idx + 1 ? 'bg-blue-600 text-white border-blue-600 font-bold' : 'studio-card text-slate-400 border-transparent')"
+              >
+                <span class="truncate">{{ label }}</span>
+                <span>{{ wsState.task.step_index > idx + 1 ? '✅' : (wsState.task.step_index === idx + 1 ? '⏳' : '⚪') }}</span>
+              </div>
+            </div>
+
+            <!-- Live Rolling Console Mini-Preview (Last 5 Lines) -->
+            <div class="rounded-lg bg-slate-950 text-slate-300 p-2.5 font-mono text-xs flex flex-col gap-1 border border-slate-800">
+              <div class="flex items-center justify-between text-slate-400 pb-1 border-b border-slate-800/80">
+                <span class="flex items-center gap-1.5 text-emerald-400 font-semibold">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  实时执行日志流 (最近 5 条)
+                </span>
+                <button @click="showConsole = !showConsole" class="text-blue-400 hover:underline">
+                  {{ showConsole ? '收起底部完整终端' : '展开底部完整终端 ▲' }}
                 </button>
               </div>
+              <div v-if="!wsState.logs?.length" class="text-slate-500 py-1">正在等待后端输出日志...</div>
+              <div v-for="(line, i) in (wsState.logs || []).slice(-5)" :key="i" class="truncate leading-relaxed text-slate-200">
+                {{ line }}
+              </div>
+            </div>
+          </div>
 
-              <!-- Sub-tabs: Role Cards vs Sentence Table -->
-              <div class="studio-card p-0.5 rounded-lg flex items-center gap-1">
-                <button onclick="switchSpeakerSubTab('cards')" id="spkSubTab_cards" class="px-3 py-1 rounded-md text-xs font-semibold bg-blue-600 text-white">
-                  🎭 按说话人角色卡片 (3人)
+          <!-- ==================== STAGE A: 下载或上传视频 ==================== -->
+          <div v-if="activeStage === 'a'" class="flex flex-col gap-3.5 text-xs">
+            <div class="studio-subtle p-4 rounded-xl flex flex-col gap-3">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-sm">🔗 YouTube 视频链接与极速字幕通道</span>
+                <button @click="openSettings('sub')" class="text-blue-500 hover:underline font-medium">⚙️ 配置 Cookies 与防风控</button>
+              </div>
+              <div class="flex gap-2">
+                <input v-model="ytbUrl" type="text" placeholder="粘贴 YouTube 链接 (如 https://www.youtube.com/watch?v=...)" class="studio-input flex-1 px-3 py-2 rounded-lg font-mono text-xs" />
+                <select v-model="ytbRes" class="studio-input px-3 py-2 rounded-lg font-semibold">
+                  <option value="360">360p 极速</option>
+                  <option value="1080">1080p 高清</option>
+                  <option value="best">Best 最佳画质</option>
+                </select>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                <button @click="downloadYoutube(false)" :disabled="wsState.task?.running" class="py-2.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50 transition">
+                  {{ wsState.task?.running && wsState.task?.stage === 'download' ? `⏳ 正在下载 (${(wsState.task.percent || 0).toFixed(0)}%)...` : '📥 下载视频 (自动探测官方字幕)' }}
                 </button>
-                <button onclick="switchSpeakerSubTab('table')" id="spkSubTab_table" class="px-3 py-1 rounded-md text-xs font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
-                  📝 逐句台词微调表 (225句)
+                <button @click="downloadYoutube(true)" :disabled="wsState.task?.running" class="py-2.5 rounded-lg bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-semibold hover:bg-indigo-600 hover:text-white disabled:opacity-50 transition">
+                  ⚡ 仅下载官方字幕 (秒级跳过转录)
+                </button>
+                <button v-if="wsState.video?.exists || wsState.files?.length" @click="deleteVideo" :disabled="wsState.task?.running" class="py-2.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 font-semibold hover:bg-rose-500 hover:text-white disabled:opacity-50 transition">
+                  🗑️ 删除当前视频并清空工作区
                 </button>
               </div>
             </div>
 
-            <!-- SUB-TAB 1: 角色卡片列表 (3张卡片横向宽敞排布) -->
-            <div id="speakerCardsView" class="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-              <!-- Card 1: SPEAKER_00 -->
-              <div class="studio-card p-3.5 rounded-xl flex flex-col gap-2.5 border-t-4 border-blue-500 shadow-sm">
-                <div class="flex items-center justify-between">
-                  <span class="font-bold text-sm flex items-center gap-1.5">👨 <code class="font-mono">SPEAKER_00</code></span>
-                  <span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-500 font-bold">共 142 句</span>
-                </div>
-                <div class="px-2.5 py-1.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-mono text-xs leading-relaxed">
-                  🧠 Wav2Vec2 P(男)=94% · Med 164Hz / P15 116Hz
-                  <span class="block opacity-80">✓ 激昂男声胸腔下限保护已生效</span>
-                </div>
-                <div class="text-slate-400 italic truncate" title="折叠屏 iPhone Duo 发布三个月后，它真的改变了我们的日常工作流吗？">
-                  💬 "折叠屏 iPhone Duo 发布三个月后，它真的改变了..."
-                </div>
-                <button onclick="jumpToLine(2, '00:01:24.300', 'SPEAKER_00', 'male', '云舟 (中男·旗舰)', '折叠屏 iPhone Duo 发布三个月后，它真的改变了我们的日常工作流吗？', 'Three months after the iPhone Duo launch, has it truly changed our daily workflow?')" class="studio-subtle px-3 py-2 rounded-lg flex items-center justify-between hover:border-blue-500 transition">
-                  <span class="font-semibold text-blue-500">▶️ 试听原片人声采样 (4.2s)</span>
-                  <span class="font-mono text-slate-400">speaker_00.wav</span>
-                </button>
-                <div class="grid grid-cols-2 gap-2 pt-1">
-                  <div class="flex flex-col gap-1">
-                    <span class="text-slate-400">角色性别</span>
-                    <select onchange="markSpeakerModified('SPEAKER_00')" class="studio-input px-2 py-1.5 rounded-md font-semibold">
-                      <option value="male" selected>👨 男声 (Male)</option>
-                      <option value="female">👩 女声 (Female)</option>
-                    </select>
-                  </div>
-                  <div class="flex flex-col gap-1">
-                    <span class="text-slate-400">专属绑定音色</span>
-                    <select onchange="markSpeakerModified('SPEAKER_00')" class="studio-input px-2 py-1.5 rounded-md font-medium">
-                      <option value="zh_male_m191_uranus_bigtts" selected>👨 云舟 (中男·旗舰)</option>
-                      <option value="">(跟随默认男/女音色)</option>
-                      <option value="zh_male_ruyayichen_uranus_bigtts">👨 儒雅逸辰 2.0</option>
-                      <option value="zh_male_jieshuoxiaoming_uranus_bigtts">👨 解说小明 2.0</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
+            <!-- Local Video / Audio Upload -->
+            <label class="studio-subtle border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl p-6 text-center cursor-pointer hover:border-blue-500 transition block">
+              <input type="file" class="hidden" accept=".mp4,.mov,.mkv,.avi,.flv,.wmv,.webm,.mp3,.wav,.m4a,.flac" @change="uploadVideoFile" />
+              <div class="text-base font-semibold mb-1">📤 点击或拖拽本地视频 / 音频文件上传</div>
+              <div class="text-slate-400">支持 MP4, MOV, MKV, AVI, WEBM, MP3, WAV, M4A（音频将自动合成黑屏视频流）</div>
+            </label>
+          </div>
 
-              <!-- Card 2: SPEAKER_01 -->
-              <div class="studio-card p-3.5 rounded-xl flex flex-col gap-2.5 border-t-4 border-pink-500 shadow-sm">
-                <div class="flex items-center justify-between">
-                  <span class="font-bold text-sm flex items-center gap-1.5">👩 <code class="font-mono">SPEAKER_01</code></span>
-                  <span class="px-2 py-0.5 rounded bg-pink-500/10 text-pink-500 font-bold">共 56 句</span>
-                </div>
-                <div class="px-2.5 py-1.5 rounded bg-pink-500/10 text-pink-600 dark:text-pink-400 font-mono text-xs leading-relaxed">
-                  🧠 Wav2Vec2 P(女)=97% · Med 202Hz / P15 171Hz
-                  <span class="block opacity-80">✓ 声纹与高频共振峰高度一致</span>
-                </div>
-                <div class="text-slate-400 italic truncate">
-                  💬 "说实话，当我第一次在旧金山发布会摸到真机时..."
-                </div>
-                <button onclick="jumpToLine(3, '00:02:10.850', 'SPEAKER_01', 'female', 'vivi 2.0 (中女·旗舰)', '说实话，当我第一次在旧金山发布会摸到真机时，铰链的手感非常惊艳。', 'Honestly, when I first held it at the SF keynote, the hinge felt incredible.')" class="studio-subtle px-3 py-2 rounded-lg flex items-center justify-between hover:border-pink-500 transition">
-                  <span class="font-semibold text-pink-500">▶️ 试听原片人声采样 (3.8s)</span>
-                  <span class="font-mono text-slate-400">speaker_01.wav</span>
-                </button>
-                <div class="grid grid-cols-2 gap-2 pt-1">
-                  <div class="flex flex-col gap-1">
-                    <span class="text-slate-400">角色性别</span>
-                    <select onchange="markSpeakerModified('SPEAKER_01')" class="studio-input px-2 py-1.5 rounded-md font-semibold">
-                      <option value="male">👨 男声 (Male)</option>
-                      <option value="female" selected>👩 女声 (Female)</option>
-                    </select>
-                  </div>
-                  <div class="flex flex-col gap-1">
-                    <span class="text-slate-400">专属绑定音色</span>
-                    <select onchange="markSpeakerModified('SPEAKER_01')" class="studio-input px-2 py-1.5 rounded-md font-medium">
-                      <option value="zh_female_vv_uranus_bigtts" selected>👩 vivi 2.0 (旗舰)</option>
-                      <option value="">(跟随默认男/女音色)</option>
-                      <option value="zh_female_liuchangnv_uranus_bigtts">👩 流畅女声 2.0</option>
-                      <option value="saturn_zh_female_cancan_tob">👩 知性灿灿</option>
-                    </select>
-                  </div>
-                </div>
+          <!-- ==================== STAGE B: 字幕翻译与生成 ==================== -->
+          <div v-if="activeStage === 'b'" class="flex flex-col gap-3.5 text-xs">
+            <div class="studio-subtle p-3.5 rounded-xl flex flex-col gap-2.5">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-sm">🚀 字幕与三步翻译流水线 (6 步)</span>
+                <button @click="openSettings('sub')" class="text-blue-500 hover:underline font-medium">⚙️ 打开字幕与领域词表设置</button>
               </div>
-
-              <!-- Card 3: SPEAKER_02 -->
-              <div class="studio-card p-3.5 rounded-xl flex flex-col gap-2.5 border-t-4 border-emerald-500 shadow-sm">
-                <div class="flex items-center justify-between">
-                  <span class="font-bold text-sm flex items-center gap-1.5">👨 <code class="font-mono">SPEAKER_02</code></span>
-                  <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500 font-bold">共 27 句</span>
-                </div>
-                <div class="px-2.5 py-1.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-mono text-xs leading-relaxed">
-                  🧠 Wav2Vec2 P(男)=91% · Med 122Hz / P15 104Hz
-                  <span class="block opacity-80">✓ 同性别第二角色独立音色分配</span>
-                </div>
-                <div class="text-slate-400 italic truncate">
-                  💬 "但如果你看这块内屏的折痕控制，苹果确实用上了..."
-                </div>
-                <button onclick="jumpToLine(4, '00:03:05.120', 'SPEAKER_02', 'male', '儒雅逸辰 2.0 (男·视频配音)', '但如果你看这块内屏的折痕控制，苹果确实用上了全新的液态金属工艺。', 'But if you look at the crease control on the inner display, Apple really used LiquidMetal.')" class="studio-subtle px-3 py-2 rounded-lg flex items-center justify-between hover:border-emerald-500 transition">
-                  <span class="font-semibold text-emerald-500">▶️ 试听原片人声采样 (4.5s)</span>
-                  <span class="font-mono text-slate-400">speaker_02.wav</span>
-                </button>
-                <div class="grid grid-cols-2 gap-2 pt-1">
-                  <div class="flex flex-col gap-1">
-                    <span class="text-slate-400">角色性别</span>
-                    <select onchange="markSpeakerModified('SPEAKER_02')" class="studio-input px-2 py-1.5 rounded-md font-semibold">
-                      <option value="male" selected>👨 男声 (Male)</option>
-                      <option value="female">👩 女声 (Female)</option>
-                    </select>
-                  </div>
-                  <div class="flex flex-col gap-1">
-                    <span class="text-slate-400">专属绑定音色</span>
-                    <select onchange="markSpeakerModified('SPEAKER_02')" class="studio-input px-2 py-1.5 rounded-md font-medium">
-                      <option value="zh_male_ruyayichen_uranus_bigtts" selected>👨 儒雅逸辰 2.0</option>
-                      <option value="">(跟随默认男/女音色)</option>
-                      <option value="zh_male_m191_uranus_bigtts">👨 云舟 (中男·旗舰)</option>
-                      <option value="zh_male_yizhipiannan_uranus_bigtts">👨 译制片男 2.0</option>
-                    </select>
-                  </div>
+              <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                <div v-for="s in wsState.stage_b?.steps" :key="s.id" class="studio-card p-2.5 rounded-lg flex items-center justify-between" :class="s.done ? 'border-l-4 border-emerald-500' : ''">
+                  <span class="font-medium">{{ s.name }}</span>
+                  <span>{{ s.done ? '✅' : (wsState.task?.stage === 'subtitle' && wsState.task?.step_index === s.id ? '⏳' : '⚪') }}</span>
                 </div>
               </div>
             </div>
 
-            <!-- SUB-TAB 2: 逐句台词性别与音色微调表 -->
-            <div id="speakerTableView" class="hidden flex-col gap-2">
-              <div class="overflow-x-auto studio-card rounded-lg">
+            <!-- Upload Official SRT/VTT Bypass -->
+            <div class="studio-subtle p-3 rounded-xl flex items-center justify-between">
+              <div>
+                <span class="font-bold">📄 上传本地字幕文件跳过 WhisperX (.srt / .vtt)</span>
+                <span class="text-slate-400 ml-2">直接复用已有时间轴字幕并自动执行去重叠清洗</span>
+              </div>
+              <label class="px-3 py-1.5 rounded-lg bg-blue-600/15 text-blue-600 dark:text-blue-400 font-semibold cursor-pointer hover:bg-blue-600 hover:text-white transition">
+                <input type="file" class="hidden" accept=".srt,.vtt" @change="uploadSubtitleBypass" />
+                📂 选择 .srt / .vtt 上传
+              </label>
+            </div>
+
+            <!-- Suspicious Terms Table -->
+            <div v-if="wsState.stage_b?.suspicious_terms?.length" class="studio-subtle p-3.5 rounded-xl flex flex-col gap-2">
+              <div class="font-bold">🔍 识别到的可疑或高频专业词汇 (可一键加入领域词表)</div>
+              <div class="overflow-x-auto max-h-48">
                 <table class="w-full text-left border-collapse">
                   <thead>
-                    <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-400 bg-slate-500/5">
-                      <th class="py-2 px-2.5">#</th>
-                      <th class="py-2 px-2.5">时间轴 (点击联动)</th>
-                      <th class="py-2 px-2.5">说话人</th>
-                      <th class="py-2 px-2.5">性别</th>
-                      <th class="py-2 px-2.5">专属音色覆盖</th>
-                      <th class="py-2 px-2.5">分块隔离</th>
-                      <th class="py-2 px-2.5">配音台词 (可微调)</th>
+                    <tr class="border-b border-slate-200 dark:border-slate-700 text-slate-400">
+                      <th class="py-1.5 px-2">词汇</th>
+                      <th class="py-1.5 px-2">分类</th>
+                      <th class="py-1.5 px-2">频次</th>
+                      <th class="py-1.5 px-2">上下文示例</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
-                    <tr onclick="jumpToLine(1, '00:00:12.400', 'SPEAKER_00', 'male', '云舟 (中男·旗舰)', '欢迎来到本期深度评测，今天我们来聊聊万众瞩目的 iPhone Duo。', 'Welcome back to our deep-dive review, today we are talking about the iPhone Duo.')" class="hover:bg-blue-500/5 cursor-pointer">
-                      <td class="py-2 px-2.5 font-mono">1</td>
-                      <td class="py-2 px-2.5 font-mono text-blue-500 font-medium">00:00:12.400 → 16.200</td>
-                      <td class="py-2 px-2.5 font-mono">SPEAKER_00</td>
-                      <td class="py-2 px-2.5"><span class="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500 font-semibold">👨 male</span></td>
-                      <td class="py-2 px-2.5 text-slate-500">云舟 (中男·旗舰)</td>
-                      <td class="py-2 px-2.5"><span class="text-slate-400">同角色连续</span></td>
-                      <td class="py-2 px-2.5"><input type="text" value="欢迎来到本期深度评测，今天我们来聊聊万众瞩目的 iPhone Duo。" class="studio-input w-full px-2 py-1 rounded" /></td>
-                    </tr>
-                    <tr onclick="jumpToLine(2, '00:01:24.300', 'SPEAKER_00', 'male', '云舟 (中男·旗舰)', '折叠屏 iPhone Duo 发布三个月后，它真的改变了我们的日常工作流吗？', 'Three months after the iPhone Duo launch, has it truly changed our daily workflow?')" class="hover:bg-blue-500/5 cursor-pointer bg-blue-500/5">
-                      <td class="py-2 px-2.5 font-mono">2</td>
-                      <td class="py-2 px-2.5 font-mono text-blue-500 font-medium">00:01:24.300 → 28.900</td>
-                      <td class="py-2 px-2.5 font-mono">SPEAKER_00</td>
-                      <td class="py-2 px-2.5"><span class="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500 font-semibold">👨 male</span></td>
-                      <td class="py-2 px-2.5 text-slate-500">云舟 (中男·旗舰)</td>
-                      <td class="py-2 px-2.5"><span class="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 font-mono">✂️ cut_off=1</span></td>
-                      <td class="py-2 px-2.5"><input type="text" value="折叠屏 iPhone Duo 发布三个月后，它真的改变了我们的日常工作流吗？" class="studio-input w-full px-2 py-1 rounded" /></td>
-                    </tr>
-                    <tr onclick="jumpToLine(3, '00:02:10.850', 'SPEAKER_01', 'female', 'vivi 2.0 (中女·旗舰)', '说实话，当我第一次在旧金山发布会摸到真机时，铰链的手感非常惊艳。', 'Honestly, when I first held it at the SF keynote, the hinge felt incredible.')" class="hover:bg-pink-500/5 cursor-pointer">
-                      <td class="py-2 px-2.5 font-mono">3</td>
-                      <td class="py-2 px-2.5 font-mono text-pink-500 font-medium">00:02:10.850 → 15.400</td>
-                      <td class="py-2 px-2.5 font-mono">SPEAKER_01</td>
-                      <td class="py-2 px-2.5"><span class="px-1.5 py-0.5 rounded bg-pink-500/10 text-pink-500 font-semibold">👩 female</span></td>
-                      <td class="py-2 px-2.5 text-slate-500">vivi 2.0 (中女·旗舰)</td>
-                      <td class="py-2 px-2.5"><span class="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 font-mono">✂️ cut_off=1</span></td>
-                      <td class="py-2 px-2.5"><input type="text" value="说实话，当我第一次在旧金山发布会摸到真机时，铰链的手感非常惊艳。" class="studio-input w-full px-2 py-1 rounded" /></td>
-                    </tr>
-                    <tr onclick="jumpToLine(4, '00:03:05.120', 'SPEAKER_02', 'male', '儒雅逸辰 2.0 (男·视频配音)', '但如果你看这块内屏的折痕控制，苹果确实用上了全新的液态金属工艺。', 'But if you look at the crease control on the inner display, Apple really used LiquidMetal.')" class="hover:bg-emerald-500/5 cursor-pointer">
-                      <td class="py-2 px-2.5 font-mono">4</td>
-                      <td class="py-2 px-2.5 font-mono text-emerald-500 font-medium">00:03:05.120 → 10.000</td>
-                      <td class="py-2 px-2.5 font-mono">SPEAKER_02</td>
-                      <td class="py-2 px-2.5"><span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 font-semibold">👨 male</span></td>
-                      <td class="py-2 px-2.5 text-slate-500">儒雅逸辰 2.0</td>
-                      <td class="py-2 px-2.5"><span class="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 font-mono">✂️ cut_off=1</span></td>
-                      <td class="py-2 px-2.5"><input type="text" value="但如果你看这块内屏的折痕控制，苹果确实用上了全新的液态金属工艺。" class="studio-input w-full px-2 py-1 rounded" /></td>
+                    <tr v-for="item in wsState.stage_b.suspicious_terms" :key="item.term">
+                      <td class="py-1.5 px-2 font-mono font-semibold text-amber-500">{{ item.term }}</td>
+                      <td class="py-1.5 px-2">{{ item.category }}</td>
+                      <td class="py-1.5 px-2">{{ item.count }}</td>
+                      <td class="py-1.5 px-2 text-slate-400 truncate max-w-md">{{ item.example }}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </div>
 
-            <!-- Action Bar for Speaker Review & Dubbing -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1">
-              <button onclick="triggerIncrementalRebuild()" class="py-2.5 px-3 rounded-lg bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-semibold hover:bg-indigo-600 hover:text-white transition">
-                💾 保存修改并增量重配 <span id="modifiedCountBadge" class="ml-1 px-1.5 py-0.2 rounded bg-indigo-500 text-white text-xs">仅重算变更句</span>
+            <!-- Subtitle Action Buttons -->
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-2.5">
+              <button @click="startSubtitlePipeline(false)" :disabled="wsState.task?.running" class="py-2.5 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:opacity-50 transition">
+                ▶️ 开始处理字幕
               </button>
-              <button onclick="confirmAndContinueDub()" class="py-2.5 px-3 rounded-lg bg-blue-600 text-white font-bold shadow hover:bg-blue-700 transition">
-                ▶️ 确认说话人并继续配音
+              <button v-if="wsState.stage_b?.src_srt_exists && !wsState.stage_b?.sub_video_exists" @click="startSubtitlePipeline(true)" :disabled="wsState.task?.running" class="py-2.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition">
+                🔥 烧录字幕到视频
               </button>
-              <button onclick="showToast('🗑️ 已清空 output/audio 下生成的配音缓存（保留原音频与字幕）')" class="studio-card py-2.5 px-3 rounded-lg font-semibold text-rose-500 hover:border-rose-500 transition">
+              <button @click="reapplyTerms" class="studio-subtle py-2.5 rounded-lg font-semibold hover:border-blue-500 transition">
+                🔄 重新应用词表并清理
+              </button>
+              <a v-if="wsState.stage_b?.src_srt_exists" href="/api/subtitle/download-zip" class="studio-subtle py-2.5 rounded-lg font-semibold hover:border-blue-500 transition text-center">
+                📥 下载所有 SRT 字幕
+              </a>
+              <button @click="resetSubtitles" class="studio-subtle py-2.5 rounded-lg font-semibold text-amber-600 hover:border-amber-500 transition">
+                ♻️ 重新生成字幕
+              </button>
+              <button @click="archiveWorkspace" class="studio-subtle py-2.5 rounded-lg font-semibold text-emerald-600 hover:border-emerald-500 transition">
+                🗂️ 归档到 History
+              </button>
+            </div>
+          </div>
+
+          <!-- ==================== STAGE C: 说话人微调与多角色配音 ==================== -->
+          <div v-if="activeStage === 'c'" class="flex flex-col gap-3.5 text-xs">
+            <!-- 4-Step Dubbing Status -->
+            <div class="studio-subtle p-2.5 rounded-xl grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div v-for="s in wsState.stage_c?.steps" :key="s.id" class="studio-card p-2.5 rounded-lg flex items-center justify-between" :class="s.waiting ? 'border-l-4 border-amber-500' : (s.done ? 'border-l-4 border-emerald-500' : '')">
+                <span :class="s.waiting ? 'font-bold text-amber-500' : 'font-medium'">{{ s.name }}</span>
+                <span>{{ s.waiting ? '⏸️' : (s.done ? '✅' : '⏳') }}</span>
+              </div>
+            </div>
+
+            <!-- 🎙️ 说话人识别结果与配音角色微调面板 -->
+            <div v-if="speakerReview.available" class="studio-subtle p-3.5 rounded-xl flex flex-col gap-3.5 border border-blue-500/30">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5">
+                  <span class="text-sm font-bold">🎙️ 说话人识别结果与配音角色微调</span>
+                  <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold">
+                    已启用跨角色边界隔离
+                  </span>
+                  <button @click="openSettings('dub')" class="text-blue-500 hover:underline font-medium">
+                    ⚙️ 默认音色设置
+                  </button>
+                </div>
+
+                <div class="studio-card p-0.5 rounded-lg flex items-center gap-1">
+                  <button @click="speakerSubTab = 'cards'" :class="speakerSubTab === 'cards' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-500'" class="px-3 py-1 rounded-md text-xs transition">
+                    🎭 按说话人角色卡片 ({{ speakerReview.speakers.length }}人)
+                  </button>
+                  <button @click="speakerSubTab = 'table'" :class="speakerSubTab === 'table' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-500'" class="px-3 py-1 rounded-md text-xs transition">
+                    📝 逐句台词微调表 ({{ speakerReview.lines.length }}句)
+                  </button>
+                </div>
+              </div>
+
+              <!-- SUB-TAB 1: 说话人角色卡片 -->
+              <div v-if="speakerSubTab === 'cards'" class="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                <div v-for="spk in speakerReview.speakers" :key="spk.speaker_id" class="studio-card p-3.5 rounded-xl flex flex-col gap-2.5 border-t-4 shadow-sm" :class="spk.gender === 'male' ? 'border-blue-500' : 'border-pink-500'">
+                  <div class="flex items-center justify-between">
+                    <span class="font-bold text-sm flex items-center gap-1.5">
+                      <span>{{ spk.gender === 'male' ? '👨' : '👩' }}</span>
+                      <code class="font-mono">{{ spk.speaker_id }}</code>
+                    </span>
+                    <span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-500 font-bold">共 {{ spk.count }} 句</span>
+                  </div>
+
+                  <div @click="seekToTime(spk.sample_start, spk.speaker_id, spk.sample_text)" class="text-slate-400 italic truncate cursor-pointer hover:text-blue-500" :title="spk.sample_text">
+                    💬 "{{ spk.sample_text }}" ({{ spk.sample_timecode }})
+                  </div>
+
+                  <!-- 原声采样播放器 -->
+                  <div v-if="spk.clip_url" class="studio-subtle p-2 rounded-lg flex flex-col gap-1">
+                    <span class="text-slate-400 text-xs">🎧 原片人声切片试听:</span>
+                    <audio :src="spk.clip_url" controls class="w-full h-8"></audio>
+                  </div>
+
+                  <div class="grid grid-cols-2 gap-2 pt-1">
+                    <div class="flex flex-col gap-1">
+                      <span class="text-slate-400">角色性别</span>
+                      <select v-model="spk.gender" @change="syncSpeakerCardToLines(spk)" class="studio-input px-2 py-1.5 rounded-md font-semibold">
+                        <option value="male">👨 男声 (Male)</option>
+                        <option value="female">👩 女声 (Female)</option>
+                      </select>
+                    </div>
+                    <div class="flex flex-col gap-1">
+                      <span class="text-slate-400">专属绑定音色</span>
+                      <select v-model="spk.voice" @change="syncSpeakerCardToLines(spk)" class="studio-input px-2 py-1.5 rounded-md font-medium">
+                        <option value="">(跟随默认男/女音色)</option>
+                        <option v-for="(vid, vlabel) in speakerReview.voices" :key="vid" :value="vid">{{ vlabel }}</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- SUB-TAB 2: 逐句台词微调表 -->
+              <div v-if="speakerSubTab === 'table'" class="overflow-x-auto max-h-96 studio-card rounded-lg">
+                <table class="w-full text-left border-collapse">
+                  <thead class="sticky top-0 studio-subtle">
+                    <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-400">
+                      <th class="py-2 px-2.5">#</th>
+                      <th class="py-2 px-2.5">时间轴 (点击跳转视频)</th>
+                      <th class="py-2 px-2.5">说话人 ID</th>
+                      <th class="py-2 px-2.5">性别</th>
+                      <th class="py-2 px-2.5">专属音色</th>
+                      <th class="py-2 px-2.5">配音台词</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                    <tr v-for="line in speakerReview.lines" :key="line.number" class="hover:bg-blue-500/5">
+                      <td class="py-1.5 px-2.5 font-mono">{{ line.number }}</td>
+                      <td @click="seekToTime(line.start_sec, line.speaker_id, line.text)" class="py-1.5 px-2.5 font-mono text-blue-500 font-medium cursor-pointer hover:underline whitespace-nowrap">
+                        🎯 {{ line.time_range }}
+                      </td>
+                      <td class="py-1.5 px-2.5">
+                        <input v-model="line.speaker_id" class="studio-input px-2 py-1 rounded font-mono w-28" />
+                      </td>
+                      <td class="py-1.5 px-2.5">
+                        <select v-model="line.gender" class="studio-input px-2 py-1 rounded">
+                          <option value="male">👨 male</option>
+                          <option value="female">👩 female</option>
+                        </select>
+                      </td>
+                      <td class="py-1.5 px-2.5">
+                        <select v-model="line.voice" class="studio-input px-2 py-1 rounded w-44">
+                          <option value="">(跟随默认)</option>
+                          <option v-for="(vid, vlabel) in speakerReview.voices" :key="vid" :value="vid">{{ vlabel }}</option>
+                        </select>
+                      </td>
+                      <td class="py-1.5 px-2.5">
+                        <input v-model="line.text" class="studio-input w-full min-w-[260px] px-2 py-1 rounded" />
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Speaker Review Action Buttons -->
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+                <button @click="saveSpeakerOverrides(false)" class="py-2 rounded-lg studio-card font-semibold hover:border-blue-500 transition">
+                  💾 仅保存说话人与音色修改 (清理变更句缓存)
+                </button>
+                <button @click="saveSpeakerOverrides(true)" :disabled="wsState.task?.running" class="py-2 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700 disabled:opacity-50 transition">
+                  🔄 保存并增量重新合成配音
+                </button>
+              </div>
+            </div>
+
+            <!-- Main Dubbing Control Bar -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+              <button v-if="wsState.stage_c?.waiting_confirm" @click="startDubbing(true)" :disabled="wsState.task?.running" class="py-2.5 rounded-lg bg-blue-600 text-white font-bold shadow hover:bg-blue-700 transition">
+                ▶️ 确认说话人并继续生成配音
+              </button>
+              <button v-else @click="startDubbing(false)" :disabled="wsState.task?.running" class="py-2.5 rounded-lg bg-blue-600 text-white font-bold shadow hover:bg-blue-700 disabled:opacity-50 transition">
+                🎙️ 开始生成配音任务
+              </button>
+              <button @click="deleteDubbing" class="studio-subtle py-2.5 rounded-lg font-semibold text-rose-500 hover:border-rose-500 transition">
                 🗑️ 删除配音文件重试
               </button>
+              <button @click="archiveWorkspace" class="studio-subtle py-2.5 rounded-lg font-semibold text-emerald-600 hover:border-emerald-500 transition">
+                🗂️ 归档到 History
+              </button>
             </div>
           </div>
-        </div>
-      </section>
-    </main>
+        </section>
+      </main>
 
-    <!-- ==================== 右侧信息栏 (3 Cols / 25% Width)：封面、文件树与编码对比 ==================== -->
-    <aside class="col-span-12 lg:col-span-3 flex flex-col gap-4">
-      <!-- 1. 视频封面与标题卡片 -->
-      <div class="studio-card rounded-xl p-3.5 flex flex-col gap-2.5 shadow-sm">
-        <div class="text-xs font-bold flex items-center justify-between">
-          <span>🖼️ 视频封面与标题</span>
-          <span class="text-xs font-mono text-slate-400">15:44 · 1080p</span>
-        </div>
-        <div class="relative rounded-lg overflow-hidden h-36 bg-gradient-to-br from-slate-800 via-indigo-950 to-slate-900 flex items-center justify-center border border-slate-200 dark:border-slate-800">
-          <div class="text-center">
-            <div class="text-white/90 font-black text-base tracking-widest uppercase">iPhone Duo</div>
-            <div class="text-blue-400 text-xs font-medium mt-0.5">After The Hype · Marques Review</div>
+      <!-- ==================== 右侧信息栏 (3 Cols / 25% Width) ==================== -->
+      <aside class="col-span-12 lg:col-span-3 flex flex-col gap-4">
+        <!-- 1. 视频封面与标题 -->
+        <div class="studio-card rounded-xl p-3.5 flex flex-col gap-2.5 shadow-sm">
+          <div class="text-xs font-bold flex items-center justify-between">
+            <span>🖼️ 视频封面与标题</span>
           </div>
-          <span class="absolute bottom-1.5 right-2 px-1.5 py-0.5 rounded bg-black/70 text-white font-mono text-xs">133.3 MB</span>
+          <div v-if="wsState.video?.cover_url" class="rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800">
+            <img :src="wsState.video.cover_url" class="w-full h-36 object-cover" />
+          </div>
+          <div v-else class="rounded-lg h-32 studio-subtle border-2 border-dashed flex flex-col items-center justify-center text-slate-400 text-xs">
+            <span class="text-xl mb-1">🖼️</span>
+            <span>暂未下载封面</span>
+          </div>
+          <div class="font-bold text-xs text-center pt-0.5 leading-snug">{{ wsState.video?.title || '暂未获取到视频标题' }}</div>
         </div>
-        <div class="font-bold text-xs text-center pt-0.5">iPhone Duo - After The Hype</div>
-      </div>
 
-      <!-- 2. 交互式目录树 -->
-      <div class="studio-card rounded-xl p-3.5 flex flex-col gap-2.5 shadow-sm flex-1">
+        <!-- 2. 文件浏览 (output/) -->
+        <div class="studio-card rounded-xl p-3.5 flex flex-col gap-2.5 shadow-sm flex-1">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold">📂 文件浏览 (output/)</span>
+            <div class="flex gap-1">
+              <button @click="fetchWorkspaceState(true)" class="studio-subtle px-2 py-0.5 rounded text-xs hover:border-blue-500">🔄 刷新</button>
+              <button @click="expandedDirs = {}" class="studio-subtle px-2 py-0.5 rounded text-xs hover:border-blue-500">📁 全部收起</button>
+              <button v-if="wsState.files?.length" @click="deleteVideo" class="studio-subtle px-2 py-0.5 rounded text-xs text-rose-500 hover:border-rose-500">🗑️ 清空</button>
+            </div>
+          </div>
+
+          <div class="studio-subtle rounded-lg p-2.5 text-xs font-mono flex flex-col gap-1 max-h-80 overflow-y-auto">
+            <div v-if="!wsState.files?.length" class="text-slate-400 text-center py-6 font-sans">暂无产出文件</div>
+            <template v-for="node in wsState.files" :key="node.path">
+              <!-- Directory Node -->
+              <div v-if="node.type === 'dir'">
+                <button @click="toggleDir(node.path)" class="w-full text-left py-1 px-1.5 rounded hover:bg-blue-500/10 flex items-center justify-between font-semibold">
+                  <span>{{ expandedDirs[node.path] ? '▼ 📂' : '▶ 📁' }} {{ node.name }}/</span>
+                  <span class="text-slate-400">{{ node.count }}</span>
+                </button>
+                <div v-if="expandedDirs[node.path]" class="pl-4 flex flex-col gap-0.5 mt-0.5 border-l border-slate-200 dark:border-slate-700 ml-2">
+                  <template v-for="sub in node.children" :key="sub.path">
+                    <div v-if="sub.type === 'dir'">
+                      <button @click="toggleDir(sub.path)" class="w-full text-left py-0.5 px-1 rounded hover:bg-blue-500/10 font-semibold">
+                        {{ expandedDirs[sub.path] ? '▼ 📂' : '▶ 📁' }} {{ sub.name }}/ ({{ sub.count }})
+                      </button>
+                      <div v-if="expandedDirs[sub.path]" class="pl-4 flex flex-col gap-0.5">
+                        <a v-for="f2 in sub.children" :key="f2.path" :href="f2.url" :download="f2.name" class="py-0.5 px-1 rounded hover:bg-blue-500/10 hover:text-blue-500 truncate block">
+                          📄 {{ f2.name }} <span class="text-slate-400">({{ f2.size }})</span>
+                        </a>
+                      </div>
+                    </div>
+                    <a v-else :href="sub.url" :download="sub.name" class="py-0.5 px-1 rounded hover:bg-blue-500/10 hover:text-blue-500 truncate flex justify-between">
+                      <span class="truncate">📄 {{ sub.name }}</span>
+                      <span class="text-slate-400 ml-1 shrink-0">{{ sub.size }}</span>
+                    </a>
+                  </template>
+                </div>
+              </div>
+              <!-- Root File Node -->
+              <a v-else :href="node.url" :download="node.name" class="py-1 px-1.5 rounded hover:bg-blue-500/10 hover:text-blue-500 flex items-center justify-between">
+                <span class="truncate">📄 {{ node.name }}</span>
+                <span class="text-slate-400 ml-1 shrink-0">{{ node.size }}</span>
+              </a>
+            </template>
+          </div>
+        </div>
+
+        <!-- 3. 视频编码对比表格 (FFprobe) -->
+        <div class="studio-card rounded-xl p-3.5 flex flex-col gap-2 shadow-sm">
+          <div class="text-xs font-bold">🔍 视频编码对比 (FFprobe)</div>
+          <div v-if="wsState.encoding?.length" class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-xs font-mono">
+              <thead>
+                <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-400">
+                  <th class="py-1 px-1.5">阶段</th>
+                  <th class="py-1 px-1.5">编码</th>
+                  <th class="py-1 px-1.5">分辨率</th>
+                  <th class="py-1 px-1.5">体积</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                <tr v-for="row in wsState.encoding" :key="row.Stage">
+                  <td class="py-1.5 px-1.5 font-sans font-semibold">{{ row.Stage }}</td>
+                  <td class="py-1.5 px-1.5">{{ row.VideoCodec }}/{{ row.AudioCodec }}</td>
+                  <td class="py-1.5 px-1.5">{{ row.Resolution }}</td>
+                  <td class="py-1.5 px-1.5">{{ row.Size }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="text-xs text-slate-400 py-2 text-center">暂无视频编码信息</div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- ==================== 2-ALT. 批量队列监控视图 ==================== -->
+    <div v-if="workspaceMode === 'batch'" class="flex-1 p-4 max-w-[1600px] w-full mx-auto flex flex-col gap-4">
+      <div class="studio-card rounded-xl p-4 flex flex-col gap-3 shadow-sm">
         <div class="flex items-center justify-between">
-          <span class="text-xs font-bold">📂 文件浏览 (output/)</span>
-          <div class="flex gap-1">
-            <button onclick="showToast('🔄 文件列表已刷新')" class="studio-subtle px-2 py-0.5 rounded text-xs hover:border-blue-500">🔄 刷新</button>
-            <button onclick="toggleAllFolders(false)" class="studio-subtle px-2 py-0.5 rounded text-xs hover:border-blue-500">📁 全部收起</button>
-          </div>
-        </div>
-
-        <div class="studio-subtle rounded-lg p-2.5 text-xs font-mono flex flex-col gap-1 max-h-72 overflow-y-auto">
           <div>
-            <button onclick="toggleFolder('tree_audio')" class="w-full text-left py-1 px-1.5 rounded hover:bg-blue-500/10 flex items-center gap-1.5 font-semibold">
-              <span id="arrow_tree_audio">▼</span><span>📂 audio/</span>
-            </button>
-            <div id="tree_audio" class="pl-5 flex flex-col gap-0.5 mt-0.5">
-              <div class="text-slate-400 py-0.5">📂 speaker_samples/ (3 wavs)</div>
-              <button onclick="showToast('📥 正在下载 speaker_diarize.json')" class="text-left py-0.5 px-1 rounded hover:bg-blue-500/10 hover:text-blue-500 truncate">📄 speaker_diarize.json</button>
-              <button onclick="showToast('📥 正在下载 tts_tasks.xlsx')" class="text-left py-0.5 px-1 rounded hover:bg-blue-500/10 hover:text-blue-500 truncate">📊 tts_tasks.xlsx</button>
-              <button onclick="showToast('📥 正在下载 vocal.mp3')" class="text-left py-0.5 px-1 rounded hover:bg-blue-500/10 hover:text-blue-500 truncate">🎵 vocal.mp3</button>
-              <button onclick="showToast('📥 正在下载 background.mp3')" class="text-left py-0.5 px-1 rounded hover:bg-blue-500/10 hover:text-blue-500 truncate">🎵 background.mp3</button>
-            </div>
+            <h2 class="text-base font-bold">📦 批处理全局监控中心 (`batch/tasks_setting.xlsx`)</h2>
+            <p class="text-xs text-slate-400">读取并监控批量任务表格状态</p>
           </div>
-
-          <div>
-            <button onclick="toggleFolder('tree_log')" class="w-full text-left py-1 px-1.5 rounded hover:bg-blue-500/10 flex items-center gap-1.5 font-semibold">
-              <span id="arrow_tree_log">▶</span><span>📁 log/</span>
-            </button>
-            <div id="tree_log" class="hidden pl-5 flex flex-col gap-0.5 mt-0.5">
-              <button onclick="showToast('📥 正在下载 terminology.json')" class="text-left py-0.5 px-1 rounded hover:bg-blue-500/10 hover:text-blue-500 truncate">📄 terminology.json</button>
-              <button onclick="showToast('📥 正在下载 translation_results.xlsx')" class="text-left py-0.5 px-1 rounded hover:bg-blue-500/10 hover:text-blue-500 truncate">📊 translation_results.xlsx</button>
-            </div>
-          </div>
-
-          <button onclick="showToast('📥 正在流式下载 iPhone Duo - After The Hype.webm (133.3 MB)')" class="text-left py-1 px-1.5 rounded hover:bg-blue-500/10 hover:text-blue-500 truncate">🎬 iPhone Duo - After The Hype.webm</button>
-          <button onclick="showToast('📥 正在流式下载 output_sub.mp4 (148.2 MB)')" class="text-left py-1 px-1.5 rounded hover:bg-blue-500/10 hover:text-blue-500 truncate">🎬 output_sub.mp4</button>
-          <button onclick="showToast('📥 正在流式下载 output_dub.mp4 (151.6 MB)')" class="text-left py-1 px-1.5 rounded hover:bg-blue-500/10 hover:text-blue-500 truncate text-blue-500 font-semibold">🎬 output_dub.mp4</button>
-          <button onclick="showToast('📥 正在下载 src_trans.srt')" class="text-left py-1 px-1.5 rounded hover:bg-blue-500/10 hover:text-blue-500 truncate">📄 src_trans.srt</button>
-          <button onclick="showToast('📥 正在下载 trans.srt')" class="text-left py-1 px-1.5 rounded hover:bg-blue-500/10 hover:text-blue-500 truncate">📄 trans.srt</button>
+          <button @click="switchBatchMode" class="studio-subtle px-3 py-1.5 rounded-lg text-xs font-semibold hover:border-blue-500">🔄 刷新队列</button>
         </div>
-      </div>
-
-      <!-- 3. 视频编码对比表格 (FFprobe Telemetry) -->
-      <div class="studio-card rounded-xl p-3.5 flex flex-col gap-2 shadow-sm">
-        <div class="text-xs font-bold">🔍 视频编码对比 (FFprobe)</div>
         <div class="overflow-x-auto">
-          <table class="w-full text-left border-collapse text-xs font-mono">
+          <table class="w-full text-left text-xs border-collapse">
             <thead>
               <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-400">
-                <th class="py-1 px-1.5">阶段</th>
-                <th class="py-1 px-1.5">编码</th>
-                <th class="py-1 px-1.5">像素格式</th>
-                <th class="py-1 px-1.5">体积</th>
+                <th class="py-2 px-3">Video File / URL</th>
+                <th class="py-2 px-3">Source Lang</th>
+                <th class="py-2 px-3">Target Lang</th>
+                <th class="py-2 px-3">Dubbing</th>
+                <th class="py-2 px-3">Status</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
-              <tr>
-                <td class="py-1.5 px-1.5 font-sans font-semibold">Original</td>
-                <td class="py-1.5 px-1.5">vp9 / opus</td>
-                <td class="py-1.5 px-1.5">yuv420p</td>
-                <td class="py-1.5 px-1.5">133.3 MB</td>
+              <tr v-for="(t, i) in batchTasks" :key="i">
+                <td class="py-2.5 px-3 font-mono">{{ t['Video File'] }}</td>
+                <td class="py-2.5 px-3">{{ t['Source Language'] }}</td>
+                <td class="py-2.5 px-3">{{ t['Target Language'] }}</td>
+                <td class="py-2.5 px-3">{{ t['Dubbing'] }}</td>
+                <td class="py-2.5 px-3 font-semibold">{{ t['Status'] || 'Pending' }}</td>
               </tr>
-              <tr>
-                <td class="py-1.5 px-1.5 font-sans font-semibold text-blue-500">Subtitled</td>
-                <td class="py-1.5 px-1.5">h264 / aac</td>
-                <td class="py-1.5 px-1.5">yuv420p</td>
-                <td class="py-1.5 px-1.5">148.2 MB</td>
-              </tr>
-              <tr>
-                <td class="py-1.5 px-1.5 font-sans font-semibold text-emerald-500">Dubbed</td>
-                <td class="py-1.5 px-1.5">h264 / aac</td>
-                <td class="py-1.5 px-1.5">yuv420p</td>
-                <td class="py-1.5 px-1.5">151.6 MB</td>
+              <tr v-if="!batchTasks.length">
+                <td colspan="5" class="py-8 text-center text-slate-400">暂无批量任务记录 (`batch/tasks_setting.xlsx`)</td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
-    </aside>
-  </div>
-
-  <!-- ==================== 2-ALT. 批量队列监控视图 (Batch Queue Monitor View) ==================== -->
-  <div id="batchWorkspaceView" class="hidden flex-1 p-4 max-w-[1600px] w-full mx-auto flex-col gap-4">
-    <div class="studio-card rounded-xl p-4 flex flex-col gap-3 shadow-sm">
-      <div class="flex items-center justify-between">
-        <div>
-          <h2 class="text-base font-bold">📦 批处理全局监控中心 (Batch Processor · `batch/tasks_setting.xlsx`)</h2>
-          <p class="text-xs text-slate-400">支持文件夹队列与 YouTube 链接列表全自动无人值守处理</p>
-        </div>
-        <div class="flex gap-2">
-          <button onclick="showToast('➕ 已添加新视频任务到队列')" class="studio-subtle px-3 py-1.5 rounded-lg text-xs font-semibold hover:border-blue-500">+ 添加批量任务</button>
-          <button onclick="showToast('🚀 批量队列已启动并发执行')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white">▶️ 启动批量流水线</button>
-        </div>
-      </div>
-      <div class="studio-subtle p-3 rounded-lg flex flex-col gap-1.5">
-        <div class="flex justify-between text-xs font-semibold">
-          <span>全局队列总进度：已完成 2 / 5 个视频</span>
-          <span class="text-blue-500 font-mono">48% · 当前视频：iPhone Duo - After The Hype (配音阶段)</span>
-        </div>
-        <div class="w-full h-2.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-          <div class="h-full bg-gradient-to-r from-blue-600 to-emerald-500 w-[48%]"></div>
-        </div>
-      </div>
-      <table class="w-full text-left text-xs border-collapse">
-        <thead>
-          <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-400">
-            <th class="py-2 px-3">视频文件 / YouTube URL</th>
-            <th class="py-2 px-3">源语言 → 目标语言</th>
-            <th class="py-2 px-3">配音模式</th>
-            <th class="py-2 px-3">当前阶段状态</th>
-            <th class="py-2 px-3">子步骤进度</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
-          <tr>
-            <td class="py-2.5 px-3 font-mono">01_OpenAI_Spring_Update.mp4</td>
-            <td class="py-2.5 px-3">en → 简体中文</td>
-            <td class="py-2.5 px-3">豆包 TTS (男女多角色)</td>
-            <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-500 font-semibold">✅ 已完成并归档</span></td>
-            <td class="py-2.5 px-3 font-mono">100%</td>
-          </tr>
-          <tr>
-            <td class="py-2.5 px-3 font-mono">02_WWDC_Keynote_Highlight.mp4</td>
-            <td class="py-2.5 px-3">en → 简体中文</td>
-            <td class="py-2.5 px-3">豆包 TTS (男女多角色)</td>
-            <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-500 font-semibold">✅ 已完成并归档</span></td>
-            <td class="py-2.5 px-3 font-mono">100%</td>
-          </tr>
-          <tr class="bg-blue-500/5">
-            <td class="py-2.5 px-3 font-mono font-bold text-blue-500">https://www.youtube.com/watch?v=gqPPzfEXu8U</td>
-            <td class="py-2.5 px-3">en → 简体中文</td>
-            <td class="py-2.5 px-3">豆包 TTS (3角色声纹)</td>
-            <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-500 font-semibold">⏳ 正在执行：多角色配音</span></td>
-            <td class="py-2.5 px-3 font-mono">Step 9/12 (75%)</td>
-          </tr>
-        </tbody>
-      </table>
     </div>
-  </div>
 
-  <!-- ==================== 3. 独立参数设置弹窗/抽屉 (Independent Settings Modal) ==================== -->
-  <div id="settingsModalBackdrop" class="fixed inset-0 z-50 hidden bg-slate-950/60 backdrop-blur-xs items-center justify-center p-4" onclick="if(event.target === this) closeSettingsModal()">
-    <div class="studio-card rounded-2xl w-full max-w-4xl max-h-[88vh] flex flex-col shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-700">
-      <!-- Modal Header -->
-      <div class="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-        <div class="flex items-center gap-2.5">
-          <span class="text-base">⚙️</span>
-          <span class="font-bold text-sm">系统参数设置 (System Configuration · `config.yaml`)</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <button onclick="closeSettingsModal(); showToast('💾 所有设置项已实时同步至 config.yaml')" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition">
-            ✓ 完成并保存
-          </button>
-          <button onclick="closeSettingsModal()" class="studio-subtle w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white">
-            ✕
-          </button>
-        </div>
-      </div>
-
-      <!-- Modal Body: Left Tab Navigation + Right Settings Content -->
-      <div class="flex-1 grid grid-cols-12 overflow-hidden">
-        <!-- Left Navigation (3 Cols) -->
-        <div class="col-span-3 border-r border-slate-200 dark:border-slate-800 p-3 flex flex-col gap-1.5 studio-subtle">
-          <button onclick="switchSettingsTab('llm')" id="sideTabBtn_llm" class="px-3 py-2.5 rounded-lg text-xs font-semibold text-left transition bg-blue-600 text-white shadow-xs flex items-center gap-2">
-            <span>🤖</span><span>LLM 与全局网络</span>
-          </button>
-          <button onclick="switchSettingsTab('sub')" id="sideTabBtn_sub" class="px-3 py-2.5 rounded-lg text-xs font-semibold text-left transition text-slate-500 hover:bg-slate-500/10 flex items-center gap-2">
-            <span>📝</span><span>字幕与转录设置</span>
-          </button>
-          <button onclick="switchSettingsTab('dub')" id="sideTabBtn_dub" class="px-3 py-2.5 rounded-lg text-xs font-semibold text-left transition text-slate-500 hover:bg-slate-500/10 flex items-center gap-2">
-            <span>🔊</span><span>配音与声纹设置</span>
-          </button>
+    <!-- ==================== 3. 独立参数设置弹窗 (Independent Settings Modal) ==================== -->
+    <div v-if="showSettingsModal" class="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4" @click.self="showSettingsModal = false">
+      <div class="studio-card rounded-2xl w-full max-w-4xl max-h-[88vh] flex flex-col shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-700">
+        <!-- Modal Header -->
+        <div class="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <span class="text-base">⚙️</span>
+            <span class="font-bold text-sm">系统参数设置 (`config.yaml`)</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button @click="saveAllConfig" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition">
+              💾 保存全部设置
+            </button>
+            <button @click="showSettingsModal = false" class="studio-subtle w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white">
+              ✕
+            </button>
+          </div>
         </div>
 
-        <!-- Right Form Content (9 Cols) -->
-        <div class="col-span-9 p-5 overflow-y-auto max-h-[74vh]">
+        <div class="flex-1 grid grid-cols-12 overflow-hidden" v-if="cfg.api">
+          <!-- Left Nav -->
+          <div class="col-span-3 border-r border-slate-200 dark:border-slate-800 p-3 flex flex-col gap-1.5 studio-subtle">
+            <button @click="settingsTab = 'llm'" :class="settingsTab === 'llm' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:bg-slate-500/10'" class="px-3 py-2.5 rounded-lg text-xs font-semibold text-left transition flex items-center gap-2">
+              <span>🤖</span><span>LLM 与全局网络</span>
+            </button>
+            <button @click="settingsTab = 'sub'" :class="settingsTab === 'sub' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:bg-slate-500/10'" class="px-3 py-2.5 rounded-lg text-xs font-semibold text-left transition flex items-center gap-2">
+              <span>📝</span><span>字幕与转录设置</span>
+            </button>
+            <button @click="settingsTab = 'dub'" :class="settingsTab === 'dub' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:bg-slate-500/10'" class="px-3 py-2.5 rounded-lg text-xs font-semibold text-left transition flex items-center gap-2">
+              <span>🔊</span><span>配音与声纹设置</span>
+            </button>
+          </div>
 
-          <!-- TAB 1: LLM 与全局网络配置 -->
-          <div id="sideTab_llm" class="flex flex-col gap-4 text-xs">
-            <div class="studio-subtle p-3 rounded-xl flex items-center justify-between">
-              <div>
-                <div class="font-bold text-sm">使用 Antigravity CLI (agy)</div>
-                <div class="text-slate-400 mt-0.5">免配代理直连大模型，长文本翻译高吞吐</div>
+          <!-- Right Form Content -->
+          <div class="col-span-9 p-5 overflow-y-auto max-h-[74vh] text-xs">
+            <!-- TAB 1: LLM 与全局网络 -->
+            <div v-if="settingsTab === 'llm'" class="flex flex-col gap-4">
+              <label class="studio-subtle p-3 rounded-xl flex items-center justify-between cursor-pointer">
+                <div>
+                  <div class="font-bold text-sm">使用 Antigravity CLI (agy)</div>
+                  <div class="text-slate-400 mt-0.5">启用本地命令行大模型直连通道</div>
+                </div>
+                <input type="checkbox" v-model="cfg.api.use_antigravity_cli" class="w-4 h-4 accent-blue-600" />
+              </label>
+
+              <div v-if="cfg.api.use_antigravity_cli" class="studio-subtle p-3 rounded-xl flex flex-col gap-1.5 border-l-4 border-amber-500">
+                <label class="font-semibold">🔑 Antigravity 登录授权码 (Token Code)</label>
+                <input type="text" v-model="cfg.api.antigravity_token_code" class="studio-input px-3 py-1.5 rounded-lg font-mono" />
               </div>
-              <input type="checkbox" id="agyToggle" onchange="toggleAgyCli()" class="w-4 h-4 accent-blue-600 cursor-pointer" />
-            </div>
 
-            <div id="agyTokenBox" class="hidden flex-col gap-1.5 studio-subtle p-3 rounded-xl border-l-4 border-amber-500">
-              <label class="font-semibold">🔑 Antigravity 登录授权码 (Token Code)</label>
-              <input type="text" value="4/0AdkVLPxFid3G35bQOmVcREG2..." class="studio-input px-3 py-1.5 rounded-lg font-mono text-xs" />
-              <span class="text-slate-400">当命令行登录过期时自动在后台静默重连激活</span>
-            </div>
-
-            <div id="standardApiBox" class="flex flex-col gap-3.5">
-              <!-- Profile Manager -->
-              <div class="studio-subtle p-3.5 rounded-xl flex flex-col gap-2.5">
-                <div class="flex items-center justify-between">
-                  <span class="font-bold">📂 LLM 配置预设 (Saved Profiles)</span>
-                  <span class="text-emerald-500 font-semibold">● 当前已激活</span>
+              <div v-else class="flex flex-col gap-3.5">
+                <!-- LLM Profiles -->
+                <div class="studio-subtle p-3.5 rounded-xl flex flex-col gap-2.5">
+                  <div class="font-bold">📂 LLM 配置预设 (Saved Profiles)</div>
+                  <div class="flex gap-2">
+                    <select v-model="selectedProfile" class="studio-input flex-1 px-2.5 py-1.5 rounded-lg">
+                      <option value="">-- 选择已保存预设 --</option>
+                      <option v-for="(_, name) in llmProfiles" :key="name" :value="name">{{ name }}</option>
+                    </select>
+                    <button @click="handleProfile('load')" class="studio-card px-3 py-1.5 rounded-lg font-medium hover:border-blue-500">📥 加载</button>
+                    <button @click="handleProfile('delete')" class="studio-card px-3 py-1.5 rounded-lg font-medium text-rose-500 hover:border-rose-500">🗑️ 删除</button>
+                  </div>
+                  <div class="flex gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                    <input v-model="newProfileName" type="text" placeholder="输入新预设名称..." class="studio-input flex-1 px-2.5 py-1.5 rounded-lg" />
+                    <button @click="handleProfile('save')" class="px-3.5 py-1.5 rounded-lg bg-blue-600 text-white font-semibold">💾 保存新预设</button>
+                  </div>
                 </div>
-                <div class="flex gap-2">
-                  <select class="studio-input flex-1 px-2.5 py-1.5 rounded-lg text-xs font-medium">
-                    <option>Gemini-3.8-Flash (本地网关 8317)</option>
-                    <option>Claude-3.5-Sonnet (官方直连)</option>
-                    <option>DeepSeek-V3 (火山方舟 Ark)</option>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="flex flex-col gap-1">
+                    <label class="font-medium text-slate-500">API_KEY</label>
+                    <input type="password" v-model="cfg.api.key" class="studio-input px-3 py-1.5 rounded-lg font-mono" />
+                  </div>
+                  <div class="flex flex-col gap-1">
+                    <label class="font-medium text-slate-500">BASE_URL</label>
+                    <input type="text" v-model="cfg.api.base_url" class="studio-input px-3 py-1.5 rounded-lg font-mono" />
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 items-end">
+                  <div class="flex flex-col gap-1">
+                    <label class="font-medium text-slate-500">MODEL</label>
+                    <div class="flex gap-1.5">
+                      <input type="text" v-model="cfg.api.model" class="studio-input flex-1 px-3 py-1.5 rounded-lg font-mono" />
+                      <button @click="testLlmApi" class="studio-subtle px-3 py-1.5 rounded-lg hover:border-blue-500 font-semibold">📡 测试</button>
+                    </div>
+                  </div>
+                  <label class="studio-subtle px-3 py-2 rounded-lg flex items-center justify-between cursor-pointer">
+                    <span>LLM JSON 格式强制输出支持</span>
+                    <input type="checkbox" v-model="cfg.api.llm_support_json" class="w-4 h-4 accent-blue-600" />
+                  </label>
+                </div>
+              </div>
+
+              <div class="studio-subtle p-3.5 rounded-xl grid grid-cols-2 gap-3">
+                <div class="flex flex-col gap-1">
+                  <label class="font-medium text-slate-500">🌐 全局网络代理 (Proxy)</label>
+                  <input type="text" v-model="cfg.proxy" placeholder="http://127.0.0.1:7897" class="studio-input px-3 py-1.5 rounded-lg font-mono" />
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="font-medium text-slate-500">🗣️ 界面语言</label>
+                  <select v-model="cfg.display_language" class="studio-input px-3 py-1.5 rounded-lg">
+                    <option value="zh-CN">简体中文</option>
+                    <option value="en">English</option>
+                    <option value="zh-HK">繁體中文</option>
+                    <option value="ja">日本語</option>
                   </select>
-                  <button onclick="showToast('✅ 已加载预设：Gemini-3.8-Flash')" class="studio-card px-3 py-1.5 rounded-lg font-medium hover:border-blue-500">📥 加载</button>
-                  <button onclick="showToast('🗑️ 已删除选定预设')" class="studio-card px-3 py-1.5 rounded-lg font-medium text-rose-500 hover:border-rose-500">🗑️ 删除</button>
                 </div>
-                <div class="flex gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
-                  <input type="text" placeholder="输入新预设名称保存当前配置..." class="studio-input flex-1 px-2.5 py-1.5 rounded-lg text-xs" />
-                  <button onclick="showToast('💾 当前配置已保存为新预设')" class="px-3.5 py-1.5 rounded-lg bg-blue-600 text-white font-semibold">💾 保存新预设</button>
+              </div>
+            </div>
+
+            <!-- TAB 2: 字幕设置 -->
+            <div v-if="settingsTab === 'sub'" class="flex flex-col gap-3.5">
+              <div class="grid grid-cols-3 gap-3">
+                <div class="flex flex-col gap-1">
+                  <label class="font-medium text-slate-500">识别原语言</label>
+                  <input type="text" v-model="cfg.whisper.language" class="studio-input px-2.5 py-1.5 rounded-lg" />
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="font-medium text-slate-500">翻译目标语言</label>
+                  <input type="text" v-model="cfg.target_language" class="studio-input px-2.5 py-1.5 rounded-lg" />
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="font-medium text-slate-500">WhisperX 运行模式</label>
+                  <select v-model="cfg.whisper.runtime" class="studio-input px-2.5 py-1.5 rounded-lg">
+                    <option value="mlx">🍎 mlx (Apple Metal 加速)</option>
+                    <option value="local">💻 local (本地 GPU/CPU)</option>
+                    <option value="cloud">☁️ cloud (302.ai)</option>
+                    <option value="elevenlabs">🎙️ elevenlabs</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-4 gap-2">
+                <label class="studio-subtle p-2.5 rounded-lg flex items-center justify-between cursor-pointer">
+                  <span>人声分离 (Demucs)</span>
+                  <input type="checkbox" v-model="cfg.demucs" class="w-4 h-4 accent-blue-600" />
+                </label>
+                <label class="studio-subtle p-2.5 rounded-lg flex items-center justify-between cursor-pointer">
+                  <span>FFmpeg GPU 加速</span>
+                  <input type="checkbox" v-model="cfg.ffmpeg_gpu" class="w-4 h-4 accent-blue-600" />
+                </label>
+                <label class="studio-subtle p-2.5 rounded-lg flex items-center justify-between cursor-pointer">
+                  <span>烧录字幕到视频</span>
+                  <input type="checkbox" v-model="cfg.burn_subtitles" class="w-4 h-4 accent-blue-600" />
+                </label>
+                <label class="studio-subtle p-2.5 rounded-lg flex items-center justify-between cursor-pointer">
+                  <span>完成后自动烧录</span>
+                  <input type="checkbox" v-model="cfg.auto_burn_subtitles" class="w-4 h-4 accent-blue-600" />
+                </label>
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <label class="font-semibold">📚 领域词汇表 (`domain_vocab` · 支持 `错误词 -> 正确词`)</label>
+                <textarea v-model="customTermsText" rows="4" class="studio-input p-2.5 rounded-lg font-mono text-xs"></textarea>
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div class="studio-subtle p-3 rounded-xl flex flex-col gap-2">
+                  <label class="flex items-center justify-between cursor-pointer">
+                    <span class="font-semibold">⚡ 效率模式 (大批量并发提交 LLM)</span>
+                    <input type="checkbox" v-model="cfg.efficiency_mode" class="w-4 h-4 accent-blue-600" />
+                  </label>
+                  <div class="grid grid-cols-2 gap-2">
+                    <div>
+                      <span class="text-slate-400 block mb-0.5">批量分割句子数</span>
+                      <input type="number" v-model.number="cfg.batch_split_size" class="studio-input w-full px-2 py-1 rounded" />
+                    </div>
+                    <div>
+                      <span class="text-slate-400 block mb-0.5">批量翻译字幕数</span>
+                      <input type="number" v-model.number="cfg.batch_translate_size" class="studio-input w-full px-2 py-1 rounded" />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="studio-subtle p-3 rounded-xl flex flex-col gap-2" v-if="cfg.youtube">
+                  <div class="font-semibold">🛡️ YouTube Cookies 管理</div>
+                  <div class="flex items-center justify-between">
+                    <span class="text-slate-500">从浏览器自动读取</span>
+                    <select v-model="cfg.youtube.cookies_from_browser" class="studio-input px-2 py-1 rounded">
+                      <option value="">不自动提取</option>
+                      <option value="chrome">Chrome</option>
+                      <option value="safari">Safari</option>
+                      <option value="edge">Edge</option>
+                      <option value="firefox">Firefox</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- TAB 3: 配音与声纹设置 -->
+            <div v-if="settingsTab === 'dub'" class="flex flex-col gap-3.5">
+              <div class="grid grid-cols-2 gap-3">
+                <div class="flex flex-col gap-1">
+                  <label class="font-medium text-slate-500">TTS 语音合成引擎</label>
+                  <select v-model="cfg.tts_method" class="studio-input px-3 py-1.5 rounded-lg font-semibold">
+                    <option value="doubao_tts">🌋 火山引擎豆包 TTS 2.0</option>
+                    <option value="edge_tts">🎙️ 微软 Edge TTS</option>
+                    <option value="sf_cosyvoice2">🧬 SiliconFlow CosyVoice2</option>
+                    <option value="gpt_sovits">🎭 GPT-SoVITS</option>
+                  </select>
+                </div>
+                <div class="studio-subtle px-3 py-2 rounded-lg flex flex-col justify-center gap-1">
+                  <div class="flex justify-between">
+                    <span class="font-medium">TTS 批量并发线程数</span>
+                    <span class="font-bold text-blue-600">{{ cfg.tts_max_workers }} 线程</span>
+                  </div>
+                  <input type="range" min="1" max="10" v-model.number="cfg.tts_max_workers" class="w-full accent-blue-600" />
                 </div>
               </div>
 
               <div class="grid grid-cols-2 gap-3">
-                <div class="flex flex-col gap-1">
-                  <label class="font-medium text-slate-500">API 密钥 (API_KEY)</label>
-                  <input type="password" value="quotio-local-5C8F580C-CA43" class="studio-input px-3 py-1.5 rounded-lg font-mono" />
-                </div>
-                <div class="flex flex-col gap-1">
-                  <label class="font-medium text-slate-500">BASE_URL (OpenAI 兼容接口)</label>
-                  <input type="text" value="http://127.0.0.1:8317/v1" class="studio-input px-3 py-1.5 rounded-lg font-mono" />
-                </div>
-              </div>
-
-              <div class="grid grid-cols-2 gap-3 items-end">
-                <div class="flex flex-col gap-1">
-                  <label class="font-medium text-slate-500">模型名称 (MODEL)</label>
-                  <div class="flex gap-1.5">
-                    <input type="text" value="gemini-3.8-flash-high" class="studio-input flex-1 px-3 py-1.5 rounded-lg font-mono" />
-                    <button onclick="showToast('📡 API 连通性检测通过！延迟 182ms')" class="studio-subtle px-3 py-1.5 rounded-lg hover:border-blue-500 font-semibold">📡 测试连通性</button>
+                <label class="studio-subtle p-2.5 rounded-xl flex items-center justify-between cursor-pointer">
+                  <span>跳过提取原视频参考音频</span>
+                  <input type="checkbox" v-model="cfg.skip_refer" class="w-4 h-4 accent-blue-600" />
+                </label>
+                <label class="p-2.5 rounded-xl flex items-center justify-between cursor-pointer bg-blue-500/10 border border-blue-500/30">
+                  <div>
+                    <span class="font-bold text-blue-600 dark:text-blue-400">⏸️ 配音前暂停确认说话人</span>
+                    <span class="block text-slate-400 text-xs">第 1 步识别完自动暂停供试听与改音色</span>
                   </div>
-                </div>
-                <label class="flex items-center justify-between studio-subtle px-3 py-2 rounded-lg cursor-pointer">
-                  <span class="font-medium">LLM JSON 格式强制输出支持</span>
-                  <input type="checkbox" class="w-4 h-4 accent-blue-600" />
+                  <input type="checkbox" v-model="cfg.pause_before_dub" class="w-4 h-4 accent-blue-600" />
                 </label>
               </div>
-            </div>
 
-            <!-- Global Proxy & Display Language (Moved from Top Bar) -->
-            <div class="studio-subtle p-3.5 rounded-xl grid grid-cols-2 gap-3 border-t border-slate-200 dark:border-slate-800">
-              <div class="flex flex-col gap-1">
-                <label class="font-medium text-slate-500">🌐 全局网络代理 (Proxy)</label>
-                <input type="text" value="http://127.0.0.1:7897" class="studio-input px-3 py-1.5 rounded-lg font-mono" placeholder="http://127.0.0.1:7897" />
-              </div>
-              <div class="flex flex-col gap-1">
-                <label class="font-medium text-slate-500">🗣️ 界面显示语言 (Display Language)</label>
-                <select class="studio-input px-3 py-1.5 rounded-lg font-medium">
-                  <option value="zh-CN">🇨🇳 简体中文</option>
-                  <option value="en">🇬🇧 English</option>
-                  <option value="zh-HK">🇭🇰 繁體中文</option>
-                  <option value="ja">🇯🇵 日本語</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <!-- TAB 2: 字幕设置 -->
-          <div id="sideTab_sub" class="hidden flex-col gap-3.5 text-xs">
-            <div class="grid grid-cols-3 gap-3">
-              <div class="flex flex-col gap-1">
-                <label class="font-medium text-slate-500">识别原语言</label>
-                <select class="studio-input px-2.5 py-1.5 rounded-lg">
-                  <option>🇺🇸 English (en)</option>
-                  <option>🇨🇳 简体中文 (zh)</option>
-                  <option>🇯🇵 日本語 (ja)</option>
-                  <option>🇪🇸 Español (es)</option>
-                  <option>🇩🇪 Deutsch (de)</option>
-                </select>
-              </div>
-              <div class="flex flex-col gap-1">
-                <label class="font-medium text-slate-500">翻译目标语言</label>
-                <input type="text" value="简体中文" class="studio-input px-2.5 py-1.5 rounded-lg" />
-              </div>
-              <div class="flex flex-col gap-1">
-                <label class="font-medium text-slate-500">WhisperX 转录运行环境</label>
-                <select class="studio-input px-2.5 py-1.5 rounded-lg font-medium">
-                  <option value="mlx">🍎 mlx (Apple Silicon Metal 加速)</option>
-                  <option value="local">💻 local (本地 GPU / CPU)</option>
-                  <option value="cloud">☁️ cloud (302.ai 云端 API)</option>
-                  <option value="elevenlabs">🎙️ elevenlabs (ElevenLabs)</option>
-                  <option value="qwen3_asr">⚡ qwen3_asr (千问极速 ASR)</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-4 gap-2">
-              <label class="studio-subtle p-2.5 rounded-lg flex items-center justify-between cursor-pointer">
-                <span>人声分离 (Demucs)</span>
-                <input type="checkbox" checked class="w-4 h-4 accent-blue-600" />
-              </label>
-              <label class="studio-subtle p-2.5 rounded-lg flex items-center justify-between cursor-pointer">
-                <span>FFmpeg GPU 加速</span>
-                <input type="checkbox" checked class="w-4 h-4 accent-blue-600" />
-              </label>
-              <label class="studio-subtle p-2.5 rounded-lg flex items-center justify-between cursor-pointer">
-                <span>烧录字幕到视频</span>
-                <input type="checkbox" checked class="w-4 h-4 accent-blue-600" />
-              </label>
-              <label class="studio-subtle p-2.5 rounded-lg flex items-center justify-between cursor-pointer">
-                <span>完成后自动烧录</span>
-                <input type="checkbox" checked class="w-4 h-4 accent-blue-600" />
-              </label>
-            </div>
-
-            <div class="flex flex-col gap-1">
-              <label class="font-semibold flex items-center justify-between">
-                <span>📚 领域词汇表 (ASR 纠错 & 术语约束)</span>
-                <span class="text-blue-500 text-xs">支持 `错误词 -> 正确词` 或每行一个专有名词</span>
-              </label>
-              <textarea rows="3" class="studio-input p-2.5 rounded-lg font-mono text-xs">iPhone Duo, Foldable OLED, LiquidMetal&#10;eye phone duo -> iPhone Duo</textarea>
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-              <div class="studio-subtle p-3 rounded-xl flex flex-col gap-2">
-                <label class="flex items-center justify-between cursor-pointer">
-                  <span class="font-semibold">⚡ 效率模式 (大批量并发提交 LLM)</span>
-                  <input type="checkbox" checked class="w-4 h-4 accent-blue-600" />
-                </label>
-                <div class="grid grid-cols-2 gap-2 pt-1">
-                  <div>
-                    <span class="text-slate-400 block mb-0.5">批量分割句子数</span>
-                    <input type="number" value="10" class="studio-input w-full px-2 py-1 rounded" />
+              <div class="grid grid-cols-2 gap-3">
+                <div class="studio-subtle p-3 rounded-xl flex flex-col gap-2" v-if="cfg.pyannote">
+                  <div class="flex items-center justify-between">
+                    <span class="font-bold">🎙️ Pyannote 说话人声纹分离</span>
+                    <span class="text-emerald-500 font-semibold">{{ cfg.pyannote.hf_token ? '✅ 已配置' : '未配置' }}</span>
                   </div>
-                  <div>
-                    <span class="text-slate-400 block mb-0.5">批量翻译字幕数</span>
-                    <input type="number" value="25" class="studio-input w-full px-2 py-1 rounded" />
+                  <input type="password" v-model="cfg.pyannote.hf_token" placeholder="HuggingFace Token" class="studio-input px-2.5 py-1.5 rounded font-mono" />
+                  <input type="text" v-model="cfg.pyannote.hf_endpoint" placeholder="HF 镜像站 (如 https://hf-mirror.com)" class="studio-input px-2.5 py-1.5 rounded font-mono" />
+                  <div class="grid grid-cols-2 gap-2">
+                    <div>
+                      <span class="text-slate-400 block mb-0.5">最少说话人数</span>
+                      <input type="number" v-model.number="cfg.pyannote.min_speakers" class="studio-input w-full px-2 py-1 rounded" />
+                    </div>
+                    <div>
+                      <span class="text-slate-400 block mb-0.5">最多说话人数</span>
+                      <input type="number" v-model.number="cfg.pyannote.max_speakers" class="studio-input w-full px-2 py-1 rounded" />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div class="studio-subtle p-3 rounded-xl flex flex-col gap-2">
-                <div class="font-semibold">🛡️ YouTube 防风控与 Cookies 管理</div>
-                <div class="flex items-center justify-between">
-                  <span class="text-slate-500">从浏览器自动读取</span>
-                  <select class="studio-input px-2 py-1 rounded text-xs">
-                    <option value="chrome">🌐 Chrome</option>
-                    <option value="safari">🧭 Safari</option>
-                    <option value="edge">🌊 Edge</option>
-                    <option value="">不自动提取</option>
-                  </select>
-                </div>
-                <div class="flex items-center justify-between bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2.5 py-1.5 rounded border border-emerald-500/20">
-                  <span class="truncate font-mono text-xs">📁 output/youtube_cookies.txt</span>
-                  <button onclick="showToast('🗑️ 已删除保存的 Cookies 文件')" class="text-rose-500 font-semibold ml-2 hover:underline">删除</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- TAB 3: 配音设置 -->
-          <div id="sideTab_dub" class="hidden flex-col gap-3.5 text-xs">
-            <div class="grid grid-cols-2 gap-3">
-              <div class="flex flex-col gap-1">
-                <label class="font-medium text-slate-500">TTS 语音合成引擎</label>
-                <select onchange="showToast('🔊 已切换 TTS 引擎：' + this.value)" class="studio-input px-3 py-1.5 rounded-lg font-semibold">
-                  <option value="doubao_tts">🌋 火山引擎豆包 TTS 2.0 (大模型旗舰)</option>
-                  <option value="edge_tts">🎙️ 微软 Edge TTS (免费高并发)</option>
-                  <option value="sf_cosyvoice2">🧬 SiliconFlow CosyVoice2 (零样本克隆)</option>
-                  <option value="gpt_sovits">🎭 GPT-SoVITS 本地声音克隆</option>
-                </select>
-              </div>
-              <div class="studio-subtle px-3 py-2 rounded-lg flex flex-col justify-center gap-1">
-                <div class="flex justify-between">
-                  <span class="font-medium">TTS 批量并发线程数</span>
-                  <span id="ttsWorkerVal" class="font-bold text-blue-600">10 线程</span>
-                </div>
-                <input type="range" min="1" max="10" value="10" oninput="document.getElementById('ttsWorkerVal').innerText = this.value + ' 线程'" class="w-full accent-blue-600 cursor-pointer" />
-              </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-              <label class="studio-subtle p-2.5 rounded-xl flex items-center justify-between cursor-pointer">
-                <span>跳过提取原视频参考音频</span>
-                <input type="checkbox" class="w-4 h-4 accent-blue-600" />
-              </label>
-              <label class="p-2.5 rounded-xl flex items-center justify-between cursor-pointer bg-blue-500/10 border border-blue-500/30">
-                <div>
-                  <span class="font-bold text-blue-600 dark:text-blue-400">⏸️ 配音前暂停确认说话人</span>
-                  <span class="block text-slate-400 text-xs">识别完说话人自动暂停供试听与改音色</span>
-                </div>
-                <input type="checkbox" checked class="w-4 h-4 accent-blue-600" />
-              </label>
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-              <!-- Pyannote Diarization Card -->
-              <div class="studio-subtle p-3 rounded-xl flex flex-col gap-2">
-                <div class="flex items-center justify-between">
-                  <span class="font-bold">🎙️ Pyannote 说话人声纹分离</span>
-                  <span class="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold">✅ 已启用</span>
-                </div>
-                <input type="password" value="YOUR_HF_TOKEN" placeholder="HuggingFace Token" class="studio-input px-2.5 py-1.5 rounded font-mono text-xs" />
-                <input type="text" placeholder="HF 镜像站 (如 https://hf-mirror.com)" class="studio-input px-2.5 py-1.5 rounded font-mono text-xs" />
-                <div class="grid grid-cols-2 gap-2">
-                  <div>
-                    <span class="text-slate-400 block mb-0.5">最少说话人数</span>
-                    <input type="number" value="1" class="studio-input w-full px-2 py-1 rounded" />
+                <!-- Doubao Default Voices -->
+                <div class="studio-subtle p-3 rounded-xl flex flex-col gap-2" v-if="cfg.doubao_tts">
+                  <div class="font-bold">🎭 默认男女主音色配置</div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <input type="text" v-model="cfg.doubao_tts.appid" placeholder="AppID" class="studio-input px-2.5 py-1 rounded font-mono" />
+                    <input type="password" v-model="cfg.doubao_tts.access_token" placeholder="Access Token" class="studio-input px-2.5 py-1 rounded font-mono" />
                   </div>
-                  <div>
-                    <span class="text-slate-400 block mb-0.5">最多说话人数</span>
-                    <input type="number" value="10" class="studio-input w-full px-2 py-1 rounded" />
-                  </div>
-                </div>
-              </div>
-
-              <!-- Default Male & Female Voices -->
-              <div class="studio-subtle p-3 rounded-xl flex flex-col gap-2">
-                <div class="font-bold">🎭 默认男女主音色配置与试听</div>
-                <div class="grid grid-cols-2 gap-2">
-                  <input type="text" value="YOUR_DOUBAO_APPID" placeholder="AppID" class="studio-input px-2.5 py-1 rounded font-mono" />
-                  <input type="password" value="YOUR_DOUBAO_ACCESS_TOKEN" placeholder="Access Token" class="studio-input px-2.5 py-1 rounded font-mono" />
-                </div>
-                <div class="flex flex-col gap-1">
-                  <label class="text-slate-500 font-medium">👨 默认男声音色</label>
-                  <div class="flex gap-1.5">
-                    <select class="studio-input flex-1 px-2 py-1.5 rounded-md">
-                      <option>云舟 (中男·旗舰 uranus)</option>
-                      <option>儒雅逸辰 2.0 (男·视频配音)</option>
-                      <option>解说小明 2.0 (男·通用)</option>
+                  <div class="flex flex-col gap-1">
+                    <label class="text-slate-500 font-medium">👨 默认男声音色</label>
+                    <select v-model="cfg.doubao_tts.male_voice" class="studio-input px-2 py-1.5 rounded-md">
+                      <option v-for="(vid, vlabel) in voiceCatalogs.doubao_male" :key="vid" :value="vid">{{ vlabel }}</option>
                     </select>
-                    <button onclick="showToast('🔊 正在播放「云舟 (中男·旗舰)」试听预览...')" class="px-2.5 py-1.5 rounded-md bg-blue-600/10 text-blue-600 dark:text-blue-400 hover:bg-blue-600 hover:text-white font-semibold transition">🔊 试听</button>
                   </div>
-                </div>
-                <div class="flex flex-col gap-1">
-                  <label class="text-slate-500 font-medium">👩 默认女声音色</label>
-                  <div class="flex gap-1.5">
-                    <select class="studio-input flex-1 px-2 py-1.5 rounded-md">
-                      <option>vivi 2.0 (中女·旗舰 uranus)</option>
-                      <option>流畅女声 2.0 (女·视频配音)</option>
-                      <option>知性灿灿 (中女·Saturn)</option>
+                  <div class="flex flex-col gap-1">
+                    <label class="text-slate-500 font-medium">👩 默认女声音色</label>
+                    <select v-model="cfg.doubao_tts.female_voice" class="studio-input px-2 py-1.5 rounded-md">
+                      <option v-for="(vid, vlabel) in voiceCatalogs.doubao_female" :key="vid" :value="vid">{{ vlabel }}</option>
                     </select>
-                    <button onclick="showToast('🔊 正在播放「vivi 2.0 (中女·旗舰)」试听预览...')" class="px-2.5 py-1.5 rounded-md bg-pink-600/10 text-pink-600 dark:text-pink-400 hover:bg-pink-600 hover:text-white font-semibold transition">🔊 试听</button>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-
         </div>
       </div>
     </div>
+
+    <!-- ==================== 4. 底部可折叠实时终端日志抽屉 ==================== -->
+    <footer class="sticky bottom-0 z-30 border-t border-slate-200 dark:border-slate-800" style="background-color: var(--console-bg); color: #e2e8f0;">
+      <div class="px-4 py-1.5 flex items-center justify-between text-xs cursor-pointer" @click="showConsole = !showConsole">
+        <div class="flex items-center gap-3 overflow-hidden">
+          <span class="font-mono font-bold text-emerald-400 flex items-center gap-1.5 shrink-0">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            🖥️ 实时终端日志
+          </span>
+          <span class="text-slate-400 font-mono truncate">{{ wsState.logs?.length ? wsState.logs[wsState.logs.length - 1] : '等待任务输出...' }}</span>
+        </div>
+        <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-xs shrink-0">
+          {{ showConsole ? '▼ 收起日志' : '▲ 展开日志' }}
+        </span>
+      </div>
+
+      <div v-if="showConsole" class="px-4 py-3 border-t border-slate-800 font-mono text-xs max-h-48 overflow-y-auto flex flex-col gap-1 bg-slate-950">
+        <div v-for="(line, idx) in wsState.logs" :key="idx" class="text-slate-300 leading-relaxed">{{ line }}</div>
+      </div>
+    </footer>
+
+    <!-- Toast Notification -->
+    <div v-if="toastMessage" class="fixed top-14 right-5 z-50 px-4 py-2.5 rounded-xl bg-slate-900/95 text-white text-xs font-semibold shadow-xl border border-white/10 backdrop-blur">
+      {{ toastMessage }}
+    </div>
+
   </div>
 
-  <!-- ==================== 4. 底部可折叠实时终端日志抽屉 (Bottom Collapsible Live Console) ==================== -->
-  <footer class="sticky bottom-0 z-30 border-t border-slate-200 dark:border-slate-800" style="background-color: var(--console-bg); color: #e2e8f0;">
-    <div class="px-4 py-1.5 flex items-center justify-between text-xs cursor-pointer" onclick="toggleConsoleDrawer()">
-      <div class="flex items-center gap-3">
-        <span class="font-mono font-bold text-emerald-400 flex items-center gap-1.5">
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          🖥️ WebSocket 实时终端日志流
-        </span>
-        <span id="globalTaskBadge" class="text-slate-400 font-mono hidden md:inline">[Pyannote + Wav2Vec2] SPEAKER_00: Med=164.0Hz, P15=116.0Hz | Neural P(F)=0.06 → MALE (142 lines)</span>
-      </div>
-      <div class="flex items-center gap-2">
-        <span id="consoleToggleLabel" class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-xs">▲ 展开终端日志</span>
-      </div>
-    </div>
-
-    <div id="consoleDrawerBody" class="hidden px-4 py-3 border-t border-slate-800 font-mono text-xs max-h-44 overflow-y-auto flex-col gap-1 bg-slate-950">
-      <div class="text-cyan-400">[13:41:52] ⚡ [ytb_subtitle_asr] 已通过 youtube-transcript-api 直下原生英文字幕并完成时间轴去重合 (225 segments)</div>
-      <div class="text-emerald-400">[13:42:05] 🎯 [speaker_diarize] Pyannote speaker-diarization-3.1 (Apple MPS) 识别出 3 位说话人: ['SPEAKER_00', 'SPEAKER_01', 'SPEAKER_02']</div>
-      <div class="text-blue-400">[13:42:11] 🧠 [audio_gender] 加载预训练语音性别识别模型 prithivMLmods/Common-Voice-Gender-Detection (缓存于 ./_model_cache)</div>
-      <div class="text-slate-300">[13:42:14]   🎙️ SPEAKER_00: Med=164.0Hz, P15=116.0Hz | Neural P(F)=0.06, Acoustic P(F)=0.18 → Final P(F)=0.10 → MALE (142 lines)</div>
-      <div class="text-slate-300">[13:42:16]   🎙️ SPEAKER_01: Med=202.4Hz, P15=171.2Hz | Neural P(F)=0.97, Acoustic P(F)=0.92 → Final P(F)=0.95 → FEMALE (56 lines)</div>
-      <div class="text-slate-300">[13:42:17]   🎙️ SPEAKER_02: Med=122.1Hz, P15=104.5Hz | Neural P(F)=0.09, Acoustic P(F)=0.07 → Final P(F)=0.08 → MALE (27 lines)</div>
-      <div class="text-amber-400">[13:42:22] ✂️ [_8_2_dub_chunks] 已启用严格说话人边界隔离：在 19 处跨说话人切换点强制设置 cut_off = 1</div>
-      <div class="text-emerald-400">[13:42:28] ⏸️ [st/workflow] 已开启「配音前暂停确认说话人」，等待用户在角色卡片确认或微调音色...</div>
-    </div>
-  </footer>
-
-  <!-- Toast Notification Floating Box -->
-  <div id="toastBox" class="fixed top-14 right-5 z-50 hidden px-4 py-2.5 rounded-xl bg-slate-900/95 text-white text-xs font-semibold shadow-xl border border-white/10 backdrop-blur transition-all"></div>
-
   <script>
-    function showToast(msg) {
-      const box = document.getElementById('toastBox');
-      box.innerText = msg;
-      box.classList.remove('hidden');
-      clearTimeout(window._toastTimer);
-      window._toastTimer = setTimeout(() => box.classList.add('hidden'), 2800);
-    }
+    const { createApp, ref, reactive, computed, onMounted } = Vue;
 
-    function toggleTheme() {
-      const html = document.documentElement;
-      const isDark = html.classList.contains('dark');
-      if (isDark) {
-        html.classList.remove('dark');
-        html.classList.add('light');
-        document.getElementById('themeIcon').innerText = '🌙';
-        document.getElementById('themeText').innerText = '深色模式';
-      } else {
-        html.classList.remove('light');
-        html.classList.add('dark');
-        document.getElementById('themeIcon').innerText = '☀️';
-        document.getElementById('themeText').innerText = '浅色模式';
-      }
-    }
+    createApp({
+      setup() {
+        const isDark = ref(false);
+        const workspaceMode = ref('single');
+        const activeStage = ref('a');
+        const activeVideoSource = ref('orig');
+        const activeLineInfo = ref('');
+        const speakerSubTab = ref('cards');
+        const showSettingsModal = ref(false);
+        const settingsTab = ref('llm');
+        const showConsole = ref(false);
+        const toastMessage = ref('');
+        const videoPlayerRef = ref(null);
 
-    function openSettingsModal(tab) {
-      const modal = document.getElementById('settingsModalBackdrop');
-      modal.classList.remove('hidden');
-      modal.classList.add('flex');
-      if (tab) switchSettingsTab(tab);
-    }
+        const ytbUrl = ref('');
+        const ytbRes = ref('1080');
+        const expandedDirs = reactive({ audio: true });
 
-    function closeSettingsModal() {
-      const modal = document.getElementById('settingsModalBackdrop');
-      modal.classList.add('hidden');
-      modal.classList.remove('flex');
-    }
+        const cfg = reactive({});
+        const llmProfiles = ref({});
+        const selectedProfile = ref('');
+        const newProfileName = ref('');
+        const customTermsText = ref('');
+        const voiceCatalogs = reactive({ doubao_male: {}, doubao_female: {}, edge_male: {}, edge_female: {} });
 
-    function switchSettingsTab(tab) {
-      ['llm', 'sub', 'dub'].forEach(t => {
-        const panel = document.getElementById('sideTab_' + t);
-        const btn = document.getElementById('sideTabBtn_' + t);
-        if (t === tab) {
-          panel.classList.remove('hidden');
-          panel.classList.add('flex');
-          btn.className = 'px-3 py-2.5 rounded-lg text-xs font-semibold text-left transition bg-blue-600 text-white shadow-xs flex items-center gap-2';
-        } else {
-          panel.classList.add('hidden');
-          panel.classList.remove('flex');
-          btn.className = 'px-3 py-2.5 rounded-lg text-xs font-semibold text-left transition text-slate-500 hover:bg-slate-500/10 flex items-center gap-2';
+        const wsState = reactive({
+          video: {},
+          stage_b: { steps: [], suspicious_terms: [] },
+          stage_c: { steps: [], speaker_review: { available: false, speakers: [], lines: [], voices: {} } },
+          task: { running: false },
+          files: [],
+          encoding: [],
+          logs: [],
+        });
+
+        const speakerReview = reactive({
+          available: false,
+          speakers: [],
+          lines: [],
+          voices: {},
+        });
+
+        const batchTasks = ref([]);
+
+        function showToast(msg) {
+          toastMessage.value = msg;
+          clearTimeout(window._tTimer);
+          window._tTimer = setTimeout(() => { toastMessage.value = ''; }, 3200);
         }
-      });
-    }
 
-    function switchWorkspaceMode(mode) {
-      const singleView = document.getElementById('singleWorkspaceView');
-      const batchView = document.getElementById('batchWorkspaceView');
-      const sBtn = document.getElementById('modeSingleBtn');
-      const bBtn = document.getElementById('modeBatchBtn');
-      if (mode === 'single') {
-        singleView.classList.remove('hidden');
-        batchView.classList.add('hidden');
-        sBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white shadow-sm transition whitespace-nowrap';
-        bBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition flex items-center gap-1.5 whitespace-nowrap';
-      } else {
-        singleView.classList.add('hidden');
-        batchView.classList.remove('hidden');
-        batchView.classList.add('flex');
-        bBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap';
-        sBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap';
-      }
-    }
-
-    function toggleAgyCli() {
-      const checked = document.getElementById('agyToggle').checked;
-      const agyBox = document.getElementById('agyTokenBox');
-      const stdBox = document.getElementById('standardApiBox');
-      if (checked) {
-        agyBox.classList.remove('hidden');
-        agyBox.classList.add('flex');
-        stdBox.classList.add('hidden');
-        showToast('⚡ 已启用 Antigravity CLI (agy) 极速直连模式');
-      } else {
-        agyBox.classList.add('hidden');
-        stdBox.classList.remove('hidden');
-      }
-    }
-
-    function switchStage(stage) {
-      ['a', 'b', 'c'].forEach(s => {
-        const panel = document.getElementById('stagePanel_' + s);
-        const btn = document.getElementById('stageBtn_' + s);
-        if (s === stage) {
-          panel.classList.remove('hidden');
-          panel.classList.add('flex');
-          btn.className = 'p-3 rounded-xl text-left transition border-2 border-blue-600 bg-blue-500/10 flex items-center justify-between';
-        } else {
-          panel.classList.add('hidden');
-          panel.classList.remove('flex');
-          btn.className = 'studio-subtle p-3 rounded-xl text-left transition hover:border-blue-500 flex items-center justify-between';
+        function toggleTheme() {
+          isDark.value = !isDark.value;
+          const html = document.documentElement;
+          html.classList.toggle('dark', isDark.value);
+          html.classList.toggle('light', !isDark.value);
         }
-      });
-    }
 
-    function switchSpeakerSubTab(sub) {
-      const cards = document.getElementById('speakerCardsView');
-      const table = document.getElementById('speakerTableView');
-      const bCards = document.getElementById('spkSubTab_cards');
-      const bTable = document.getElementById('spkSubTab_table');
-      if (sub === 'cards') {
-        cards.classList.remove('hidden');
-        table.classList.add('hidden');
-        bCards.className = 'px-3 py-1 rounded-md text-xs font-semibold bg-blue-600 text-white';
-        bTable.className = 'px-3 py-1 rounded-md text-xs font-medium text-slate-500';
-      } else {
-        cards.classList.add('hidden');
-        table.classList.remove('hidden');
-        table.classList.add('flex');
-        bTable.className = 'px-3 py-1 rounded-md text-xs font-semibold bg-blue-600 text-white';
-        bCards.className = 'px-3 py-1 rounded-md text-xs font-medium text-slate-500';
-      }
-    }
+        const currentVideoUrl = computed(() => {
+          if (activeVideoSource.value === 'dub' && wsState.video?.dub_url) return wsState.video.dub_url;
+          if (activeVideoSource.value === 'sub' && wsState.video?.sub_url) return wsState.video.sub_url;
+          return wsState.video?.orig_url || null;
+        });
 
-    function switchVideoSource(src, btnEl) {
-      document.querySelectorAll('.vid-src-btn').forEach(b => {
-        b.className = 'vid-src-btn px-3 py-1 rounded-md text-xs font-medium text-slate-500 hover:bg-slate-500/10 transition';
-      });
-      btnEl.className = 'vid-src-btn px-3 py-1 rounded-md text-xs font-semibold bg-blue-600 text-white shadow-sm transition';
-      const map = {
-        orig: 'output/iPhone Duo - After The Hype.webm (VP9 · Raw)',
-        vtt: 'Original Video + output/youtube_subtitle.vtt (De-overlapped)',
-        sub: 'output/output_sub.mp4 (Burn-in Bilingual Subtitles)',
-        dub: 'output/output_dub.mp4 (Multi-Speaker Dubbed Track)'
-      };
-      document.getElementById('videoSourceBadge').innerText = map[src] || map.dub;
-      showToast('🎬 监视器已切换至：' + btnEl.innerText);
-    }
-
-    function jumpToLine(num, timecode, speaker, gender, voiceName, zhText, enText) {
-      document.getElementById('playerTimecode').innerText = timecode;
-      document.getElementById('playerSubZh').innerText = zhText;
-      document.getElementById('playerSubEn').innerText = enText;
-      const icon = gender === 'male' ? '👨' : '👩';
-      const badge = document.getElementById('playerSpeakerBadge');
-      badge.innerHTML = `<span>${icon} ${speaker} (${voiceName})</span><span class="text-blue-200 font-mono">Line #${num}</span>`;
-      showToast(`🎯 视频已联动跳转至第 ${num} 句 (${timecode}) · ${speaker}`);
-    }
-
-    let modifiedSpeakers = new Set();
-    function markSpeakerModified(spk) {
-      modifiedSpeakers.add(spk);
-      document.getElementById('modifiedCountBadge').innerText = `已变更 ${modifiedSpeakers.size} 个角色`;
-      showToast(`✏️ 已记录 ${spk} 的音色/性别变更，点击「保存修改并增量重配」仅重算该角色缓存`);
-    }
-
-    function triggerIncrementalRebuild() {
-      showToast('⚡ 增量重配启动：已精准清理受影响句子的 .wav 缓存，复用其余未改动音频并重新合成！');
-      document.getElementById('globalTaskBadge').innerText = '🔄 正在增量合成变更配音 (Step 3/4)...';
-    }
-
-    function confirmAndContinueDub() {
-      showToast('🚀 已确认说话人音色配置！正在并发合成全部多角色配音并混流视频...');
-      document.getElementById('globalTaskBadge').innerText = '✅ 配音流水线继续运行中 (10 线程并发)';
-    }
-
-    function toggleFolder(id) {
-      const el = document.getElementById(id);
-      const arrow = document.getElementById('arrow_' + id);
-      if (el.classList.contains('hidden')) {
-        el.classList.remove('hidden');
-        el.classList.add('flex');
-        arrow.innerText = '▼';
-      } else {
-        el.classList.add('hidden');
-        el.classList.remove('flex');
-        arrow.innerText = '▶';
-      }
-    }
-
-    function toggleAllFolders(expand) {
-      ['tree_audio', 'tree_log'].forEach(id => {
-        const el = document.getElementById(id);
-        const arrow = document.getElementById('arrow_' + id);
-        if (expand) {
-          el.classList.remove('hidden');
-          el.classList.add('flex');
-          arrow.innerText = '▼';
-        } else {
-          el.classList.add('hidden');
-          el.classList.remove('flex');
-          arrow.innerText = '▶';
+        function selectVideoSource(src) {
+          activeVideoSource.value = src;
         }
-      });
-    }
 
-    function toggleConsoleDrawer() {
-      const body = document.getElementById('consoleDrawerBody');
-      const lbl = document.getElementById('consoleToggleLabel');
-      if (body.classList.contains('hidden')) {
-        body.classList.remove('hidden');
-        body.classList.add('flex');
-        lbl.innerText = '▼ 收起终端日志';
-      } else {
-        body.classList.add('hidden');
-        body.classList.remove('flex');
-        lbl.innerText = '▲ 展开终端日志';
+        function seekToTime(sec, speaker, text) {
+          activeLineInfo.value = `${speaker} · ${sec}s`;
+          if (videoPlayerRef.value) {
+            videoPlayerRef.value.currentTime = Number(sec) || 0;
+            videoPlayerRef.value.play().catch(() => {});
+          }
+          showToast(`🎯 已跳转至 ${sec}s · ${speaker}`);
+        }
+
+        function toggleDir(path) {
+          expandedDirs[path] = !expandedDirs[path];
+        }
+
+        async function fetchConfig() {
+          const res = await fetch('/api/config');
+          const data = await res.json();
+          Object.assign(cfg, data.config || {});
+          llmProfiles.value = data.profiles || {};
+          customTermsText.value = data.custom_terms || '';
+          Object.assign(voiceCatalogs, data.voice_catalogs || {});
+          if (cfg.ytb_resolution) ytbRes.value = String(cfg.ytb_resolution);
+        }
+
+        async function fetchWorkspaceState(syncSpeakerReview = false) {
+          const res = await fetch('/api/workspace/state');
+          const data = await res.json();
+          wsState.video = data.video || {};
+          wsState.stage_b = data.stage_b || {};
+          wsState.stage_c = data.stage_c || {};
+          wsState.task = data.task || {};
+          wsState.files = data.files || [];
+          wsState.encoding = data.encoding || [];
+          if (data.logs?.length) wsState.logs = data.logs;
+          if (wsState.video.youtube_url && !ytbUrl.value) {
+            ytbUrl.value = wsState.video.youtube_url;
+          }
+
+          if (syncSpeakerReview || !speakerReview.available) {
+            const sr = data.stage_c?.speaker_review;
+            if (sr && sr.available) {
+              speakerReview.available = true;
+              speakerReview.speakers = sr.speakers;
+              speakerReview.lines = sr.lines;
+              speakerReview.voices = sr.voices;
+            } else {
+              speakerReview.available = false;
+            }
+          }
+        }
+
+        function openSettings(tab) {
+          settingsTab.value = tab || 'llm';
+          showSettingsModal.value = true;
+        }
+
+        async function saveAllConfig() {
+          const updates = {
+            'api.use_antigravity_cli': Boolean(cfg.api?.use_antigravity_cli),
+            'api.antigravity_token_code': cfg.api?.antigravity_token_code || '',
+            'api.key': cfg.api?.key || '',
+            'api.base_url': cfg.api?.base_url || '',
+            'api.model': cfg.api?.model || '',
+            'api.llm_support_json': Boolean(cfg.api?.llm_support_json),
+            proxy: cfg.proxy || '',
+            display_language: cfg.display_language || 'zh-CN',
+            'whisper.language': cfg.whisper?.language || 'en',
+            'whisper.runtime': cfg.whisper?.runtime || 'local',
+            target_language: cfg.target_language || '简体中文',
+            demucs: Boolean(cfg.demucs),
+            ffmpeg_gpu: Boolean(cfg.ffmpeg_gpu),
+            burn_subtitles: Boolean(cfg.burn_subtitles),
+            auto_burn_subtitles: Boolean(cfg.auto_burn_subtitles),
+            efficiency_mode: Boolean(cfg.efficiency_mode),
+            batch_split_size: Number(cfg.batch_split_size ?? 100),
+            batch_translate_size: Number(cfg.batch_translate_size ?? 15),
+            'youtube.cookies_from_browser': cfg.youtube?.cookies_from_browser || '',
+            tts_method: cfg.tts_method || 'doubao_tts',
+            tts_max_workers: Number(cfg.tts_max_workers || 5),
+            skip_refer: Boolean(cfg.skip_refer),
+            pause_before_dub: Boolean(cfg.pause_before_dub),
+            'pyannote.hf_token': cfg.pyannote?.hf_token || '',
+            'pyannote.hf_endpoint': cfg.pyannote?.hf_endpoint || '',
+            'pyannote.min_speakers': Number(cfg.pyannote?.min_speakers || 1),
+            'pyannote.max_speakers': Number(cfg.pyannote?.max_speakers || 10),
+            'doubao_tts.appid': cfg.doubao_tts?.appid || '',
+            'doubao_tts.access_token': cfg.doubao_tts?.access_token || '',
+            'doubao_tts.male_voice': cfg.doubao_tts?.male_voice || '',
+            'doubao_tts.female_voice': cfg.doubao_tts?.female_voice || '',
+          };
+          await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ updates, custom_terms: customTermsText.value }),
+          });
+          showSettingsModal.value = false;
+          showToast('💾 配置已保存并同步到 config.yaml');
+          fetchWorkspaceState(true);
+        }
+
+        async function handleProfile(action) {
+          const name = action === 'save' ? newProfileName.value.trim() : selectedProfile.value;
+          if (!name) return showToast('⚠️ 请先输入或选择预设名称');
+          if (action === 'save') await saveAllConfig();
+          const res = await fetch('/api/llm/profiles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, name }),
+          });
+          const data = await res.json();
+          showToast(data.message || '操作成功');
+          await fetchConfig();
+        }
+
+        async function testLlmApi() {
+          await saveAllConfig();
+          showToast('📡 正在检测 API 连通性...');
+          const res = await fetch('/api/llm/check', { method: 'POST' });
+          const data = await res.json();
+          showToast(data.valid ? '✅ API 连接测试通过！' : '❌ API 连接失败，请检查密钥与地址');
+        }
+
+        function formatElapsed(sec) {
+          const s = Math.max(0, Number(sec) || 0);
+          const m = Math.floor(s / 60);
+          const rem = s % 60;
+          return `${String(m).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
+        }
+
+        async function downloadYoutube(subOnly) {
+          if (!ytbUrl.value.trim()) return showToast('⚠️ 请输入 YouTube 视频链接');
+          wsState.task = {
+            running: true,
+            stage: 'download',
+            step_index: 1,
+            total_steps: 4,
+            step_name: subOnly ? '正在下载 YouTube 官方字幕...' : `正在下载 YouTube 视频 (${ytbRes.value}p)...`,
+            sub_step: '正在启动 yt-dlp 解析链接与 Cookie 登录态...',
+            percent: 3.0,
+            speed: '',
+            eta: '',
+            total_size: '',
+            elapsed_sec: 0,
+          };
+          await fetch('/api/video/download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: ytbUrl.value, resolution: ytbRes.value, subtitle_only: subOnly }),
+          });
+          showToast(subOnly ? '⚡ 开始下载官方字幕...' : '📥 开始下载视频与字幕...');
+          fetchWorkspaceState();
+        }
+
+        async function uploadVideoFile(e) {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const fd = new FormData();
+          fd.append('file', file);
+          showToast('📤 正在上传音视频文件...');
+          await fetch('/api/video/upload', { method: 'POST', body: fd });
+          showToast('✅ 本地文件上传完成！已自动切换至阶段 B');
+          await fetchWorkspaceState(true);
+          if (wsState.video?.exists) {
+            activeStage.value = 'b';
+          }
+        }
+
+        async function deleteVideo() {
+          await fetch('/api/video', { method: 'DELETE' });
+          ytbUrl.value = '';
+          speakerReview.available = false;
+          speakerReview.speakers = [];
+          speakerReview.lines = [];
+          activeStage.value = 'a';
+          showToast('🗑️ 已清空当前任务视频与 output/ 工作区文件');
+          fetchWorkspaceState(true);
+        }
+
+        async function uploadSubtitleBypass(e) {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const fd = new FormData();
+          fd.append('file', file);
+          const res = await fetch('/api/subtitle/upload', { method: 'POST', body: fd });
+          if (res.ok) {
+            showToast('✅ 字幕解析成功！已跳过 WhisperX 步骤');
+            fetchWorkspaceState();
+          } else {
+            showToast('❌ 字幕文件解析失败');
+          }
+        }
+
+        async function startSubtitlePipeline(burnOnly) {
+          wsState.task = {
+            running: true,
+            stage: 'subtitle',
+            step_index: burnOnly ? 6 : 1,
+            total_steps: 6,
+            step_name: burnOnly ? '6. 正在烧录字幕到视频...' : '1. 正在准备字幕与三步翻译流水线...',
+            sub_step: '正在初始化字幕流水线任务...',
+            percent: burnOnly ? 85.0 : 5.0,
+            speed: '',
+            eta: '',
+            total_size: '',
+            elapsed_sec: 0,
+          };
+          await fetch(`/api/pipeline/subtitle/start?burn_only=${burnOnly}`, { method: 'POST' });
+          showToast('🚀 字幕处理流水线已启动');
+          fetchWorkspaceState();
+        }
+
+        async function reapplyTerms() {
+          await fetch('/api/pipeline/subtitle/reapply-terms', { method: 'POST' });
+          showToast('🔄 已重新应用领域词表并清空下游字幕缓存');
+          fetchWorkspaceState();
+        }
+
+        async function resetSubtitles() {
+          await fetch('/api/pipeline/subtitle/reset', { method: 'POST' });
+          showToast('♻️ 已清空字幕翻译缓存');
+          fetchWorkspaceState();
+        }
+
+        async function archiveWorkspace() {
+          await fetch('/api/pipeline/archive', { method: 'POST' });
+          showToast('🗂️ 已归档至 history/ 目录');
+          fetchWorkspaceState(true);
+        }
+
+        function syncSpeakerCardToLines(spk) {
+          if (!spk || !Array.isArray(speakerReview.lines)) return;
+          for (const line of speakerReview.lines) {
+            if (line.speaker_id === spk.speaker_id) {
+              line.gender = spk.gender;
+              line.voice = spk.voice;
+            }
+          }
+        }
+
+        async function startDubbing(forceContinue) {
+          const shouldContinue = Boolean(forceContinue || speakerReview.available);
+          if (speakerReview.available) {
+            await fetch('/api/speakers/save', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                speakers: speakerReview.speakers,
+                lines: speakerReview.lines,
+                incremental_rebuild: false,
+              }),
+            });
+          }
+          wsState.task = {
+            running: true,
+            stage: 'dubbing',
+            step_index: shouldContinue ? 3 : 1,
+            total_steps: 4,
+            step_name: shouldContinue ? '3. 正在并发生成多角色配音并对齐时间轴...' : '1. 正在执行说话人性别识别与配音分块...',
+            sub_step: '正在初始化多角色配音流水线...',
+            percent: shouldContinue ? 60.0 : 8.0,
+            speed: '',
+            eta: '',
+            total_size: '',
+            elapsed_sec: 0,
+          };
+          await fetch(`/api/pipeline/dubbing/start?force_continue=${shouldContinue}`, { method: 'POST' });
+          showToast('🎙️ 配音流水线已启动');
+          fetchWorkspaceState(false);
+        }
+
+        async function saveSpeakerOverrides(rebuild) {
+          if (rebuild) {
+            wsState.task = {
+              running: true,
+              stage: 'dubbing',
+              step_index: 3,
+              total_steps: 4,
+              step_name: '3. 正在并发生成多角色配音并对齐时间轴...',
+              sub_step: '正在保存角色音色配置并增量合成配音...',
+              percent: 58.0,
+              speed: '',
+              eta: '',
+              total_size: '',
+              elapsed_sec: 0,
+            };
+          }
+          const res = await fetch('/api/speakers/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              speakers: speakerReview.speakers,
+              lines: speakerReview.lines,
+              incremental_rebuild: rebuild,
+            }),
+          });
+          const data = await res.json();
+          showToast(`✅ 已保存角色修改（共清理 ${data.deleted_cache_files ?? 0} 个受影响句子缓存）`);
+          fetchWorkspaceState(true);
+        }
+
+        async function deleteDubbing() {
+          await fetch('/api/pipeline/dubbing', { method: 'DELETE' });
+          speakerReview.available = false;
+          speakerReview.speakers = [];
+          speakerReview.lines = [];
+          showToast('🗑️ 已清理配音缓存文件');
+          fetchWorkspaceState(true);
+        }
+
+        async function stopTask() {
+          await fetch('/api/task/stop', { method: 'POST' });
+          showToast('⏹️ 已发送停止指令');
+        }
+
+        async function clearError() {
+          await fetch('/api/task/clear-error', { method: 'POST' });
+          fetchWorkspaceState();
+        }
+
+        async function switchBatchMode() {
+          workspaceMode.value = 'batch';
+          const res = await fetch('/api/batch/state');
+          const data = await res.json();
+          batchTasks.value = data.tasks || [];
+        }
+
+        onMounted(async () => {
+          await fetchConfig();
+          await fetchWorkspaceState(true);
+          if (wsState.stage_c?.waiting_confirm || speakerReview.available) {
+            activeStage.value = 'c';
+          } else if (wsState.video?.exists) {
+            activeStage.value = 'b';
+          }
+
+          // Connect WebSocket for live logs & reactive state refresh
+          const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+          const ws = new WebSocket(`${proto}//${location.host}/ws/logs`);
+          let wasRunning = false;
+          let lastRunningStage = null;
+          let lastWorkspaceSyncTime = 0;
+
+          ws.onmessage = async (ev) => {
+            try {
+              const payload = JSON.parse(ev.data);
+              if (payload.logs) wsState.logs = payload.logs;
+              if (payload.task) {
+                if (payload.task.toast) showToast(payload.task.toast);
+
+                if (payload.task.running) {
+                  lastRunningStage = payload.task.stage || lastRunningStage;
+                  const now = Date.now();
+                  // Periodically sync right-side cover, title, file tree, and step badges while task runs
+                  if (now - lastWorkspaceSyncTime > 2500) {
+                    lastWorkspaceSyncTime = now;
+                    fetchWorkspaceState(false);
+                  }
+                }
+
+                if (wasRunning && !payload.task.running) {
+                  const finishedStage = lastRunningStage;
+                  lastRunningStage = null;
+                  await fetchWorkspaceState(true);
+                  if (finishedStage === 'download' && !payload.task.error && wsState.video?.exists) {
+                    activeStage.value = 'b';
+                    showToast('🎬 视频与字幕准备就绪，已为您自动切换至「阶段 B · 字幕与翻译」');
+                  } else if (finishedStage === 'subtitle' && !payload.task.error && wsState.stage_b?.src_srt_exists) {
+                    activeStage.value = 'c';
+                  }
+                }
+
+                wasRunning = payload.task.running;
+                wsState.task = payload.task;
+              }
+            } catch (_) {}
+          };
+        });
+
+        return {
+          isDark, workspaceMode, activeStage, activeVideoSource, activeLineInfo,
+          speakerSubTab, showSettingsModal, settingsTab, showConsole, toastMessage,
+          videoPlayerRef, ytbUrl, ytbRes, expandedDirs, cfg, llmProfiles,
+          selectedProfile, newProfileName, customTermsText, voiceCatalogs,
+          wsState, speakerReview, batchTasks, currentVideoUrl, formatElapsed,
+          toggleTheme, selectVideoSource, seekToTime, toggleDir, openSettings,
+          saveAllConfig, handleProfile, testLlmApi, downloadYoutube, uploadVideoFile,
+          deleteVideo, uploadSubtitleBypass, startSubtitlePipeline, reapplyTerms,
+          resetSubtitles, archiveWorkspace, syncSpeakerCardToLines, startDubbing,
+          saveSpeakerOverrides, deleteDubbing, stopTask, clearError, switchBatchMode,
+          fetchWorkspaceState,
+        };
       }
-    }
+    }).mount('#app');
   </script>
 </body>
 </html>

@@ -19,11 +19,16 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 os.chdir(ROOT_DIR)
 
+import logging
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+# Silence Streamlit bare-mode ScriptRunContext warnings when calling shared core utilities from FastAPI threads
+logging.getLogger("streamlit").setLevel(logging.ERROR)
+logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
 
 from core.utils import load_key, update_key, get_ffmpeg_video_encoder
 from core.utils.config_utils import CONFIG_PATH, yaml as ruamel_yaml, lock as config_lock
@@ -448,7 +453,11 @@ def _build_file_tree(root_dir: str = "output") -> List[Dict[str, Any]]:
         for f in files:
             full = os.path.join(curr_path, f)
             rel = os.path.relpath(full, "output")
-            size_bytes = os.path.getsize(full)
+            try:
+                size_bytes = os.path.getsize(full)
+            except OSError:
+                # Transient temporary file (e.g. output/audio/tmp/*_temp_trimmed.wav) was removed mid-scan
+                continue
             if size_bytes >= 1024 * 1024:
                 size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
             elif size_bytes >= 1024:
@@ -1260,37 +1269,50 @@ def save_speaker_overrides(payload: SaveSpeakerReviewPayload):
     df["gender"] = df["gender"].fillna("female").astype(str)
 
     affected_numbers = set()
-
-    # 1. Apply speaker-level bulk overrides
     spk_map = {s.speaker_id: s for s in payload.speakers}
-    for idx, row in df.iterrows():
-        spk = str(row["speaker_id"])
-        if spk in spk_map:
-            target = spk_map[spk]
-            if row["gender"] != target.gender or str(row["voice"]) != target.voice:
-                df.at[idx, "gender"] = target.gender
-                df.at[idx, "voice"] = target.voice
-                affected_numbers.add(int(row["number"]))
-
-    # 2. Apply line-level overrides
     line_map = {l.number: l for l in payload.lines}
+
     for idx, row in df.iterrows():
         num = int(row["number"])
+        orig_spk = str(row["speaker_id"])
+        orig_gender = str(row["gender"])
+        orig_voice = str(row["voice"])
+        orig_text = str(row["text"])
+
+        new_spk = orig_spk
+        new_gender = orig_gender
+        new_voice = orig_voice
+        new_text = orig_text
+
+        # 1. Speaker-level card override
+        if orig_spk in spk_map:
+            target = spk_map[orig_spk]
+            new_gender = target.gender
+            new_voice = target.voice
+
+        # 2. Line-level override (only overrides speaker card if the line itself changed relative to original disk state)
         if num in line_map:
             l_item = line_map[num]
-            changed = (
-                str(row["speaker_id"]) != l_item.speaker_id
-                or str(row["gender"]) != l_item.gender
-                or str(row["voice"]) != l_item.voice
-                or (l_item.text is not None and str(row["text"]) != l_item.text)
-            )
-            if changed:
-                df.at[idx, "speaker_id"] = l_item.speaker_id
-                df.at[idx, "gender"] = l_item.gender
-                df.at[idx, "voice"] = l_item.voice
-                if l_item.text is not None:
-                    df.at[idx, "text"] = l_item.text
-                affected_numbers.add(num)
+            if l_item.speaker_id != orig_spk:
+                new_spk = l_item.speaker_id
+            if l_item.gender != orig_gender:
+                new_gender = l_item.gender
+            if l_item.voice != orig_voice:
+                new_voice = l_item.voice
+            if l_item.text is not None and l_item.text != orig_text:
+                new_text = l_item.text
+
+        if (
+            new_spk != orig_spk
+            or new_gender != orig_gender
+            or new_voice != orig_voice
+            or new_text != orig_text
+        ):
+            df.at[idx, "speaker_id"] = new_spk
+            df.at[idx, "gender"] = new_gender
+            df.at[idx, "voice"] = new_voice
+            df.at[idx, "text"] = new_text
+            affected_numbers.add(num)
 
     # Re-evaluate timing and cut_off boundaries across speakers
     df = _8_2_dub_chunks.analyze_subtitle_timing_and_speed(df)
@@ -1440,4 +1462,10 @@ def serve_vue_studio():
 if __name__ == "__main__":
     import uvicorn
     print("🚀 Starting VideoLingo Q 2.0 Vue Studio Server on http://127.0.0.1:8502 ...")
-    uvicorn.run("backend.server:app", host="127.0.0.1", port=8502, reload=False)
+    uvicorn.run(
+        "backend.server:app",
+        host="127.0.0.1",
+        port=8502,
+        reload=True,
+        reload_dirs=[os.path.join(ROOT_DIR, "backend"), os.path.join(ROOT_DIR, "core")],
+    )

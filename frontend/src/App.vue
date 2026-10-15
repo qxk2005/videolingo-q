@@ -372,14 +372,14 @@
                   <div class="grid grid-cols-2 gap-2 pt-1">
                     <div class="flex flex-col gap-1">
                       <span class="text-slate-400">角色性别</span>
-                      <select v-model="spk.gender" class="studio-input px-2 py-1.5 rounded-md font-semibold">
+                      <select v-model="spk.gender" @change="syncSpeakerCardToLines(spk)" class="studio-input px-2 py-1.5 rounded-md font-semibold">
                         <option value="male">👨 男声 (Male)</option>
                         <option value="female">👩 女声 (Female)</option>
                       </select>
                     </div>
                     <div class="flex flex-col gap-1">
                       <span class="text-slate-400">专属绑定音色</span>
-                      <select v-model="spk.voice" class="studio-input px-2 py-1.5 rounded-md font-medium">
+                      <select v-model="spk.voice" @change="syncSpeakerCardToLines(spk)" class="studio-input px-2 py-1.5 rounded-md font-medium">
                         <option value="">(跟随默认男/女音色)</option>
                         <option v-for="(vid, vlabel) in speakerReview.voices" :key="vid" :value="vid">{{ vlabel }}</option>
                       </select>
@@ -1174,26 +1174,63 @@ async function archiveWorkspace() {
   fetchWorkspaceState(true)
 }
 
+function syncSpeakerCardToLines(spk) {
+  if (!spk || !Array.isArray(speakerReview.lines)) return
+  for (const line of speakerReview.lines) {
+    if (line.speaker_id === spk.speaker_id) {
+      line.gender = spk.gender
+      line.voice = spk.voice
+    }
+  }
+}
+
 async function startDubbing(forceContinue) {
+  const shouldContinue = Boolean(forceContinue || speakerReview.available)
+  if (speakerReview.available) {
+    await fetch('/api/speakers/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        speakers: speakerReview.speakers,
+        lines: speakerReview.lines,
+        incremental_rebuild: false,
+      }),
+    })
+  }
   wsState.task = {
     running: true,
     stage: 'dubbing',
-    step_index: forceContinue ? 3 : 1,
+    step_index: shouldContinue ? 3 : 1,
     total_steps: 4,
-    step_name: forceContinue ? '3. 正在并发生成多角色配音并对齐时间轴...' : '1. 正在执行说话人性别识别与配音分块...',
+    step_name: shouldContinue ? '3. 正在并发生成多角色配音并对齐时间轴...' : '1. 正在执行说话人性别识别与配音分块...',
     sub_step: '正在初始化多角色配音流水线...',
-    percent: forceContinue ? 60.0 : 8.0,
+    percent: shouldContinue ? 60.0 : 8.0,
     speed: '',
     eta: '',
     total_size: '',
     elapsed_sec: 0,
   }
-  await fetch(`/api/pipeline/dubbing/start?force_continue=${forceContinue}`, { method: 'POST' })
+  await fetch(`/api/pipeline/dubbing/start?force_continue=${shouldContinue}`, { method: 'POST' })
   showToast('🎙️ 配音流水线已启动')
-  fetchWorkspaceState(true)
+  fetchWorkspaceState(false)
 }
 
 async function saveSpeakerOverrides(rebuild) {
+  if (rebuild) {
+    wsState.task = {
+      running: true,
+      stage: 'dubbing',
+      step_index: 3,
+      total_steps: 4,
+      step_name: '3. 正在并发生成多角色配音并对齐时间轴...',
+      sub_step: '正在保存角色音色配置并增量合成配音...',
+      percent: 58.0,
+      speed: '',
+      eta: '',
+      total_size: '',
+      elapsed_sec: 0,
+    }
+  }
   const res = await fetch('/api/speakers/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1204,12 +1241,15 @@ async function saveSpeakerOverrides(rebuild) {
     }),
   })
   const data = await res.json()
-  showToast(`✅ 已保存角色修改（共清理 ${data.deleted_cache_files} 个受影响句子缓存）`)
+  showToast(`✅ 已保存角色修改（共清理 ${data.deleted_cache_files ?? 0} 个受影响句子缓存）`)
   fetchWorkspaceState(true)
 }
 
 async function deleteDubbing() {
   await fetch('/api/pipeline/dubbing', { method: 'DELETE' })
+  speakerReview.available = false
+  speakerReview.speakers = []
+  speakerReview.lines = []
   showToast('🗑️ 已清理配音缓存文件')
   fetchWorkspaceState(true)
 }
