@@ -158,6 +158,9 @@ _model_cache/
 batch/input/
 batch/output/
 batch/tasks_setting.xlsx
+batch/queue_state.json
+batch/tasks/
+batch/_single_workspace_stash/
 
 # large files
 /ffmpeg.exe

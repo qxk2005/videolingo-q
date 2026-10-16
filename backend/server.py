@@ -834,6 +834,8 @@ def get_workspace_state():
         "files": _build_file_tree("output"),
         "encoding": encoding_rows,
         "logs": list(LOG_BUFFER)[-80:],
+        "studio_batch_task": BATCH_MANAGER.get_studio_loaded_task_info() if "BATCH_MANAGER" in globals() else None,
+        "has_single_stash": BATCH_MANAGER.has_single_stash() if "BATCH_MANAGER" in globals() else False,
     }
 
 
@@ -880,6 +882,8 @@ def download_youtube(payload: YoutubeDownloadPayload):
         try:
             url = payload.url.strip()
             if not payload.subtitle_only:
+                if "BATCH_MANAGER" in globals():
+                    BATCH_MANAGER.detach_studio_task()
                 _wipe_output_workspace()
                 STATE.step_name = f"正在下载 YouTube 视频 ({payload.resolution}p)..."
                 STATE.sub_step = "正在启动 yt-dlp 解析链接与 Cookie 登录态..."
@@ -909,6 +913,8 @@ def download_youtube(payload: YoutubeDownloadPayload):
             traceback.print_exc()
             STATE.error = str(e)
         finally:
+            if "BATCH_MANAGER" in globals():
+                BATCH_MANAGER.sync_from_studio_if_loaded()
             STATE.finish_task()
 
     threading.Thread(target=_worker, daemon=True).start()
@@ -917,6 +923,8 @@ def download_youtube(payload: YoutubeDownloadPayload):
 
 @app.post("/api/video/upload")
 def upload_local_video(file: UploadFile = File(...)):
+    if "BATCH_MANAGER" in globals():
+        BATCH_MANAGER.detach_studio_task()
     _wipe_output_workspace()
     os.makedirs("output", exist_ok=True)
     raw_name = file.filename or "uploaded_video.mp4"
@@ -963,6 +971,8 @@ def upload_local_video(file: UploadFile = File(...)):
 
 @app.delete("/api/video")
 def delete_video():
+    if "BATCH_MANAGER" in globals():
+        BATCH_MANAGER.detach_studio_task()
     _wipe_output_workspace()
     return {"status": "ok"}
 
@@ -980,6 +990,8 @@ def upload_subtitle_bypass(file: UploadFile = File(...)):
     ok = use_subtitle_file(save_path, lang)
     if not ok:
         raise HTTPException(status_code=400, detail="字幕文件解析失败，请检查格式")
+    if "BATCH_MANAGER" in globals():
+        BATCH_MANAGER.sync_from_studio_if_loaded()
     return {"status": "ok"}
 
 
@@ -1075,6 +1087,8 @@ def start_subtitle_pipeline(burn_only: bool = False):
             traceback.print_exc()
             STATE.error = str(e)
         finally:
+            if "BATCH_MANAGER" in globals():
+                BATCH_MANAGER.sync_from_studio_if_loaded()
             STATE.finish_task()
 
     threading.Thread(target=_worker, daemon=True).start()
@@ -1090,6 +1104,8 @@ def reapply_terms():
     for d in _SUBTITLE_CACHE_DIRS:
         if os.path.exists(d):
             shutil.rmtree(d)
+    if "BATCH_MANAGER" in globals():
+        BATCH_MANAGER.sync_from_studio_if_loaded()
     return {"status": "ok", "message": "已重新应用词汇表并清空下游字幕缓存"}
 
 
@@ -1101,6 +1117,8 @@ def reset_subtitles():
     for d in _SUBTITLE_CACHE_DIRS:
         if os.path.exists(d):
             shutil.rmtree(d)
+    if "BATCH_MANAGER" in globals():
+        BATCH_MANAGER.sync_from_studio_if_loaded()
     return {"status": "ok"}
 
 
@@ -1124,6 +1142,8 @@ def download_subtitle_zip():
 
 @app.post("/api/pipeline/archive")
 def archive_to_history():
+    if "BATCH_MANAGER" in globals():
+        BATCH_MANAGER.detach_studio_task()
     cleanup()
     STATE.speaker_review_confirmed = False
     return {"status": "ok"}
@@ -1224,6 +1244,10 @@ def start_dubbing_pipeline(force_continue: bool = False):
             traceback.print_exc()
             STATE.error = str(e)
         finally:
+            if "BATCH_MANAGER" in globals():
+                BATCH_MANAGER.sync_from_studio_if_loaded(
+                    speaker_confirmed=bool(STATE.speaker_review_confirmed or os.path.exists(DUB_VIDEO))
+                )
             STATE.finish_task()
 
     threading.Thread(target=_worker, daemon=True).start()
@@ -1321,6 +1345,9 @@ def save_speaker_overrides(payload: SaveSpeakerReviewPayload):
 
     deleted_count = _10_gen_audio.invalidate_audio_cache_for_numbers(list(affected_numbers))
 
+    if "BATCH_MANAGER" in globals():
+        BATCH_MANAGER.sync_from_studio_if_loaded(speaker_confirmed=True)
+
     if payload.incremental_rebuild:
         STATE.speaker_review_confirmed = True
         start_dubbing_pipeline(force_continue=True)
@@ -1341,12 +1368,16 @@ def delete_dubbing_files():
     segs_dir = "output/audio/segs"
     if os.path.exists(segs_dir):
         shutil.rmtree(segs_dir)
+    if "BATCH_MANAGER" in globals():
+        BATCH_MANAGER.sync_from_studio_if_loaded(speaker_confirmed=False)
     return {"status": "ok"}
 
 
 @app.post("/api/task/stop")
 def stop_current_task():
     STATE.stop_requested = True
+    if "BATCH_MANAGER" in globals():
+        BATCH_MANAGER.stop_requested = True
     STATE.running = False
     STATE.toast = "⏹️ 已发送任务停止信号"
     return {"status": "ok"}
@@ -1359,18 +1390,1232 @@ def clear_task_error():
 
 
 # =====================================================================
-# API Endpoints: Batch Queue Monitor
+# Web Native Batch Queue Manager & Endpoints
 # =====================================================================
+BATCH_STATE_FILE = "batch/queue_state.json"
+BATCH_TASKS_DIR = "batch/tasks"
+SINGLE_STASH_DIR = "batch/_single_workspace_stash"
+
+
+def _copy_workspace_files(src_dir: str, dst_dir: str, clear_dst: bool = True, preserve_cookies: bool = False):
+    """Synchronize workspace files between output/ and batch/tasks/<id>/ safely."""
+    os.makedirs(dst_dir, exist_ok=True)
+    if clear_dst:
+        for item in os.listdir(dst_dir):
+            if preserve_cookies and item == "youtube_cookies.txt":
+                continue
+            p = os.path.join(dst_dir, item)
+            try:
+                if os.path.isdir(p):
+                    shutil.rmtree(p)
+                else:
+                    os.remove(p)
+            except Exception:
+                pass
+
+    if not os.path.exists(src_dir):
+        return
+
+    for item in os.listdir(src_dir):
+        if item == "youtube_cookies.txt":
+            continue
+        s_path = os.path.join(src_dir, item)
+        d_path = os.path.join(dst_dir, item)
+        try:
+            if os.path.isdir(s_path):
+                if os.path.exists(d_path):
+                    shutil.rmtree(d_path)
+                shutil.copytree(s_path, d_path)
+            else:
+                shutil.copy2(s_path, d_path)
+        except Exception:
+            pass
+
+
+def _find_task_orig_video(task_dir: str) -> Optional[str]:
+    if not os.path.exists(task_dir):
+        return None
+    try:
+        allowed = [ext.lower() for ext in (load_key("allowed_video_formats") or ["mp4", "mov", "mkv", "webm", "avi", "flv"])]
+    except Exception:
+        allowed = ["mp4", "mov", "mkv", "webm", "avi", "flv"]
+    candidates = []
+    for fname in os.listdir(task_dir):
+        fpath = os.path.join(task_dir, fname)
+        if os.path.isfile(fpath):
+            ext = os.path.splitext(fname)[1][1:].lower()
+            if ext in allowed and not fname.startswith("output_"):
+                candidates.append(fname)
+    return candidates[0] if candidates else None
+
+
+class BatchQueueManager:
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.tasks: List[Dict[str, Any]] = []
+        self.running: bool = False
+        self.pause_after_current: bool = False
+        self.stop_requested: bool = False
+        self.active_task_id: Optional[str] = None
+        self.studio_loaded_task_id: Optional[str] = None
+        self.revision: int = 1
+        os.makedirs(BATCH_TASKS_DIR, exist_ok=True)
+        self._load_or_migrate()
+
+    def _bump_rev(self):
+        self.revision += 1
+
+    def _now_str(self) -> str:
+        return time.strftime("%Y-%m-%d %H:%M:%S")
+
+    def _load_or_migrate(self):
+        with self.lock:
+            if os.path.exists(BATCH_STATE_FILE):
+                try:
+                    with open(BATCH_STATE_FILE, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    self.tasks = data.get("tasks", [])
+                    self.studio_loaded_task_id = data.get("studio_loaded_task_id")
+                    for t in self.tasks:
+                        if t.get("status") == "running":
+                            t["status"] = "paused"
+                            t["current_step"] = "上次运行中断，可断点续跑"
+                        elif t.get("status") == "probing":
+                            t["status"] = "pending"
+                    self._save()
+                except Exception as e:
+                    print(f"Warning: Failed to read {BATCH_STATE_FILE}: {e}")
+                    self.tasks = []
+            elif os.path.exists("batch/tasks_setting.xlsx"):
+                # One-time seamless migration from legacy Excel sheet
+                try:
+                    df = pd.read_excel("batch/tasks_setting.xlsx").fillna("")
+                    migrated = []
+                    for idx, row in df.iterrows():
+                        vfile = str(row.get("Video File", "")).strip()
+                        if not vfile:
+                            continue
+                        slang = str(row.get("Source Language", "")).strip()
+                        tlang = str(row.get("Target Language", "")).strip()
+                        dub_raw = row.get("Dubbing", "")
+                        is_dub = str(dub_raw).strip() in ("1", "1.0", "True", "true")
+                        raw_status = str(row.get("Status", "")).strip()
+                        status = "pending"
+                        if raw_status.lower() == "done":
+                            status = "completed"
+                        elif "error" in raw_status.lower():
+                            status = "error"
+                        tid = f"task_{int(time.time())}_{idx + 1}"
+                        os.makedirs(os.path.join(BATCH_TASKS_DIR, tid), exist_ok=True)
+                        migrated.append(
+                            {
+                                "id": tid,
+                                "url": vfile,
+                                "title": vfile,
+                                "thumbnail": "",
+                                "uploader": "",
+                                "duration_str": "",
+                                "source_lang": slang,
+                                "target_lang": tlang,
+                                "mode": "dub_video" if is_dub else "sub_video",
+                                "resolution": str(load_key("ytb_resolution") or "1080"),
+                                "prefer_official_sub": True,
+                                "tts_method": "",
+                                "male_voice": "",
+                                "female_voice": "",
+                                "pause_before_dub": False,
+                                "speaker_confirmed": False,
+                                "status": status,
+                                "current_step": raw_status if status == "error" else ("已完成" if status == "completed" else "排队等待中"),
+                                "step_index": 0,
+                                "total_steps": 10 if is_dub else 6,
+                                "progress": 100.0 if status == "completed" else 0.0,
+                                "error_msg": raw_status if status == "error" else "",
+                                "created_at": self._now_str(),
+                                "updated_at": self._now_str(),
+                            }
+                        )
+                    self.tasks = migrated
+                    self._save()
+                    # Probe metadata for migrated URL tasks in background
+                    probe_ids = [t["id"] for t in self.tasks if t["url"].startswith("http")]
+                    if probe_ids:
+                        threading.Thread(target=self._probe_tasks_worker, args=(probe_ids,), daemon=True).start()
+                except Exception as e:
+                    print(f"Warning: Failed to migrate legacy Excel: {e}")
+
+    def _save(self):
+        with self.lock:
+            os.makedirs(os.path.dirname(BATCH_STATE_FILE), exist_ok=True)
+            payload = {
+                "studio_loaded_task_id": self.studio_loaded_task_id,
+                "tasks": self.tasks,
+            }
+            tmp_file = BATCH_STATE_FILE + ".tmp"
+            with open(tmp_file, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_file, BATCH_STATE_FILE)
+            self._bump_rev()
+
+    def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        with self.lock:
+            for t in self.tasks:
+                if t["id"] == task_id:
+                    return t
+            return None
+
+    def get_task_dir(self, task_id: str) -> str:
+        return os.path.join(BATCH_TASKS_DIR, task_id)
+
+    def has_single_stash(self) -> bool:
+        if not os.path.exists(SINGLE_STASH_DIR):
+            return False
+        items = [x for x in os.listdir(SINGLE_STASH_DIR) if not x.startswith(".")]
+        return len(items) > 0
+
+    def get_studio_loaded_task_info(self) -> Optional[Dict[str, Any]]:
+        with self.lock:
+            if not self.studio_loaded_task_id:
+                return None
+            t = self.get_task(self.studio_loaded_task_id)
+            if not t:
+                self.studio_loaded_task_id = None
+                return None
+            return {
+                "id": t["id"],
+                "title": t.get("title") or t.get("url"),
+                "url": t.get("url"),
+                "status": t.get("status"),
+                "mode": t.get("mode"),
+            }
+
+    def detach_studio_task(self):
+        with self.lock:
+            if self.studio_loaded_task_id:
+                self.studio_loaded_task_id = None
+                self._save()
+
+    def _stash_single_workspace_if_needed(self):
+        """If output/ has files that do NOT belong to a batch task, stash them into SINGLE_STASH_DIR."""
+        with self.lock:
+            if self.studio_loaded_task_id:
+                prev_dir = self.get_task_dir(self.studio_loaded_task_id)
+                _copy_workspace_files("output", prev_dir, clear_dst=True)
+                self.studio_loaded_task_id = None
+                self._save()
+                return
+
+            if not os.path.exists("output"):
+                return
+            meaningful_items = [
+                x for x in os.listdir("output")
+                if x not in ("youtube_cookies.txt", ".DS_Store")
+            ]
+            if meaningful_items:
+                _copy_workspace_files("output", SINGLE_STASH_DIR, clear_dst=True)
+
+    def restore_single_stash(self) -> bool:
+        with self.lock:
+            if not self.has_single_stash():
+                return False
+            if self.studio_loaded_task_id:
+                prev_dir = self.get_task_dir(self.studio_loaded_task_id)
+                _copy_workspace_files("output", prev_dir, clear_dst=True)
+                self.studio_loaded_task_id = None
+            _copy_workspace_files(SINGLE_STASH_DIR, "output", clear_dst=True, preserve_cookies=True)
+            shutil.rmtree(SINGLE_STASH_DIR, ignore_errors=True)
+            self._save()
+            return True
+
+    def load_task_to_studio(self, task_id: str) -> Dict[str, Any]:
+        with self.lock:
+            t = self.get_task(task_id)
+            if not t:
+                raise HTTPException(status_code=404, detail="找不到该批量任务")
+            self._stash_single_workspace_if_needed()
+            task_dir = self.get_task_dir(task_id)
+            _copy_workspace_files(task_dir, "output", clear_dst=True, preserve_cookies=True)
+            if t.get("url") and t["url"].startswith("http"):
+                save_youtube_url(t["url"])
+            self.studio_loaded_task_id = task_id
+            STATE.speaker_review_confirmed = bool(t.get("speaker_confirmed"))
+            self._save()
+            return t
+
+    def sync_from_studio_if_loaded(self, speaker_confirmed: Optional[bool] = None):
+        with self.lock:
+            if not self.studio_loaded_task_id:
+                return
+            t = self.get_task(self.studio_loaded_task_id)
+            if not t:
+                self.studio_loaded_task_id = None
+                return
+            task_dir = self.get_task_dir(t["id"])
+            _copy_workspace_files("output", task_dir, clear_dst=True)
+            if speaker_confirmed is not None:
+                t["speaker_confirmed"] = speaker_confirmed
+            # Update title if video_title.txt exists
+            t_file = os.path.join(task_dir, "video_title.txt")
+            if os.path.exists(t_file):
+                try:
+                    with open(t_file, "r", encoding="utf-8") as f:
+                        new_title = f.read().strip()
+                        if new_title:
+                            t["title"] = new_title
+                except Exception:
+                    pass
+            # Inspect completion based on task mode
+            mode = t.get("mode", "dub_video")
+            has_dub = os.path.exists(os.path.join(task_dir, "output_dub.mp4"))
+            has_sub_vid = os.path.exists(os.path.join(task_dir, "output_sub.mp4"))
+            has_srt = os.path.exists(os.path.join(task_dir, "src.srt"))
+            has_audio_task = os.path.exists(os.path.join(task_dir, "log", "tts_tasks.xlsx")) or os.path.exists(
+                os.path.join(task_dir, "audio", "tts_tasks.xlsx")
+            )
+            if mode == "dub_video" and has_dub:
+                t["status"] = "completed"
+                t["progress"] = 100.0
+                t["current_step"] = "🎉 已在单视频工作台完成配音合成"
+                t["error_msg"] = ""
+            elif mode == "sub_video" and has_sub_vid:
+                t["status"] = "completed"
+                t["progress"] = 100.0
+                t["current_step"] = "🎉 已完成字幕烧录视频"
+                t["error_msg"] = ""
+            elif mode == "sub_only" and has_srt:
+                t["status"] = "completed"
+                t["progress"] = 100.0
+                t["current_step"] = "🎉 已完成双语字幕生成"
+                t["error_msg"] = ""
+            elif t.get("status") == "waiting_review" and t.get("speaker_confirmed"):
+                t["status"] = "pending"
+                t["current_step"] = "✅ 已确认说话人音色，等待继续合成配音"
+            elif has_audio_task and t.get("pause_before_dub") and not t.get("speaker_confirmed"):
+                t["status"] = "waiting_review"
+                t["current_step"] = "⏸️ 待确认说话人音色"
+            t["updated_at"] = self._now_str()
+            self._save()
+
+    def _enrich_task(self, t: Dict[str, Any]) -> Dict[str, Any]:
+        item = dict(t)
+        tid = item["id"]
+        # Check live directory (if currently running or loaded in studio, inspect output/ as well)
+        task_dir = self.get_task_dir(tid)
+        inspect_dir = "output" if (tid == self.active_task_id or tid == self.studio_loaded_task_id) and os.path.exists("output") else task_dir
+
+        orig_vid = _find_task_orig_video(inspect_dir) or _find_task_orig_video(task_dir)
+        has_sub_vid = os.path.exists(os.path.join(inspect_dir, "output_sub.mp4")) or os.path.exists(os.path.join(task_dir, "output_sub.mp4"))
+        has_dub_vid = os.path.exists(os.path.join(inspect_dir, "output_dub.mp4")) or os.path.exists(os.path.join(task_dir, "output_dub.mp4"))
+        has_src_srt = os.path.exists(os.path.join(inspect_dir, "src.srt")) or os.path.exists(os.path.join(task_dir, "src.srt"))
+        has_trans_srt = os.path.exists(os.path.join(inspect_dir, "trans.srt")) or os.path.exists(os.path.join(task_dir, "trans.srt"))
+        has_bi_srt = os.path.exists(os.path.join(inspect_dir, "src_trans.srt")) or os.path.exists(os.path.join(task_dir, "src_trans.srt"))
+        has_cover = os.path.exists(os.path.join(inspect_dir, "video_cover.jpg")) or os.path.exists(os.path.join(task_dir, "video_cover.jpg"))
+
+        has_checkpoint = bool(
+            orig_vid
+            or has_src_srt
+            or os.path.exists(os.path.join(task_dir, "log", "cleaned_chunks.xlsx"))
+            or os.path.exists(os.path.join(task_dir, "audio", "tts_tasks.xlsx"))
+        )
+
+        if has_cover:
+            item["thumbnail"] = f"/api/batch/media/{tid}/video_cover.jpg"
+
+        item["outputs"] = {
+            "has_checkpoint": has_checkpoint,
+            "orig_video_url": f"/api/batch/media/{tid}/{orig_vid}" if orig_vid else None,
+            "sub_video_url": f"/api/batch/media/{tid}/output_sub.mp4" if has_sub_vid else None,
+            "dub_video_url": f"/api/batch/media/{tid}/output_dub.mp4" if has_dub_vid else None,
+            "src_srt_url": f"/api/batch/media/{tid}/src.srt" if has_src_srt else None,
+            "trans_srt_url": f"/api/batch/media/{tid}/trans.srt" if has_trans_srt else None,
+            "bilingual_srt_url": f"/api/batch/media/{tid}/src_trans.srt" if has_bi_srt else None,
+            "zip_srt_url": f"/api/batch/tasks/{tid}/download-subtitles" if (has_src_srt or has_trans_srt) else None,
+        }
+        return item
+
+    def get_state_payload(self) -> Dict[str, Any]:
+        with self.lock:
+            enriched = [self._enrich_task(t) for t in self.tasks]
+            stats = {
+                "total": len(enriched),
+                "pending": sum(1 for t in enriched if t["status"] in ("pending", "probing")),
+                "running": sum(1 for t in enriched if t["status"] == "running"),
+                "waiting_review": sum(1 for t in enriched if t["status"] == "waiting_review"),
+                "paused": sum(1 for t in enriched if t["status"] == "paused"),
+                "completed": sum(1 for t in enriched if t["status"] == "completed"),
+                "error": sum(1 for t in enriched if t["status"] == "error"),
+            }
+            return {
+                "tasks": enriched,
+                "queue": {
+                    "running": self.running,
+                    "pause_after_current": self.pause_after_current,
+                    "active_task_id": self.active_task_id,
+                    "studio_loaded_task_id": self.studio_loaded_task_id,
+                    "has_single_stash": self.has_single_stash(),
+                    "revision": self.revision,
+                    "stats": stats,
+                },
+            }
+
+    def add_tasks(self, payload: "BatchAddTasksPayload") -> List[Dict[str, Any]]:
+        raw_urls = []
+        for line in payload.urls:
+            for sub in str(line).splitlines():
+                u = sub.strip()
+                if u:
+                    raw_urls.append(u)
+
+        if not raw_urls:
+            raise HTTPException(status_code=400, detail="请至少输入一个有效的视频链接")
+
+        added_ids = []
+        now_ts = int(time.time() * 1000)
+        with self.lock:
+            for idx, url in enumerate(raw_urls):
+                tid = f"task_{now_ts}_{idx + 1}"
+                t_dir = self.get_task_dir(tid)
+                os.makedirs(t_dir, exist_ok=True)
+                total_steps = 5 if payload.mode == "sub_only" else (6 if payload.mode == "sub_video" else 10)
+                yt_id = _1_ytdlp.get_youtube_video_id(url)
+                initial_thumb = f"https://i.ytimg.com/vi/{yt_id}/hqdefault.jpg" if yt_id else ""
+                new_task = {
+                    "id": tid,
+                    "url": url,
+                    "title": f"正在解析视频标题... ({url})",
+                    "thumbnail": initial_thumb,
+                    "uploader": "",
+                    "duration_str": "",
+                    "source_lang": payload.source_lang.strip(),
+                    "target_lang": payload.target_lang.strip(),
+                    "mode": payload.mode,
+                    "resolution": payload.resolution or "1080",
+                    "prefer_official_sub": payload.prefer_official_sub,
+                    "tts_method": payload.tts_method.strip(),
+                    "male_voice": payload.male_voice.strip(),
+                    "female_voice": payload.female_voice.strip(),
+                    "pause_before_dub": bool(payload.pause_before_dub),
+                    "speaker_confirmed": False,
+                    "status": "probing",
+                    "current_step": "🔍 正在嗅探视频标题与封面...",
+                    "step_index": 0,
+                    "total_steps": total_steps,
+                    "progress": 0.0,
+                    "error_msg": "",
+                    "created_at": self._now_str(),
+                    "updated_at": self._now_str(),
+                }
+                self.tasks.append(new_task)
+                added_ids.append(tid)
+            self._save()
+
+        threading.Thread(target=self._probe_tasks_worker, args=(added_ids,), daemon=True).start()
+        return added_ids
+
+    def _probe_tasks_worker(self, task_ids: List[str]):
+        import requests
+
+        for tid in task_ids:
+            t = self.get_task(tid)
+            if not t:
+                continue
+            url = t["url"]
+            task_dir = self.get_task_dir(tid)
+            os.makedirs(task_dir, exist_ok=True)
+
+            title = ""
+            thumb_url = t.get("thumbnail", "")
+            uploader = ""
+            duration_str = ""
+
+            # 1. Fast path: YouTube oEmbed API (< 300ms)
+            yt_id = _1_ytdlp.get_youtube_video_id(url)
+            proxies = None
+            try:
+                proxy_cfg = load_key("proxy")
+                if proxy_cfg:
+                    proxies = {"http": str(proxy_cfg), "https": str(proxy_cfg)}
+            except Exception:
+                pass
+
+            if yt_id:
+                try:
+                    oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={yt_id}&format=json"
+                    resp = requests.get(oembed_url, timeout=5, proxies=proxies)
+                    if resp.status_code == 200:
+                        odata = resp.json()
+                        title = odata.get("title") or ""
+                        uploader = odata.get("author_name") or ""
+                        thumb_url = odata.get("thumbnail_url") or f"https://i.ytimg.com/vi/{yt_id}/hqdefault.jpg"
+                except Exception:
+                    pass
+
+            # 2. Full yt-dlp metadata extraction for duration or non-YouTube URLs
+            if not title or not duration_str:
+                try:
+                    from yt_dlp import YoutubeDL
+                    ydl_opts = {
+                        "skip_download": True,
+                        "noplaylist": True,
+                        "nocheckcertificate": True,
+                        "quiet": True,
+                        "no_warnings": True,
+                    }
+                    if proxies and proxies.get("http"):
+                        ydl_opts["proxy"] = proxies["http"]
+                    _1_ytdlp._add_cookies_options(ydl_opts)
+                    with YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                        if info:
+                            title = info.get("title") or title
+                            uploader = info.get("uploader") or info.get("channel") or uploader
+                            thumb_url = info.get("thumbnail") or thumb_url
+                            dur = info.get("duration")
+                            if dur:
+                                m, s = divmod(int(dur), 60)
+                                h, m = divmod(m, 60)
+                                duration_str = f"{h:02d}:{m:02d}:{s:02d}" if h > 0 else f"{m:02d}:{s:02d}"
+                except Exception:
+                    pass
+
+            # Cache thumbnail image locally so frontend doesn't need proxy to view cover
+            if thumb_url:
+                try:
+                    r_img = requests.get(thumb_url, timeout=6, proxies=proxies)
+                    if r_img.status_code == 200 and len(r_img.content) > 500:
+                        cover_file = os.path.join(task_dir, "video_cover.jpg")
+                        with open(cover_file, "wb") as f:
+                            f.write(r_img.content)
+                        thumb_url = f"/api/batch/media/{tid}/video_cover.jpg"
+                except Exception:
+                    pass
+
+            if title:
+                try:
+                    with open(os.path.join(task_dir, "video_title.txt"), "w", encoding="utf-8") as f:
+                        f.write(title)
+                except Exception:
+                    pass
+
+            with self.lock:
+                curr = self.get_task(tid)
+                if curr:
+                    if title:
+                        curr["title"] = title
+                    elif curr["title"].startswith("正在解析视频标题"):
+                        curr["title"] = url
+                    if thumb_url:
+                        curr["thumbnail"] = thumb_url
+                    if uploader:
+                        curr["uploader"] = uploader
+                    if duration_str:
+                        curr["duration_str"] = duration_str
+                    if curr["status"] == "probing":
+                        curr["status"] = "pending"
+                        curr["current_step"] = "排队等待中"
+                    curr["updated_at"] = self._now_str()
+                    self._save()
+
+    def update_task(self, task_id: str, updates: Dict[str, Any]):
+        with self.lock:
+            t = self.get_task(task_id)
+            if not t:
+                raise HTTPException(status_code=404, detail="找不到该任务")
+            allowed_keys = [
+                "title",
+                "url",
+                "source_lang",
+                "target_lang",
+                "mode",
+                "resolution",
+                "prefer_official_sub",
+                "tts_method",
+                "male_voice",
+                "female_voice",
+                "pause_before_dub",
+            ]
+            for k in allowed_keys:
+                if k in updates and updates[k] is not None:
+                    t[k] = updates[k]
+            if "mode" in updates:
+                t["total_steps"] = 5 if t["mode"] == "sub_only" else (6 if t["mode"] == "sub_video" else 10)
+            t["updated_at"] = self._now_str()
+            self._save()
+            return t
+
+    def delete_task(self, task_id: str):
+        with self.lock:
+            t = self.get_task(task_id)
+            if not t:
+                raise HTTPException(status_code=404, detail="找不到该任务")
+            if t["status"] == "running" or self.active_task_id == task_id:
+                raise HTTPException(status_code=409, detail="该任务正在执行中，请先停止后再删除")
+            if self.studio_loaded_task_id == task_id:
+                self.studio_loaded_task_id = None
+            self.tasks = [x for x in self.tasks if x["id"] != task_id]
+            t_dir = self.get_task_dir(task_id)
+            if os.path.exists(t_dir):
+                shutil.rmtree(t_dir, ignore_errors=True)
+            self._save()
+
+    def move_task(self, task_id: str, direction: str):
+        with self.lock:
+            idx = next((i for i, x in enumerate(self.tasks) if x["id"] == task_id), -1)
+            if idx < 0:
+                raise HTTPException(status_code=404, detail="找不到该任务")
+            if direction == "up" and idx > 0:
+                self.tasks[idx - 1], self.tasks[idx] = self.tasks[idx], self.tasks[idx - 1]
+            elif direction == "down" and idx < len(self.tasks) - 1:
+                self.tasks[idx + 1], self.tasks[idx] = self.tasks[idx], self.tasks[idx + 1]
+            elif direction == "top" and idx > 0:
+                item = self.tasks.pop(idx)
+                self.tasks.insert(0, item)
+            self._save()
+
+    def reset_task_checkpoint(self, task_id: str):
+        with self.lock:
+            t = self.get_task(task_id)
+            if not t:
+                raise HTTPException(status_code=404, detail="找不到该任务")
+            if t["status"] == "running":
+                raise HTTPException(status_code=409, detail="任务正在运行中，无法重置")
+            t_dir = self.get_task_dir(task_id)
+            # Keep only cover & title metadata if present
+            if os.path.exists(t_dir):
+                for item in os.listdir(t_dir):
+                    if item in ("video_cover.jpg", "video_title.txt"):
+                        continue
+                    p = os.path.join(t_dir, item)
+                    if os.path.isdir(p):
+                        shutil.rmtree(p, ignore_errors=True)
+                    else:
+                        try:
+                            os.remove(p)
+                        except Exception:
+                            pass
+            if self.studio_loaded_task_id == task_id:
+                _wipe_output_workspace()
+                self.studio_loaded_task_id = None
+            t["status"] = "pending"
+            t["progress"] = 0.0
+            t["step_index"] = 0
+            t["current_step"] = "已清空缓存，等待重新执行"
+            t["error_msg"] = ""
+            t["speaker_confirmed"] = False
+            t["updated_at"] = self._now_str()
+            self._save()
+
+    def clear_tasks(self, target: str = "completed"):
+        with self.lock:
+            kept = []
+            for t in self.tasks:
+                if t["status"] == "running" or t["id"] == self.active_task_id:
+                    kept.append(t)
+                    continue
+                if target == "completed" and t["status"] != "completed":
+                    kept.append(t)
+                    continue
+                # Delete task directory
+                t_dir = self.get_task_dir(t["id"])
+                if os.path.exists(t_dir):
+                    shutil.rmtree(t_dir, ignore_errors=True)
+                if self.studio_loaded_task_id == t["id"]:
+                    self.studio_loaded_task_id = None
+            self.tasks = kept
+            self._save()
+
+    def _apply_task_config_overrides(self, t: Dict[str, Any]) -> Dict[str, Any]:
+        """Snapshot global config keys and apply per-task overrides."""
+        keys_to_save = [
+            "whisper.language",
+            "target_language",
+            "tts_method",
+            "doubao_tts.male_voice",
+            "doubao_tts.female_voice",
+            "doubao_tts.voice",
+            "edge_tts.male_voice",
+            "edge_tts.female_voice",
+            "edge_tts.voice",
+        ]
+        snapshot = {}
+        for k in keys_to_save:
+            try:
+                snapshot[k] = load_key(k)
+            except Exception:
+                snapshot[k] = None
+
+        if t.get("source_lang"):
+            update_key("whisper.language", t["source_lang"])
+        if t.get("target_lang"):
+            update_key("target_language", t["target_lang"])
+
+        tts_m = t.get("tts_method") or snapshot.get("tts_method") or "doubao_tts"
+        if t.get("tts_method"):
+            update_key("tts_method", t["tts_method"])
+
+        if t.get("male_voice"):
+            if tts_m == "edge_tts":
+                update_key("edge_tts.male_voice", t["male_voice"])
+            else:
+                update_key("doubao_tts.male_voice", t["male_voice"])
+
+        if t.get("female_voice"):
+            if tts_m == "edge_tts":
+                update_key("edge_tts.female_voice", t["female_voice"])
+                update_key("edge_tts.voice", t["female_voice"])
+            else:
+                update_key("doubao_tts.female_voice", t["female_voice"])
+                update_key("doubao_tts.voice", t["female_voice"])
+
+        return snapshot
+
+    def _restore_config_snapshot(self, snapshot: Dict[str, Any]):
+        for k, val in snapshot.items():
+            if val is not None:
+                try:
+                    update_key(k, val)
+                except Exception:
+                    pass
+
+    def _update_running_task_progress(self, t: Dict[str, Any], step_idx: int, total_steps: int, step_title: str, sub_step: str, pct: float):
+        with self.lock:
+            t["step_index"] = step_idx
+            t["total_steps"] = total_steps
+            t["current_step"] = f"[{step_idx}/{total_steps}] {step_title}"
+            t["progress"] = round(pct, 1)
+            t["updated_at"] = self._now_str()
+            self._save()
+        STATE.step_index = step_idx
+        STATE.total_steps = total_steps
+        STATE.step_name = f"📦 [{t.get('title') or t['url']}] {step_title}"
+        STATE.sub_step = sub_step
+        STATE.percent = pct
+
+    def _execute_single_task(self, t: Dict[str, Any]):
+        tid = t["id"]
+        task_dir = self.get_task_dir(tid)
+        os.makedirs(task_dir, exist_ok=True)
+
+        # Swap task workspace into output/
+        with self.lock:
+            self._stash_single_workspace_if_needed()
+            _copy_workspace_files(task_dir, "output", clear_dst=True, preserve_cookies=True)
+            self.active_task_id = tid
+            self.studio_loaded_task_id = tid
+            t["status"] = "running"
+            t["error_msg"] = ""
+            t["updated_at"] = self._now_str()
+            self._save()
+
+        mode = t.get("mode", "dub_video")
+        total_steps = 5 if mode == "sub_only" else (6 if mode == "sub_video" else 10)
+        cfg_snapshot = self._apply_task_config_overrides(t)
+
+        try:
+            url = t["url"].strip()
+            resolution = str(t.get("resolution") or load_key("ytb_resolution") or "1080")
+
+            # Step 1: Download video & probe official subtitles
+            orig_video = None
+            try:
+                orig_video = _1_ytdlp.find_video_files()
+            except Exception:
+                orig_video = None
+
+            if not orig_video or not os.path.exists(orig_video):
+                self._update_running_task_progress(
+                    t, 1, total_steps, f"下载视频 ({resolution}p)", "正在调用 yt-dlp 下载视频流与封面...", 5.0
+                )
+                _1_ytdlp.download_video_ytdlp(url, resolution=resolution)
+                save_youtube_url(url)
+                # Sync title & cover if fetched
+                if os.path.exists("output/video_title.txt"):
+                    with open("output/video_title.txt", "r", encoding="utf-8") as f:
+                        fetched_title = f.read().strip()
+                        if fetched_title:
+                            t["title"] = fetched_title
+                _copy_workspace_files("output", task_dir, clear_dst=True)
+
+            if self.stop_requested or STATE.stop_requested:
+                raise InterruptedError("任务已被手动暂停")
+
+            if t.get("prefer_official_sub", True) and not os.path.exists(_2_CLEANED_CHUNKS):
+                self._update_running_task_progress(
+                    t, 1, total_steps, "检测官方字幕", "正在探测原视频 CC 字幕或自动字幕轨道...", 12.0
+                )
+                sub_path, sub_type = _1_ytdlp.download_subtitle_ytdlp(url)
+                if sub_path:
+                    lang = load_key("whisper.language")
+                    if lang == "auto":
+                        lang = "en"
+                    use_subtitle_file(sub_path, lang)
+                    _copy_workspace_files("output", task_dir, clear_dst=True)
+
+            if self.stop_requested or STATE.stop_requested:
+                raise InterruptedError("任务已被手动暂停")
+
+            # Step 2: WhisperX + Pyannote Diarization (if not bypassed by official subtitle)
+            if not os.path.exists(_2_CLEANED_CHUNKS):
+                self._update_running_task_progress(
+                    t, 2, total_steps, "WhisperX 语音转录与声纹分离", "正在执行语音识别与多说话人分离...", 20.0
+                )
+                _2_asr.transcribe()
+                _2_5_diarize.diarize_main()
+                _copy_workspace_files("output", task_dir, clear_dst=True)
+
+            if self.stop_requested or STATE.stop_requested:
+                raise InterruptedError("任务已被手动暂停")
+
+            # Step 3: NLP + LLM Semantic Sentence Splitting
+            if not os.path.exists(_3_2_SPLIT_BY_MEANING):
+                self._update_running_task_progress(
+                    t, 3, total_steps, "NLP + LLM 语义分句", "正在执行 SpaCy 语法切分与大模型断句...", 35.0
+                )
+                _3_1_split_nlp.split_by_spacy()
+                _3_2_split_meaning.split_sentences_by_meaning()
+                _copy_workspace_files("output", task_dir, clear_dst=True)
+
+            if self.stop_requested or STATE.stop_requested:
+                raise InterruptedError("任务已被手动暂停")
+
+            # Step 4: Summarize & 3-Step Translation
+            if not os.path.exists(_4_2_TRANSLATION):
+                self._update_running_task_progress(
+                    t, 4, total_steps, "术语提取与三步法翻译", "正在并发执行「直译 -> 反思 -> 意译」...", 50.0
+                )
+                _4_1_summarize.get_summary()
+                _4_2_translate.translate_all()
+                _copy_workspace_files("output", task_dir, clear_dst=True)
+
+            if self.stop_requested or STATE.stop_requested:
+                raise InterruptedError("任务已被手动暂停")
+
+            # Step 5: Subtitle Splitting & Timestamp Alignment
+            if not os.path.exists(_5_SPLIT_SUB):
+                self._update_running_task_progress(
+                    t, 5, total_steps, "长字幕切分与时间轴对齐", "正在自适应切分长句并对齐双语时间戳...", 62.0
+                )
+                _5_split_sub.split_for_sub_main()
+            if not os.path.exists(SRC_SRT):
+                self._update_running_task_progress(
+                    t, 5, total_steps, "生成双语 SRT 字幕", "正在生成并平滑无重叠字幕文件...", 68.0
+                )
+                _6_gen_sub.align_timestamp_main()
+                _copy_workspace_files("output", task_dir, clear_dst=True)
+
+            if mode == "sub_only":
+                with self.lock:
+                    t["status"] = "completed"
+                    t["progress"] = 100.0
+                    t["current_step"] = "✅ 双语 SRT 字幕生成完成"
+                    t["updated_at"] = self._now_str()
+                    self._save()
+                return
+
+            if self.stop_requested or STATE.stop_requested:
+                raise InterruptedError("任务已被手动暂停")
+
+            # Step 6: Burn Subtitles into Video
+            should_burn = (mode == "sub_video") or bool(load_key("burn_subtitles"))
+            if should_burn and not os.path.exists(SUB_VIDEO):
+                self._update_running_task_progress(
+                    t, 6, total_steps, "烧录双语字幕到视频", "正在使用 FFmpeg 压制双语字幕视频 (output_sub.mp4)...", 75.0
+                )
+                _7_sub_into_vid.merge_subtitles_to_video()
+                _copy_workspace_files("output", task_dir, clear_dst=True)
+
+            if mode == "sub_video":
+                with self.lock:
+                    t["status"] = "completed"
+                    t["progress"] = 100.0
+                    t["current_step"] = "✅ 字幕压制视频合成完成"
+                    t["updated_at"] = self._now_str()
+                    self._save()
+                return
+
+            if self.stop_requested or STATE.stop_requested:
+                raise InterruptedError("任务已被手动暂停")
+
+            # Step 7: Dubbing - Audio extraction & Speaker gender/chunking
+            if not os.path.exists(_RAW_AUDIO_FILE):
+                self._update_running_task_progress(
+                    t, 7, total_steps, "提取原片基础音轨", "正在从原视频提取 raw.mp3 供声纹与性别分析...", 78.0
+                )
+                v_file = _1_ytdlp.find_video_files()
+                if v_file and os.path.exists(v_file):
+                    convert_video_to_audio(v_file)
+
+            if not os.path.exists(_8_1_AUDIO_TASK):
+                self._update_running_task_progress(
+                    t, 7, total_steps, "说话人性别识别与配音分块", "正在识别角色性别并计算跨角色切分边界...", 82.0
+                )
+                _8_1_audio_task.gen_audio_task_main()
+                _8_2_dub_chunks.gen_dub_chunks()
+                _copy_workspace_files("output", task_dir, clear_dst=True)
+            else:
+                df_existing = pd.read_excel(_8_1_AUDIO_TASK)
+                if "cut_off" not in df_existing.columns or "gap" not in df_existing.columns:
+                    _8_2_dub_chunks.gen_dub_chunks()
+                    _copy_workspace_files("output", task_dir, clear_dst=True)
+
+            # Check per-task pause_before_dub
+            if t.get("pause_before_dub") and not t.get("speaker_confirmed"):
+                _copy_workspace_files("output", task_dir, clear_dst=True)
+                with self.lock:
+                    t["status"] = "waiting_review"
+                    t["progress"] = 84.0
+                    t["current_step"] = "⏸️ 待确认说话人音色（已挂起，可载入工作台确认）"
+                    t["updated_at"] = self._now_str()
+                    self._save()
+                STATE.toast = f"⏸️ 任务《{t.get('title') or t['id']}》已挂起等待确认说话人，队列继续执行下一任务"
+                return
+
+            if self.stop_requested or STATE.stop_requested:
+                raise InterruptedError("任务已被手动暂停")
+
+            # Step 8: Reference Audio Extraction
+            if not load_key("skip_refer"):
+                self._update_running_task_progress(
+                    t, 8, total_steps, "提取说话人参考音频", "正在为各角色抽取清晰参考音频切片...", 87.0
+                )
+                _9_refer_audio.extract_refer_audio_main()
+                _copy_workspace_files("output", task_dir, clear_dst=True)
+
+            if self.stop_requested or STATE.stop_requested:
+                raise InterruptedError("任务已被手动暂停")
+
+            # Step 9: Multi-speaker TTS Generation & Timeline Merge
+            if not os.path.exists(DUB_VIDEO):
+                self._update_running_task_progress(
+                    t, 9, total_steps, "并发合成多角色配音", "正在调用 TTS 引擎并发合成并对齐语音轨道...", 92.0
+                )
+                _10_gen_audio.gen_audio()
+                _11_merge_audio.merge_full_audio()
+                _copy_workspace_files("output", task_dir, clear_dst=True)
+
+            if self.stop_requested or STATE.stop_requested:
+                raise InterruptedError("任务已被手动暂停")
+
+            # Step 10: Final Dubbed Video Merge
+            if not os.path.exists(DUB_VIDEO):
+                self._update_running_task_progress(
+                    t, 10, total_steps, "音画混流合成配音成片", "正在调用 FFmpeg 混流配音、伴奏与视频画面...", 97.0
+                )
+                _12_dub_to_vid.merge_video_audio()
+                _copy_workspace_files("output", task_dir, clear_dst=True)
+
+            with self.lock:
+                t["status"] = "completed"
+                t["progress"] = 100.0
+                t["current_step"] = "🎉 字幕与多角色配音成片全部完成"
+                t["error_msg"] = ""
+                t["updated_at"] = self._now_str()
+                self._save()
+
+        except InterruptedError as ie:
+            _copy_workspace_files("output", task_dir, clear_dst=True)
+            with self.lock:
+                t["status"] = "paused"
+                t["current_step"] = f"⏸️ 已暂停 ({t.get('current_step', '可随时断点续跑')})"
+                t["error_msg"] = str(ie)
+                t["updated_at"] = self._now_str()
+                self._save()
+        except Exception as e:
+            traceback.print_exc()
+            _copy_workspace_files("output", task_dir, clear_dst=True)
+            with self.lock:
+                t["status"] = "error"
+                t["error_msg"] = str(e)
+                t["current_step"] = f"❌ 异常中断 ({t.get('current_step', '')})"
+                t["updated_at"] = self._now_str()
+                self._save()
+        finally:
+            self._restore_config_snapshot(cfg_snapshot)
+            with self.lock:
+                if self.active_task_id == tid:
+                    self.active_task_id = None
+                self._save()
+
+    def start_queue(self, single_task_id: Optional[str] = None, from_scratch: bool = False):
+        if STATE.running or self.running:
+            raise HTTPException(status_code=409, detail="当前已有任务或队列正在运行中")
+
+        if single_task_id and from_scratch:
+            self.reset_task_checkpoint(single_task_id)
+
+        def _queue_worker():
+            with self.lock:
+                self.running = True
+                self.pause_after_current = False
+                self.stop_requested = False
+                self._bump_rev()
+
+            with STATE.lock:
+                STATE.start_task(
+                    stage="batch",
+                    total_steps=10,
+                    step_name="📦 正在启动批量队列处理引擎...",
+                )
+
+            try:
+                if single_task_id:
+                    t = self.get_task(single_task_id)
+                    if t:
+                        if t["status"] == "waiting_review":
+                            t["speaker_confirmed"] = True
+                        self._execute_single_task(t)
+                else:
+                    while not self.stop_requested and not STATE.stop_requested:
+                        # Pick next runnable task in current queue order
+                        next_task = None
+                        with self.lock:
+                            for candidate in self.tasks:
+                                if candidate["status"] in ("pending", "paused", "error", "probing"):
+                                    next_task = candidate
+                                    break
+                                if candidate["status"] == "waiting_review" and candidate.get("speaker_confirmed"):
+                                    next_task = candidate
+                                    break
+                        if not next_task:
+                            break
+
+                        self._execute_single_task(next_task)
+
+                        if self.stop_requested or STATE.stop_requested:
+                            break
+                        if self.pause_after_current:
+                            STATE.toast = "⏸️ 当前视频已处理完毕，批量队列已按计划暂停"
+                            break
+
+                if not self.stop_requested and not self.pause_after_current:
+                    STATE.percent = 100.0
+                    STATE.toast = "🎉 批量队列当前可执行任务已全部处理完毕！"
+            finally:
+                with self.lock:
+                    self.running = False
+                    self.pause_after_current = False
+                    self.active_task_id = None
+                    self._bump_rev()
+                STATE.finish_task()
+
+        threading.Thread(target=_queue_worker, daemon=True).start()
+
+
+BATCH_MANAGER = BatchQueueManager()
+
+
+class BatchAddTasksPayload(BaseModel):
+    urls: List[str]
+    source_lang: str = ""
+    target_lang: str = ""
+    mode: str = "dub_video"  # "sub_only" | "sub_video" | "dub_video"
+    resolution: str = "1080"
+    prefer_official_sub: bool = True
+    tts_method: str = ""
+    male_voice: str = ""
+    female_voice: str = ""
+    pause_before_dub: bool = False
+
+
+class BatchUpdateTaskPayload(BaseModel):
+    title: Optional[str] = None
+    url: Optional[str] = None
+    source_lang: Optional[str] = None
+    target_lang: Optional[str] = None
+    mode: Optional[str] = None
+    resolution: Optional[str] = None
+    prefer_official_sub: Optional[bool] = None
+    tts_method: Optional[str] = None
+    male_voice: Optional[str] = None
+    female_voice: Optional[str] = None
+    pause_before_dub: Optional[bool] = None
+
+
+class BatchMovePayload(BaseModel):
+    direction: str = "up"  # "up" | "down" | "top"
+
+
+class BatchRunSinglePayload(BaseModel):
+    from_scratch: bool = False
+
+
+class BatchClearPayload(BaseModel):
+    target: str = "completed"  # "completed" | "all"
+
+
 @app.get("/api/batch/state")
 def get_batch_state():
-    excel_path = "batch/tasks_setting.xlsx"
-    if not os.path.exists(excel_path):
-        return {"tasks": []}
-    try:
-        df = pd.read_excel(excel_path).fillna("")
-        return {"tasks": df.to_dict(orient="records")}
-    except Exception as e:
-        return {"tasks": [], "error": str(e)}
+    return BATCH_MANAGER.get_state_payload()
+
+
+@app.post("/api/batch/tasks")
+def add_batch_tasks(payload: BatchAddTasksPayload):
+    BATCH_MANAGER.add_tasks(payload)
+    return BATCH_MANAGER.get_state_payload()
+
+
+@app.put("/api/batch/tasks/{task_id}")
+def update_batch_task(task_id: str, payload: BatchUpdateTaskPayload):
+    BATCH_MANAGER.update_task(task_id, payload.model_dump(exclude_none=True))
+    return BATCH_MANAGER.get_state_payload()
+
+
+@app.delete("/api/batch/tasks/{task_id}")
+def delete_batch_task(task_id: str):
+    BATCH_MANAGER.delete_task(task_id)
+    return BATCH_MANAGER.get_state_payload()
+
+
+@app.post("/api/batch/tasks/{task_id}/move")
+def move_batch_task(task_id: str, payload: BatchMovePayload):
+    BATCH_MANAGER.move_task(task_id, payload.direction)
+    return BATCH_MANAGER.get_state_payload()
+
+
+@app.post("/api/batch/tasks/{task_id}/reset")
+def reset_batch_task(task_id: str):
+    BATCH_MANAGER.reset_task_checkpoint(task_id)
+    return BATCH_MANAGER.get_state_payload()
+
+
+@app.post("/api/batch/tasks/{task_id}/run")
+def run_single_batch_task(task_id: str, payload: BatchRunSinglePayload):
+    BATCH_MANAGER.start_queue(single_task_id=task_id, from_scratch=payload.from_scratch)
+    return BATCH_MANAGER.get_state_payload()
+
+
+@app.post("/api/batch/tasks/{task_id}/load-to-studio")
+def load_batch_task_to_studio(task_id: str):
+    if STATE.running or BATCH_MANAGER.running:
+        raise HTTPException(status_code=409, detail="当前有任务正在运行，请先停止后再切换工作台任务")
+    t = BATCH_MANAGER.load_task_to_studio(task_id)
+    return {"status": "ok", "task": t}
+
+
+@app.post("/api/batch/tasks/{task_id}/sync-from-studio")
+def sync_batch_task_from_studio(task_id: str, confirm_speaker: bool = False):
+    with BATCH_MANAGER.lock:
+        BATCH_MANAGER.studio_loaded_task_id = task_id
+        BATCH_MANAGER.sync_from_studio_if_loaded(speaker_confirmed=True if confirm_speaker else None)
+    return BATCH_MANAGER.get_state_payload()
+
+
+@app.post("/api/batch/start")
+def start_batch_queue():
+    BATCH_MANAGER.start_queue()
+    return BATCH_MANAGER.get_state_payload()
+
+
+@app.post("/api/batch/pause")
+def toggle_pause_after_current():
+    with BATCH_MANAGER.lock:
+        BATCH_MANAGER.pause_after_current = not BATCH_MANAGER.pause_after_current
+        BATCH_MANAGER._bump_rev()
+    return BATCH_MANAGER.get_state_payload()
+
+
+@app.post("/api/batch/stop")
+def stop_batch_queue():
+    STATE.stop_requested = True
+    BATCH_MANAGER.stop_requested = True
+    STATE.toast = "⏹️ 正在保存当前任务断点并停止批量队列..."
+    return BATCH_MANAGER.get_state_payload()
+
+
+@app.post("/api/batch/clear")
+def clear_batch_tasks(payload: BatchClearPayload):
+    BATCH_MANAGER.clear_tasks(payload.target)
+    return BATCH_MANAGER.get_state_payload()
+
+
+@app.post("/api/batch/restore-single-stash")
+def restore_single_workspace_stash():
+    if STATE.running or BATCH_MANAGER.running:
+        raise HTTPException(status_code=409, detail="当前有任务正在运行，无法恢复工作区")
+    ok = BATCH_MANAGER.restore_single_stash()
+    if not ok:
+        raise HTTPException(status_code=404, detail="没有可恢复的单视频工作台暂存备份")
+    return {"status": "ok"}
+
+
+@app.get("/api/batch/tasks/{task_id}/download-subtitles")
+def download_batch_task_subtitles(task_id: str):
+    t = BATCH_MANAGER.get_task(task_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="找不到该任务")
+    task_dir = BATCH_MANAGER.get_task_dir(task_id)
+    inspect_dir = "output" if (task_id == BATCH_MANAGER.active_task_id or task_id == BATCH_MANAGER.studio_loaded_task_id) and os.path.exists("output") else task_dir
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        for d in [inspect_dir, task_dir]:
+            if os.path.exists(d):
+                for fname in os.listdir(d):
+                    if fname.endswith(".srt") and fname not in zf.namelist():
+                        fpath = os.path.join(d, fname)
+                        with open(fpath, "rb") as f:
+                            zf.writestr(fname, f.read())
+    zip_buffer.seek(0)
+    safe_name = re.sub(r"[^\w\-]", "_", t.get("title") or task_id)[:40]
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}_subtitles.zip"'},
+    )
+
+
+@app.get("/api/batch/media/{task_id}/{file_path:path}")
+def stream_batch_task_media(task_id: str, file_path: str, request: Request):
+    task_dir = os.path.abspath(BATCH_MANAGER.get_task_dir(task_id))
+    target = os.path.abspath(os.path.join(task_dir, file_path))
+    if not target.startswith(task_dir):
+        raise HTTPException(status_code=403, detail="非法路径访问")
+
+    # Fallback to output/ if task is currently active in studio/runner
+    if not os.path.exists(target) and task_id in (BATCH_MANAGER.active_task_id, BATCH_MANAGER.studio_loaded_task_id):
+        out_base = os.path.abspath("output")
+        alt_target = os.path.abspath(os.path.join(out_base, file_path))
+        if alt_target.startswith(out_base) and os.path.exists(alt_target):
+            target = alt_target
+
+    if not os.path.exists(target) or not os.path.isfile(target):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    content_type, _ = mimetypes.guess_type(target)
+    if target.endswith(".vtt"):
+        content_type = "text/vtt; charset=utf-8"
+    elif target.endswith(".srt"):
+        content_type = "text/plain; charset=utf-8"
+    content_type = content_type or "application/octet-stream"
+
+    file_size = os.path.getsize(target)
+    range_header = request.headers.get("range")
+    if range_header:
+        match = re.match(r"bytes=(\d+)-(\d*)", range_header)
+        if match:
+            start = int(match.group(1))
+            end = int(match.group(2)) if match.group(2) else file_size - 1
+            end = min(end, file_size - 1)
+            length = max(0, end - start + 1)
+
+            def _iter_range():
+                with open(target, "rb") as f:
+                    f.seek(start)
+                    remaining = length
+                    while remaining > 0:
+                        chunk = f.read(min(65536, remaining))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        yield chunk
+
+            headers = {
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(length),
+            }
+            return StreamingResponse(_iter_range(), status_code=206, media_type=content_type, headers=headers)
+
+    return FileResponse(target, media_type=content_type, headers={"Accept-Ranges": "bytes"})
 
 
 # =====================================================================
@@ -1436,6 +2681,7 @@ async def websocket_logs(ws: WebSocket):
                 {
                     "logs": logs_Snapshot[-80:],
                     "task": STATE.to_dict(),
+                    "batch_rev": BATCH_MANAGER.revision,
                 }
             )
             if STATE.toast:

@@ -113,6 +113,31 @@
       <!-- ==================== 左主栏 (9 Cols / 75% Width) ==================== -->
       <main class="col-span-12 lg:col-span-9 flex flex-col gap-4">
 
+        <!-- 批量队列联动横幅 (当单视频工作台正载入某个批量任务时显示) -->
+        <div v-if="wsState.studio_batch_task" class="studio-card rounded-xl p-3.5 border-l-4 border-indigo-500 bg-indigo-500/5 flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2.5 text-xs">
+            <span class="px-2 py-0.5 rounded bg-indigo-600 text-white font-bold">📦 批量任务联动中</span>
+            <span class="font-bold">{{ wsState.studio_batch_task.title }}</span>
+            <span class="text-slate-400">（当前工作区修改将自动同步至该批量任务目录）</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs">
+            <button @click="syncStudioToBatch(false)" class="studio-subtle px-3 py-1.5 rounded-lg font-semibold hover:border-indigo-500">
+              💾 同步并返回批量队列
+            </button>
+            <button v-if="wsState.studio_batch_task.status === 'waiting_review' || speakerReview.available" @click="syncStudioToBatch(true)" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700">
+              ✅ 确认说话人并返回继续队列
+            </button>
+          </div>
+        </div>
+
+        <!-- 原单视频工作区暂存恢复提示 -->
+        <div v-if="wsState.has_single_stash && !wsState.studio_batch_task" class="studio-card rounded-xl p-3 border-l-4 border-amber-500 bg-amber-500/5 flex items-center justify-between text-xs">
+          <span>🛡️ 系统检测到您在启动批量队列前的单视频工作台进度已安全暂存备份。</span>
+          <button @click="restoreSingleStash" class="px-3 py-1 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600">
+            📥 一键恢复原单视频工作区
+          </button>
+        </div>
+
         <!-- 全局错误横幅 (如有) -->
         <div v-if="wsState.task?.error" class="studio-card rounded-xl p-4 border-l-4 border-rose-500 bg-rose-500/5 flex flex-col gap-2">
           <div class="flex items-center justify-between">
@@ -632,42 +657,661 @@
       </aside>
     </div>
 
-    <!-- ==================== 2-ALT. 批量队列监控视图 ==================== -->
-    <div v-if="workspaceMode === 'batch'" class="flex-1 p-4 max-w-[1600px] w-full mx-auto flex flex-col gap-4">
-      <div class="studio-card rounded-xl p-4 flex flex-col gap-3 shadow-sm">
-        <div class="flex items-center justify-between">
-          <div>
-            <h2 class="text-base font-bold">📦 批处理全局监控中心 (`batch/tasks_setting.xlsx`)</h2>
-            <p class="text-xs text-slate-400">读取并监控批量任务表格状态</p>
+    <!-- ==================== 2-ALT. Web 原生批量队列工作台 (三段式监控中心) ==================== -->
+    <div v-if="workspaceMode === 'batch'" class="flex-1 p-4 max-w-[1720px] w-full mx-auto flex flex-col gap-4">
+
+      <!-- ==================== 第一段：批量 URL 添入与单任务参数模板面板 ==================== -->
+      <section class="studio-card rounded-xl p-4 flex flex-col gap-3.5 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2.5">
+            <span class="text-lg">🚀</span>
+            <div>
+              <h2 class="text-sm font-bold">批量链接入队与独立参数模板</h2>
+              <p class="text-xs text-slate-400">支持一次粘贴多个在线视频链接（每行一条），入队后自动异步嗅探标题、封面与时长</p>
+            </div>
           </div>
-          <button @click="switchBatchMode" class="studio-subtle px-3 py-1.5 rounded-lg text-xs font-semibold hover:border-blue-500">🔄 刷新队列</button>
+          <div class="flex items-center gap-2 text-xs">
+            <button @click="showBatchAdvForm = !showBatchAdvForm" class="studio-subtle px-3 py-1.5 rounded-lg font-semibold hover:border-blue-500 transition">
+              {{ showBatchAdvForm ? '▲ 收起高级音色/字幕策略' : '⚙️ 展开高级独立参数 (TTS/音色/官方字幕/人工卡点)' }}
+            </button>
+          </div>
         </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-400">
-                <th class="py-2 px-3">Video File / URL</th>
-                <th class="py-2 px-3">Source Lang</th>
-                <th class="py-2 px-3">Target Lang</th>
-                <th class="py-2 px-3">Dubbing</th>
-                <th class="py-2 px-3">Status</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
-              <tr v-for="(t, i) in batchTasks" :key="i">
-                <td class="py-2.5 px-3 font-mono">{{ t['Video File'] }}</td>
-                <td class="py-2.5 px-3">{{ t['Source Language'] }}</td>
-                <td class="py-2.5 px-3">{{ t['Target Language'] }}</td>
-                <td class="py-2.5 px-3">{{ t['Dubbing'] }}</td>
-                <td class="py-2.5 px-3 font-semibold">{{ t['Status'] || 'Pending' }}</td>
-              </tr>
-              <tr v-if="!batchTasks.length">
-                <td colspan="5" class="py-8 text-center text-slate-400">暂无批量任务记录 (`batch/tasks_setting.xlsx`)</td>
-              </tr>
-            </tbody>
-          </table>
+
+        <div class="grid grid-cols-12 gap-3.5 items-stretch text-xs">
+          <!-- Left: Multi-line URL Input -->
+          <div class="col-span-12 lg:col-span-6 flex flex-col gap-1.5">
+            <label class="font-semibold text-slate-500 flex items-center justify-between">
+              <span>🔗 视频链接列表 (每行一个 YouTube / 在线视频 URL)</span>
+              <button v-if="batchForm.urlsText.trim()" @click="batchForm.urlsText = ''" class="text-slate-400 hover:text-rose-500">清空输入</button>
+            </label>
+            <textarea
+              v-model="batchForm.urlsText"
+              rows="4"
+              placeholder="https://www.youtube.com/watch?v=U4aFbyzrTdc&#10;https://www.youtube.com/watch?v=..."
+              class="studio-input w-full p-2.5 rounded-xl font-mono text-xs flex-1 leading-relaxed"
+            ></textarea>
+          </div>
+
+          <!-- Right: Core Per-Task Parameters & Submit -->
+          <div class="col-span-12 lg:col-span-6 flex flex-col justify-between gap-2.5">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div class="flex flex-col gap-1 sm:col-span-2">
+                <label class="font-semibold text-slate-500">🎯 流水线处理模式</label>
+                <select v-model="batchForm.mode" class="studio-input px-2.5 py-2 rounded-lg font-semibold">
+                  <option value="dub_video">🎙️ 字幕 + 多角色配音成片 (MP4)</option>
+                  <option value="sub_video">🎬 字幕 + 压制双语字幕视频 (MP4)</option>
+                  <option value="sub_only">📝 仅生成双语字幕文件 (SRT)</option>
+                </select>
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <label class="font-semibold text-slate-500">📺 下载清晰度</label>
+                <select v-model="batchForm.resolution" class="studio-input px-2.5 py-2 rounded-lg font-semibold">
+                  <option value="1080">1080p 高清</option>
+                  <option value="720">720p 标清</option>
+                  <option value="360">360p 极速</option>
+                  <option value="best">Best 原画</option>
+                </select>
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <label class="font-semibold text-slate-500">🗣️ 原视频语言</label>
+                <input
+                  v-model="batchForm.source_lang"
+                  list="src-lang-list"
+                  :placeholder="`默认 (${cfg.whisper?.language || 'en'})`"
+                  class="studio-input px-2.5 py-2 rounded-lg"
+                />
+                <datalist id="src-lang-list">
+                  <option value="en">English (en)</option>
+                  <option value="zh">中文 (zh)</option>
+                  <option value="ja">日本語 (ja)</option>
+                  <option value="ko">한국어 (ko)</option>
+                  <option value="fr">Français (fr)</option>
+                  <option value="de">Deutsch (de)</option>
+                  <option value="es">Español (es)</option>
+                  <option value="auto">自动检测 (auto)</option>
+                </datalist>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
+              <div class="flex flex-col gap-1">
+                <label class="font-semibold text-slate-500">🌍 翻译目标语言</label>
+                <input
+                  v-model="batchForm.target_lang"
+                  list="target-lang-list"
+                  :placeholder="`默认 (${cfg.target_language || '简体中文'})`"
+                  class="studio-input px-2.5 py-2 rounded-lg"
+                />
+                <datalist id="target-lang-list">
+                  <option value="简体中文"></option>
+                  <option value="繁體中文"></option>
+                  <option value="English"></option>
+                  <option value="日本語"></option>
+                  <option value="French"></option>
+                  <option value="German"></option>
+                  <option value="Spanish"></option>
+                </datalist>
+              </div>
+
+              <div class="sm:col-span-2 flex gap-2">
+                <button
+                  @click="addBatchTasks(false)"
+                  class="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition shadow-sm flex items-center justify-center gap-1.5"
+                >
+                  <span>➕ 加入批量队列</span>
+                </button>
+                <button
+                  @click="addBatchTasks(true)"
+                  :disabled="batchQueue.running || wsState.task?.running"
+                  class="py-2.5 px-4 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50 transition shadow-sm whitespace-nowrap"
+                >
+                  🚀 入队并立即开跑
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Expandable Advanced Per-Task Overrides -->
+        <div v-if="showBatchAdvForm" class="studio-subtle rounded-xl p-3.5 grid grid-cols-1 md:grid-cols-5 gap-3 text-xs border border-blue-500/20">
+          <div class="flex flex-col gap-1">
+            <label class="font-semibold text-slate-500">🔊 独立指定 TTS 引擎</label>
+            <select v-model="batchForm.tts_method" class="studio-input px-2.5 py-1.5 rounded-lg">
+              <option value="">跟随全局 ({{ cfg.tts_method || 'doubao_tts' }})</option>
+              <option value="doubao_tts">🌋 火山豆包 TTS 2.0</option>
+              <option value="edge_tts">🎙️ 微软 Edge TTS</option>
+              <option value="sf_cosyvoice2">🧬 SiliconFlow CosyVoice2</option>
+              <option value="gpt_sovits">🎭 GPT-SoVITS</option>
+            </select>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <label class="font-semibold text-slate-500">👨 独立默认男声</label>
+            <select v-model="batchForm.male_voice" class="studio-input px-2.5 py-1.5 rounded-lg">
+              <option value="">跟随全局默认男声</option>
+              <option
+                v-for="(vid, vlabel) in ((batchForm.tts_method || cfg.tts_method) === 'edge_tts' ? voiceCatalogs.edge_male : voiceCatalogs.doubao_male)"
+                :key="vid"
+                :value="vid"
+              >{{ vlabel }}</option>
+            </select>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <label class="font-semibold text-slate-500">👩 独立默认女声</label>
+            <select v-model="batchForm.female_voice" class="studio-input px-2.5 py-1.5 rounded-lg">
+              <option value="">跟随全局默认女声</option>
+              <option
+                v-for="(vid, vlabel) in ((batchForm.tts_method || cfg.tts_method) === 'edge_tts' ? voiceCatalogs.edge_female : voiceCatalogs.doubao_female)"
+                :key="vid"
+                :value="vid"
+              >{{ vlabel }}</option>
+            </select>
+          </div>
+
+          <label class="studio-card p-2.5 rounded-lg flex items-center justify-between cursor-pointer">
+            <div>
+              <div class="font-bold">⚡ 优先官方字幕</div>
+              <div class="text-slate-400">有 CC 字幕时秒级跳过转录</div>
+            </div>
+            <input type="checkbox" v-model="batchForm.prefer_official_sub" class="w-4 h-4 accent-blue-600" />
+          </label>
+
+          <label class="studio-card p-2.5 rounded-lg flex items-center justify-between cursor-pointer border-amber-500/30">
+            <div>
+              <div class="font-bold text-amber-600 dark:text-amber-400">⏸️ 配音前挂起确认</div>
+              <div class="text-slate-400">识别完说话人后挂起不阻塞队列</div>
+            </div>
+            <input type="checkbox" v-model="batchForm.pause_before_dub" class="w-4 h-4 accent-amber-500" />
+          </label>
+        </div>
+      </section>
+
+      <!-- ==================== 第二段：实时进度大盘与队列调度控制中心 ==================== -->
+      <section class="studio-card rounded-xl p-4 flex flex-col gap-3 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <!-- Status Metrics Pills -->
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <span class="font-bold text-sm mr-1">📊 队列调度中心</span>
+            <span class="studio-subtle px-2.5 py-1 rounded-lg font-semibold">
+              总计 <b class="text-blue-600">{{ batchQueue.stats?.total || 0 }}</b>
+            </span>
+            <span class="px-2.5 py-1 rounded-lg bg-slate-500/10 text-slate-600 dark:text-slate-300 font-medium">
+              ⏳ 待处理 <b>{{ batchQueue.stats?.pending || 0 }}</b>
+            </span>
+            <span v-if="batchQueue.stats?.running" class="px-2.5 py-1 rounded-lg bg-blue-500/15 text-blue-600 dark:text-blue-400 font-bold animate-pulse">
+              🚀 执行中 <b>{{ batchQueue.stats.running }}</b>
+            </span>
+            <span v-if="batchQueue.stats?.waiting_review" class="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 font-bold">
+              ⏸️ 待确认说话人 <b>{{ batchQueue.stats.waiting_review }}</b>
+            </span>
+            <span v-if="batchQueue.stats?.paused" class="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 font-semibold">
+              ⏯️ 已暂停(含断点) <b>{{ batchQueue.stats.paused }}</b>
+            </span>
+            <span class="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold">
+              ✅ 已完成 <b>{{ batchQueue.stats?.completed || 0 }}</b>
+            </span>
+            <span v-if="batchQueue.stats?.error" class="px-2.5 py-1 rounded-lg bg-rose-500/15 text-rose-600 dark:text-rose-400 font-bold">
+              ❌ 失败 <b>{{ batchQueue.stats.error }}</b>
+            </span>
+          </div>
+
+          <!-- Master Action Buttons -->
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <button
+              v-if="!batchQueue.running"
+              @click="startBatchQueue"
+              :disabled="wsState.task?.running || !batchTasks.length"
+              class="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:opacity-50 transition shadow-sm flex items-center gap-1.5"
+            >
+              <span>▶️ 启动 / 续跑批量队列</span>
+            </button>
+
+            <button
+              v-if="batchQueue.running"
+              @click="toggleBatchPauseAfterCurrent"
+              :class="batchQueue.pause_after_current ? 'bg-amber-500 text-white' : 'studio-subtle hover:border-amber-500 text-amber-600 dark:text-amber-400'"
+              class="px-3.5 py-2 rounded-xl font-bold transition"
+            >
+              {{ batchQueue.pause_after_current ? '⏳ 将在当前视频完成后暂停 (点击取消)' : '⏸️ 当前视频完成后暂停队列' }}
+            </button>
+
+            <button
+              v-if="batchQueue.running"
+              @click="stopBatchQueue"
+              class="px-3.5 py-2 rounded-xl bg-rose-500 text-white font-bold hover:bg-rose-600 transition"
+            >
+              ⏹️ 立即中断并保存断点
+            </button>
+
+            <button
+              v-if="batchQueue.has_single_stash && !batchQueue.running"
+              @click="restoreSingleStash"
+              class="px-3 py-1.5 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 font-semibold hover:bg-amber-500 hover:text-white transition"
+            >
+              📥 恢复原单视频工作区
+            </button>
+
+            <button
+              v-if="batchQueue.stats?.completed"
+              @click="clearBatchTasks('completed')"
+              class="studio-subtle px-3 py-1.5 rounded-lg font-medium hover:border-blue-500"
+            >
+              🧹 清理已完成
+            </button>
+
+            <button
+              v-if="batchTasks.length && !batchQueue.running"
+              @click="clearBatchTasks('all')"
+              class="studio-subtle px-3 py-1.5 rounded-lg font-medium text-rose-500 hover:border-rose-500"
+            >
+              🗑️ 清空全部
+            </button>
+
+            <button @click="fetchBatchState" class="studio-subtle px-3 py-1.5 rounded-lg font-semibold hover:border-blue-500">
+              🔄 刷新
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Running Progress Banner inside Batch Dashboard -->
+        <div v-if="batchQueue.running || (wsState.task?.running && wsState.task?.stage === 'batch')" class="rounded-xl p-3.5 border-2 border-blue-500/40 bg-blue-500/5 flex flex-col gap-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div class="flex items-center gap-2.5">
+              <span class="w-3 h-3 rounded-full bg-blue-600 animate-ping"></span>
+              <div>
+                <div class="font-bold text-sm text-blue-600 dark:text-blue-400 flex items-center gap-2">
+                  <span>{{ wsState.task?.step_name || '正在执行批处理任务...' }}</span>
+                  <span v-if="wsState.task?.elapsed_sec" class="px-2 py-0.5 rounded bg-slate-500/10 text-slate-500 font-mono text-xs font-normal">
+                    ⏱️ {{ formatElapsed(wsState.task.elapsed_sec) }}
+                  </span>
+                </div>
+                <div class="text-slate-500 font-mono mt-0.5">{{ wsState.task?.sub_step || '正在处理中...' }}</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 font-mono">
+              <span v-if="wsState.task?.speed" class="px-2 py-1 rounded bg-emerald-500/10 text-emerald-500 font-bold">🚀 {{ wsState.task.speed }}</span>
+              <span v-if="wsState.task?.eta" class="px-2 py-1 rounded bg-amber-500/10 text-amber-500 font-semibold">⏳ 剩余 {{ wsState.task.eta }}</span>
+              <span class="text-base font-extrabold text-blue-600">{{ (wsState.task?.percent || 0).toFixed(1) }}%</span>
+            </div>
+          </div>
+          <div class="w-full h-2.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden p-0.5">
+            <div class="h-full rounded-full bg-gradient-to-r from-blue-600 via-indigo-500 to-emerald-500 transition-all duration-300" :style="{ width: `${Math.min(100, Math.max(2, wsState.task?.percent || 2))}%` }"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 第三段：富媒体任务队列列表 ==================== -->
+      <section class="studio-card rounded-xl p-4 flex flex-col gap-3 shadow-sm flex-1">
+        <div v-if="!batchTasks.length" class="py-16 text-center flex flex-col items-center justify-center gap-2 text-slate-400">
+          <span class="text-3xl">📭</span>
+          <div class="text-sm font-bold">当前批量队列为空</div>
+          <div class="text-xs">请在上方粘贴一个或多个视频链接并点击「➕ 加入批量队列」</div>
+        </div>
+
+        <div v-else class="flex flex-col gap-3">
+          <div
+            v-for="(t, idx) in batchTasks"
+            :key="t.id"
+            class="studio-subtle rounded-xl p-3.5 transition border flex flex-col gap-3"
+            :class="{
+              'border-2 border-blue-500 bg-blue-500/5 shadow-md': t.status === 'running' || batchQueue.active_task_id === t.id,
+              'border-amber-500/60 bg-amber-500/5': t.status === 'waiting_review',
+              'border-emerald-500/40': t.status === 'completed',
+              'border-rose-500/50 bg-rose-500/5': t.status === 'error'
+            }"
+          >
+            <div class="grid grid-cols-12 gap-3 items-center text-xs">
+
+              <!-- 1. Order & Cover Thumbnail + Title (4 Cols) -->
+              <div class="col-span-12 lg:col-span-4 flex items-center gap-3 min-w-0">
+                <div class="flex flex-col items-center gap-1 shrink-0">
+                  <span class="px-2 py-0.5 rounded bg-slate-500/15 font-mono font-bold text-slate-500">#{{ idx + 1 }}</span>
+                  <div class="flex flex-col gap-0.5" v-if="t.status !== 'running'">
+                    <button @click="moveBatchTask(t.id, 'up')" :disabled="idx === 0" class="hover:text-blue-500 disabled:opacity-25 leading-none" title="上移">▲</button>
+                    <button @click="moveBatchTask(t.id, 'down')" :disabled="idx === batchTasks.length - 1" class="hover:text-blue-500 disabled:opacity-25 leading-none" title="下移">▼</button>
+                  </div>
+                </div>
+
+                <!-- Cover Image -->
+                <div class="w-28 h-16 rounded-lg overflow-hidden studio-card shrink-0 relative flex items-center justify-center bg-slate-900">
+                  <img v-if="t.thumbnail" :src="t.thumbnail" class="w-full h-full object-cover" />
+                  <span v-else class="text-lg">🎬</span>
+                  <span v-if="t.duration_str" class="absolute bottom-1 right-1 px-1.5 py-0.2 rounded bg-black/75 text-white font-mono text-[10px]">
+                    {{ t.duration_str }}
+                  </span>
+                </div>
+
+                <!-- Title & URL Info -->
+                <div class="flex flex-col gap-1 min-w-0 flex-1">
+                  <div class="font-bold text-sm truncate" :title="t.title">{{ t.title || t.url }}</div>
+                  <div class="flex flex-wrap items-center gap-1.5 text-slate-400">
+                    <span v-if="t.uploader" class="px-1.5 py-0.2 rounded bg-slate-500/10 text-slate-500 font-medium truncate max-w-[140px]">👤 {{ t.uploader }}</span>
+                    <a :href="t.url" target="_blank" class="font-mono hover:text-blue-500 truncate max-w-[220px]" :title="t.url">{{ t.url }}</a>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-1.5 mt-0.5">
+                    <span v-if="batchQueue.studio_loaded_task_id === t.id" class="px-1.5 py-0.2 rounded bg-indigo-600 text-white font-semibold text-[11px]">
+                      🔧 当前已载入单视频工作台
+                    </span>
+                    <span v-if="t.outputs?.has_checkpoint && t.status !== 'completed'" class="px-1.5 py-0.2 rounded bg-blue-500/15 text-blue-500 font-semibold text-[11px]">
+                      💾 含断点缓存
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 2. Inline Editable Parameters (3 Cols) -->
+              <div class="col-span-12 lg:col-span-3 flex flex-col gap-1.5">
+                <div class="grid grid-cols-2 gap-1.5">
+                  <select
+                    v-model="t.mode"
+                    @change="saveTaskInline(t)"
+                    :disabled="t.status === 'running'"
+                    class="studio-card px-2 py-1 rounded-lg font-semibold"
+                  >
+                    <option value="dub_video">🎙️ 字幕+配音成片</option>
+                    <option value="sub_video">🎬 字幕压制视频</option>
+                    <option value="sub_only">📝 仅双语字幕SRT</option>
+                  </select>
+
+                  <select
+                    v-model="t.resolution"
+                    @change="saveTaskInline(t)"
+                    :disabled="t.status === 'running'"
+                    class="studio-card px-2 py-1 rounded-lg font-mono"
+                  >
+                    <option value="1080">1080p</option>
+                    <option value="720">720p</option>
+                    <option value="360">360p</option>
+                    <option value="best">Best</option>
+                  </select>
+                </div>
+
+                <div class="flex items-center gap-1">
+                  <input
+                    v-model="t.source_lang"
+                    @change="saveTaskInline(t)"
+                    :disabled="t.status === 'running'"
+                    :placeholder="`源:${cfg.whisper?.language || 'en'}`"
+                    class="studio-card px-2 py-1 rounded-lg w-20 text-center font-mono"
+                  />
+                  <span class="text-slate-400">→</span>
+                  <input
+                    v-model="t.target_lang"
+                    @change="saveTaskInline(t)"
+                    :disabled="t.status === 'running'"
+                    :placeholder="`译:${cfg.target_language || '简体中文'}`"
+                    class="studio-card px-2 py-1 rounded-lg flex-1 min-w-0"
+                  />
+                  <button
+                    @click="expandedTaskConfigId = (expandedTaskConfigId === t.id ? null : t.id)"
+                    class="studio-card px-2 py-1 rounded-lg hover:border-blue-500 shrink-0"
+                    title="展开此任务的独立音色与策略配置"
+                  >
+                    ⚙️
+                  </button>
+                </div>
+
+                <!-- Summary badges for task overrides -->
+                <div class="flex flex-wrap gap-1 text-[11px] text-slate-400">
+                  <span class="px-1.5 py-0.2 rounded studio-card">
+                    {{ t.prefer_official_sub ? '⚡ 优先CC字幕' : '🎙️ 强制WhisperX' }}
+                  </span>
+                  <span v-if="t.mode === 'dub_video'" class="px-1.5 py-0.2 rounded studio-card">
+                    {{ t.pause_before_dub ? '⏸️ 配音前人工确认' : '🤖 全自动配音' }}
+                  </span>
+                  <span v-if="t.tts_method" class="px-1.5 py-0.2 rounded studio-card text-blue-500 font-semibold">
+                    {{ t.tts_method }}
+                  </span>
+                </div>
+              </div>
+
+              <!-- 3. Status & Progress Bar (2 Cols) -->
+              <div class="col-span-12 lg:col-span-2 flex flex-col gap-1.5">
+                <div class="flex items-center justify-between">
+                  <span
+                    class="px-2 py-0.5 rounded-full font-bold text-xs"
+                    :class="{
+                      'bg-slate-500/15 text-slate-500': t.status === 'pending' || t.status === 'probing',
+                      'bg-blue-600 text-white animate-pulse': t.status === 'running',
+                      'bg-amber-500 text-white': t.status === 'waiting_review',
+                      'bg-indigo-500/15 text-indigo-500': t.status === 'paused',
+                      'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400': t.status === 'completed',
+                      'bg-rose-500/15 text-rose-500': t.status === 'error'
+                    }"
+                  >
+                    {{ formatTaskStatus(t.status) }}
+                  </span>
+                  <span class="font-mono font-bold text-slate-500">
+                    {{ (t.status === 'running' && wsState.task?.percent ? wsState.task.percent : (t.progress || 0)).toFixed(0) }}%
+                  </span>
+                </div>
+
+                <div class="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                  <div
+                    class="h-full transition-all duration-300"
+                    :class="{
+                      'bg-blue-600': t.status === 'running' || t.status === 'pending',
+                      'bg-amber-500': t.status === 'waiting_review',
+                      'bg-indigo-500': t.status === 'paused',
+                      'bg-emerald-500': t.status === 'completed',
+                      'bg-rose-500': t.status === 'error'
+                    }"
+                    :style="{ width: `${Math.min(100, Math.max(0, t.status === 'running' && wsState.task?.percent ? wsState.task.percent : (t.progress || 0)))}%` }"
+                  ></div>
+                </div>
+
+                <div class="text-slate-500 truncate text-[11px]" :title="t.current_step">
+                  {{ t.current_step || '等待执行' }}
+                </div>
+                <div v-if="t.error_msg" class="text-rose-500 font-mono text-[11px] truncate" :title="t.error_msg">
+                  ⚠️ {{ t.error_msg }}
+                </div>
+              </div>
+
+              <!-- 4. Output Preview, Downloads & Task Control Buttons (3 Cols) -->
+              <div class="col-span-12 lg:col-span-3 flex flex-wrap items-center justify-end gap-1.5">
+                <!-- Special Action when Waiting for Speaker Review -->
+                <button
+                  v-if="t.status === 'waiting_review'"
+                  @click="loadBatchTaskToStudio(t, 'c')"
+                  class="px-2.5 py-1.5 rounded-lg bg-amber-500 text-white font-bold hover:bg-amber-600 transition shadow-xs"
+                >
+                  🎙️ 确认说话人音色
+                </button>
+                <button
+                  v-if="t.status === 'waiting_review' && !batchQueue.running"
+                  @click="runSingleBatchTask(t.id, false)"
+                  class="studio-card px-2.5 py-1.5 rounded-lg font-semibold hover:border-emerald-500 text-emerald-600 dark:text-emerald-400"
+                  title="跳过人工调整，按默认音色直接继续合成配音"
+                >
+                  ⚡ 直接合成配音
+                </button>
+
+                <!-- Preview & Download Outputs -->
+                <button
+                  v-if="t.outputs?.dub_video_url || t.outputs?.sub_video_url || t.outputs?.orig_video_url"
+                  @click="openBatchPreviewModal(t)"
+                  class="px-2.5 py-1.5 rounded-lg bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-bold hover:bg-indigo-600 hover:text-white transition"
+                >
+                  ▶️ 预览成片
+                </button>
+
+                <a
+                  v-if="t.outputs?.dub_video_url"
+                  :href="t.outputs.dub_video_url"
+                  download
+                  class="studio-card px-2 py-1.5 rounded-lg font-semibold text-emerald-600 dark:text-emerald-400 hover:border-emerald-500"
+                >
+                  📥 配音MP4
+                </a>
+                <a
+                  v-else-if="t.outputs?.sub_video_url"
+                  :href="t.outputs.sub_video_url"
+                  download
+                  class="studio-card px-2 py-1.5 rounded-lg font-semibold text-blue-600 dark:text-blue-400 hover:border-blue-500"
+                >
+                  📥 字幕MP4
+                </a>
+
+                <a
+                  v-if="t.outputs?.zip_srt_url"
+                  :href="t.outputs.zip_srt_url"
+                  download
+                  class="studio-card px-2 py-1.5 rounded-lg font-semibold hover:border-blue-500"
+                >
+                  📄 字幕包
+                </a>
+
+                <!-- Run / Resume / Retry Single Task -->
+                <button
+                  v-if="t.status !== 'running' && !batchQueue.running"
+                  @click="runSingleBatchTask(t.id, false)"
+                  class="studio-card px-2.5 py-1.5 rounded-lg font-bold text-blue-600 dark:text-blue-400 hover:border-blue-500"
+                  :title="t.outputs?.has_checkpoint ? '从上次保存的断点继续执行' : '单独启动此任务'"
+                >
+                  {{ t.status === 'error' || t.status === 'paused' ? '🔄 断点续跑' : '▶️ 单跑' }}
+                </button>
+
+                <button
+                  v-if="t.outputs?.has_checkpoint && t.status !== 'running' && !batchQueue.running"
+                  @click="resetBatchTask(t.id)"
+                  class="studio-card px-2 py-1.5 rounded-lg text-slate-500 hover:text-amber-500 hover:border-amber-500"
+                  title="清空该任务的中间缓存，以便从头重跑"
+                >
+                  ♻️ 重置
+                </button>
+
+                <!-- Load into Single Video Studio -->
+                <button
+                  v-if="t.status !== 'running' && !batchQueue.running"
+                  @click="loadBatchTaskToStudio(t, t.status === 'waiting_review' ? 'c' : 'b')"
+                  class="studio-card px-2.5 py-1.5 rounded-lg font-semibold hover:border-indigo-500"
+                  title="将该任务载入单视频工作台，进行字幕精修、词汇纠错或角色试听"
+                >
+                  🔧 载入工作台
+                </button>
+
+                <button
+                  v-if="t.status !== 'running'"
+                  @click="deleteBatchTask(t.id)"
+                  class="studio-card px-2 py-1.5 rounded-lg text-rose-500 hover:border-rose-500"
+                  title="删除任务与缓存文件"
+                >
+                  🗑️
+                </button>
+              </div>
+            </div>
+
+            <!-- Per-row Expandable Advanced Settings Drawer -->
+            <div v-if="expandedTaskConfigId === t.id" class="studio-card rounded-xl p-3 grid grid-cols-1 md:grid-cols-5 gap-2.5 text-xs border border-blue-500/30">
+              <div class="flex flex-col gap-1">
+                <label class="text-slate-400 font-medium">🔊 独立 TTS 引擎</label>
+                <select v-model="t.tts_method" @change="saveTaskInline(t)" class="studio-input px-2 py-1 rounded">
+                  <option value="">跟随全局 ({{ cfg.tts_method || 'doubao_tts' }})</option>
+                  <option value="doubao_tts">🌋 火山豆包 TTS 2.0</option>
+                  <option value="edge_tts">🎙️ 微软 Edge TTS</option>
+                  <option value="sf_cosyvoice2">🧬 CosyVoice2</option>
+                  <option value="gpt_sovits">🎭 GPT-SoVITS</option>
+                </select>
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <label class="text-slate-400 font-medium">👨 独立默认男声</label>
+                <select v-model="t.male_voice" @change="saveTaskInline(t)" class="studio-input px-2 py-1 rounded">
+                  <option value="">跟随全局男声</option>
+                  <option
+                    v-for="(vid, vlabel) in ((t.tts_method || cfg.tts_method) === 'edge_tts' ? voiceCatalogs.edge_male : voiceCatalogs.doubao_male)"
+                    :key="vid"
+                    :value="vid"
+                  >{{ vlabel }}</option>
+                </select>
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <label class="text-slate-400 font-medium">👩 独立默认女声</label>
+                <select v-model="t.female_voice" @change="saveTaskInline(t)" class="studio-input px-2 py-1 rounded">
+                  <option value="">跟随全局女声</option>
+                  <option
+                    v-for="(vid, vlabel) in ((t.tts_method || cfg.tts_method) === 'edge_tts' ? voiceCatalogs.edge_female : voiceCatalogs.doubao_female)"
+                    :key="vid"
+                    :value="vid"
+                  >{{ vlabel }}</option>
+                </select>
+              </div>
+
+              <label class="studio-subtle p-2 rounded flex items-center justify-between cursor-pointer">
+                <span>⚡ 优先使用官方/CC字幕</span>
+                <input type="checkbox" v-model="t.prefer_official_sub" @change="saveTaskInline(t)" class="w-4 h-4 accent-blue-600" />
+              </label>
+
+              <label class="studio-subtle p-2 rounded flex items-center justify-between cursor-pointer">
+                <span>⏸️ 配音前挂起待确认说话人</span>
+                <input type="checkbox" v-model="t.pause_before_dub" @change="saveTaskInline(t)" class="w-4 h-4 accent-amber-500" />
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 内联视频成片预览弹窗 ==================== -->
+      <div v-if="batchPreviewTask" class="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4" @click.self="batchPreviewTask = null">
+        <div class="studio-card rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col">
+          <div class="px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <div class="flex items-center gap-2.5 truncate">
+              <span>🎬</span>
+              <span class="font-bold text-sm truncate">{{ batchPreviewTask.title }}</span>
+            </div>
+            <div class="flex items-center gap-2 text-xs">
+              <button
+                v-if="batchPreviewTask.outputs?.dub_video_url"
+                @click="batchPreviewSource = 'dub'"
+                :class="batchPreviewSource === 'dub' ? 'bg-emerald-600 text-white font-bold' : 'studio-subtle'"
+                class="px-3 py-1 rounded-lg"
+              >🎙️ 配音成片</button>
+              <button
+                v-if="batchPreviewTask.outputs?.sub_video_url"
+                @click="batchPreviewSource = 'sub'"
+                :class="batchPreviewSource === 'sub' ? 'bg-blue-600 text-white font-bold' : 'studio-subtle'"
+                class="px-3 py-1 rounded-lg"
+              >📝 字幕视频</button>
+              <button
+                v-if="batchPreviewTask.outputs?.orig_video_url"
+                @click="batchPreviewSource = 'orig'"
+                :class="batchPreviewSource === 'orig' ? 'bg-blue-600 text-white font-bold' : 'studio-subtle'"
+                class="px-3 py-1 rounded-lg"
+              >🎞️ 原始视频</button>
+              <button @click="batchPreviewTask = null" class="studio-subtle w-7 h-7 rounded-lg flex items-center justify-center">✕</button>
+            </div>
+          </div>
+
+          <div class="bg-black aspect-video max-h-[65vh] w-full flex items-center justify-center">
+            <video
+              :key="batchPreviewVideoUrl"
+              :src="batchPreviewVideoUrl"
+              controls
+              autoplay
+              class="w-full h-full max-h-[65vh] object-contain"
+            ></video>
+          </div>
+
+          <div class="px-5 py-3 flex flex-wrap items-center justify-between gap-2 text-xs studio-subtle">
+            <div class="flex flex-wrap items-center gap-2">
+              <a v-if="batchPreviewTask.outputs?.dub_video_url" :href="batchPreviewTask.outputs.dub_video_url" download class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold">📥 下载配音成片 (MP4)</a>
+              <a v-if="batchPreviewTask.outputs?.sub_video_url" :href="batchPreviewTask.outputs.sub_video_url" download class="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold">📥 下载双语字幕视频 (MP4)</a>
+              <a v-if="batchPreviewTask.outputs?.bilingual_srt_url" :href="batchPreviewTask.outputs.bilingual_srt_url" download class="studio-card px-3 py-1.5 rounded-lg font-semibold">📄 下载双语字幕 (SRT)</a>
+              <a v-if="batchPreviewTask.outputs?.trans_srt_url" :href="batchPreviewTask.outputs.trans_srt_url" download class="studio-card px-3 py-1.5 rounded-lg font-semibold">📄 下载译文字幕 (SRT)</a>
+              <a v-if="batchPreviewTask.outputs?.zip_srt_url" :href="batchPreviewTask.outputs.zip_srt_url" download class="studio-card px-3 py-1.5 rounded-lg font-semibold">📦 打包下载全部字幕 (.zip)</a>
+            </div>
+            <button @click="loadBatchTaskToStudio(batchPreviewTask, 'b'); batchPreviewTask = null" class="studio-card px-3 py-1.5 rounded-lg font-semibold text-indigo-600 dark:text-indigo-400 hover:border-indigo-500">
+              🔧 载入单视频工作台精修
+            </button>
+          </div>
         </div>
       </div>
+
     </div>
 
     <!-- ==================== 3. 独立参数设置弹窗 (Independent Settings Modal) ==================== -->
@@ -1006,6 +1650,8 @@
           files: [],
           encoding: [],
           logs: [],
+          studio_batch_task: null,
+          has_single_stash: false,
         });
 
         const speakerReview = reactive({
@@ -1016,6 +1662,39 @@
         });
 
         const batchTasks = ref([]);
+        const batchQueue = reactive({
+          running: false,
+          pause_after_current: false,
+          active_task_id: null,
+          studio_loaded_task_id: null,
+          has_single_stash: false,
+          revision: 0,
+          stats: { total: 0, pending: 0, running: 0, waiting_review: 0, paused: 0, completed: 0, error: 0 },
+        });
+        const showBatchAdvForm = ref(false);
+        const expandedTaskConfigId = ref(null);
+        const batchPreviewTask = ref(null);
+        const batchPreviewSource = ref('dub');
+        const batchForm = reactive({
+          urlsText: '',
+          source_lang: '',
+          target_lang: '',
+          mode: 'dub_video',
+          resolution: '1080',
+          prefer_official_sub: true,
+          tts_method: '',
+          male_voice: '',
+          female_voice: '',
+          pause_before_dub: false,
+        });
+
+        const batchPreviewVideoUrl = computed(() => {
+          const t = batchPreviewTask.value;
+          if (!t || !t.outputs) return '';
+          if (batchPreviewSource.value === 'dub' && t.outputs.dub_video_url) return t.outputs.dub_video_url;
+          if (batchPreviewSource.value === 'sub' && t.outputs.sub_video_url) return t.outputs.sub_video_url;
+          return t.outputs.orig_video_url || t.outputs.sub_video_url || t.outputs.dub_video_url || '';
+        });
 
         function showToast(msg) {
           toastMessage.value = msg;
@@ -1060,7 +1739,10 @@
           llmProfiles.value = data.profiles || {};
           customTermsText.value = data.custom_terms || '';
           Object.assign(voiceCatalogs, data.voice_catalogs || {});
-          if (cfg.ytb_resolution) ytbRes.value = String(cfg.ytb_resolution);
+          if (cfg.ytb_resolution) {
+            ytbRes.value = String(cfg.ytb_resolution);
+            batchForm.resolution = String(cfg.ytb_resolution);
+          }
         }
 
         async function fetchWorkspaceState(syncSpeakerReview = false) {
@@ -1072,6 +1754,8 @@
           wsState.task = data.task || {};
           wsState.files = data.files || [];
           wsState.encoding = data.encoding || [];
+          wsState.studio_batch_task = data.studio_batch_task || null;
+          wsState.has_single_stash = Boolean(data.has_single_stash);
           if (data.logs?.length) wsState.logs = data.logs;
           if (wsState.video.youtube_url && !ytbUrl.value) {
             ytbUrl.value = wsState.video.youtube_url;
@@ -1358,16 +2042,240 @@
           fetchWorkspaceState();
         }
 
-        async function switchBatchMode() {
-          workspaceMode.value = 'batch';
+        function applyBatchPayload(data) {
+          if (!data) return;
+          batchTasks.value = data.tasks || [];
+          if (data.queue) {
+            Object.assign(batchQueue, data.queue);
+          }
+        }
+
+        async function fetchBatchState() {
           const res = await fetch('/api/batch/state');
           const data = await res.json();
-          batchTasks.value = data.tasks || [];
+          applyBatchPayload(data);
+        }
+
+        async function switchBatchMode() {
+          workspaceMode.value = 'batch';
+          await fetchBatchState();
+        }
+
+        function formatTaskStatus(st) {
+          const map = {
+            pending: '⏳ 排队中',
+            probing: '🔍 嗅探中',
+            running: '🚀 执行中',
+            waiting_review: '⏸️ 待确认说话人',
+            paused: '⏯️ 已暂停',
+            completed: '✅ 已完成',
+            error: '❌ 异常中断',
+          };
+          return map[st] || st;
+        }
+
+        async function addBatchTasks(startNow = false) {
+          const lines = batchForm.urlsText.split('\n').map(s => s.trim()).filter(Boolean);
+          if (!lines.length) {
+            return showToast('⚠️ 请先粘贴至少一条视频链接');
+          }
+          const res = await fetch('/api/batch/tasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              urls: lines,
+              source_lang: batchForm.source_lang,
+              target_lang: batchForm.target_lang,
+              mode: batchForm.mode,
+              resolution: batchForm.resolution,
+              prefer_official_sub: batchForm.prefer_official_sub,
+              tts_method: batchForm.tts_method,
+              male_voice: batchForm.male_voice,
+              female_voice: batchForm.female_voice,
+              pause_before_dub: batchForm.pause_before_dub,
+            }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            return showToast(`❌ 添加失败: ${err.detail || '未知错误'}`);
+          }
+          const data = await res.json();
+          applyBatchPayload(data);
+          batchForm.urlsText = '';
+          showToast(`✅ 已成功加入 ${lines.length} 个视频任务，正在后台嗅探视频信息...`);
+          if (startNow) {
+            await startBatchQueue();
+          }
+        }
+
+        async function saveTaskInline(t) {
+          const res = await fetch(`/api/batch/tasks/${t.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              source_lang: t.source_lang,
+              target_lang: t.target_lang,
+              mode: t.mode,
+              resolution: t.resolution,
+              prefer_official_sub: t.prefer_official_sub,
+              tts_method: t.tts_method,
+              male_voice: t.male_voice,
+              female_voice: t.female_voice,
+              pause_before_dub: t.pause_before_dub,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            applyBatchPayload(data);
+            showToast('💾 已更新任务参数');
+          }
+        }
+
+        async function deleteBatchTask(tid) {
+          const res = await fetch(`/api/batch/tasks/${tid}`, { method: 'DELETE' });
+          if (res.ok) {
+            applyBatchPayload(await res.json());
+            showToast('🗑️ 已删除该任务');
+          }
+        }
+
+        async function moveBatchTask(tid, direction) {
+          const res = await fetch(`/api/batch/tasks/${tid}/move`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ direction }),
+          });
+          if (res.ok) {
+            applyBatchPayload(await res.json());
+          }
+        }
+
+        async function resetBatchTask(tid) {
+          const res = await fetch(`/api/batch/tasks/${tid}/reset`, { method: 'POST' });
+          if (res.ok) {
+            applyBatchPayload(await res.json());
+            showToast('♻️ 已清空该任务断点缓存，重置为排队状态');
+          }
+        }
+
+        async function runSingleBatchTask(tid, fromScratch = false) {
+          const res = await fetch(`/api/batch/tasks/${tid}/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from_scratch: fromScratch }),
+          });
+          if (res.ok) {
+            applyBatchPayload(await res.json());
+            showToast('🚀 已启动单个队列任务');
+          } else {
+            const err = await res.json().catch(() => ({}));
+            showToast(`⚠️ ${err.detail || '无法启动任务'}`);
+          }
+        }
+
+        async function startBatchQueue() {
+          const res = await fetch('/api/batch/start', { method: 'POST' });
+          if (res.ok) {
+            applyBatchPayload(await res.json());
+            showToast('🚀 批量队列已启动！');
+          } else {
+            const err = await res.json().catch(() => ({}));
+            showToast(`⚠️ ${err.detail || '队列启动失败'}`);
+          }
+        }
+
+        async function toggleBatchPauseAfterCurrent() {
+          const res = await fetch('/api/batch/pause', { method: 'POST' });
+          if (res.ok) {
+            const data = await res.json();
+            applyBatchPayload(data);
+            showToast(data.queue?.pause_after_current ? '⏸️ 已设置：当前视频处理完成后将自动暂停队列' : '▶️ 已取消暂停计划，队列将继续连续执行');
+          }
+        }
+
+        async function stopBatchQueue() {
+          const res = await fetch('/api/batch/stop', { method: 'POST' });
+          if (res.ok) {
+            applyBatchPayload(await res.json());
+            showToast('⏹️ 正在中断当前任务并保存断点...');
+          }
+        }
+
+        async function clearBatchTasks(target) {
+          const res = await fetch('/api/batch/clear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target }),
+          });
+          if (res.ok) {
+            applyBatchPayload(await res.json());
+            showToast(target === 'completed' ? '🧹 已清理所有已完成任务' : '🗑️ 已清空批量队列');
+          }
+        }
+
+        async function loadBatchTaskToStudio(t, stage = 'b') {
+          const res = await fetch(`/api/batch/tasks/${t.id}/load-to-studio`, { method: 'POST' });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            return showToast(`⚠️ ${err.detail || '无法载入工作台'}`);
+          }
+          await fetchWorkspaceState(true);
+          await fetchBatchState();
+          workspaceMode.value = 'single';
+          activeStage.value = stage;
+          showToast(`🔧 已将《${t.title || t.id}》载入单视频工作台`);
+        }
+
+        async function syncStudioToBatch(confirmSpeaker = false) {
+          const tid = wsState.studio_batch_task?.id;
+          if (!tid) return;
+          if (confirmSpeaker && speakerReview.available) {
+            await fetch('/api/speakers/save', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                speakers: speakerReview.speakers,
+                lines: speakerReview.lines,
+                incremental_rebuild: false,
+              }),
+            });
+          }
+          const res = await fetch(`/api/batch/tasks/${tid}/sync-from-studio?confirm_speaker=${confirmSpeaker}`, { method: 'POST' });
+          if (res.ok) {
+            applyBatchPayload(await res.json());
+          }
+          workspaceMode.value = 'batch';
+          showToast(confirmSpeaker ? '✅ 已确认角色音色并同步回批量队列，可点击续跑完成配音！' : '💾 已将工作台修改同步回批量队列');
+        }
+
+        async function restoreSingleStash() {
+          const res = await fetch('/api/batch/restore-single-stash', { method: 'POST' });
+          if (res.ok) {
+            await fetchWorkspaceState(true);
+            await fetchBatchState();
+            workspaceMode.value = 'single';
+            showToast('📥 已成功恢复原单视频工作区进度！');
+          } else {
+            const err = await res.json().catch(() => ({}));
+            showToast(`⚠️ ${err.detail || '恢复失败'}`);
+          }
+        }
+
+        function openBatchPreviewModal(t) {
+          batchPreviewTask.value = t;
+          if (t.outputs?.dub_video_url) {
+            batchPreviewSource.value = 'dub';
+          } else if (t.outputs?.sub_video_url) {
+            batchPreviewSource.value = 'sub';
+          } else {
+            batchPreviewSource.value = 'orig';
+          }
         }
 
         onMounted(async () => {
           await fetchConfig();
           await fetchWorkspaceState(true);
+          await fetchBatchState();
           if (wsState.stage_c?.waiting_confirm || speakerReview.available) {
             activeStage.value = 'c';
           } else if (wsState.video?.exists) {
@@ -1380,11 +2288,16 @@
           let wasRunning = false;
           let lastRunningStage = null;
           let lastWorkspaceSyncTime = 0;
+          let lastBatchRev = batchQueue.revision || 0;
 
           ws.onmessage = async (ev) => {
             try {
               const payload = JSON.parse(ev.data);
               if (payload.logs) wsState.logs = payload.logs;
+              if (payload.batch_rev && payload.batch_rev !== lastBatchRev) {
+                lastBatchRev = payload.batch_rev;
+                fetchBatchState();
+              }
               if (payload.task) {
                 if (payload.task.toast) showToast(payload.task.toast);
 
@@ -1395,6 +2308,9 @@
                   if (now - lastWorkspaceSyncTime > 2500) {
                     lastWorkspaceSyncTime = now;
                     fetchWorkspaceState(false);
+                    if (workspaceMode.value === 'batch' || payload.task.stage === 'batch') {
+                      fetchBatchState();
+                    }
                   }
                 }
 
@@ -1402,6 +2318,7 @@
                   const finishedStage = lastRunningStage;
                   lastRunningStage = null;
                   await fetchWorkspaceState(true);
+                  await fetchBatchState();
                   if (finishedStage === 'download' && !payload.task.error && wsState.video?.exists) {
                     activeStage.value = 'b';
                     showToast('🎬 视频与字幕准备就绪，已为您自动切换至「阶段 B · 字幕与翻译」');
@@ -1422,13 +2339,19 @@
           speakerSubTab, showSettingsModal, settingsTab, showConsole, toastMessage,
           videoPlayerRef, ytbUrl, ytbRes, expandedDirs, cfg, llmProfiles,
           selectedProfile, newProfileName, customTermsText, voiceCatalogs,
-          wsState, speakerReview, batchTasks, currentVideoUrl, formatElapsed,
+          wsState, speakerReview, batchTasks, batchQueue, batchForm, showBatchAdvForm,
+          expandedTaskConfigId, batchPreviewTask, batchPreviewSource, batchPreviewVideoUrl,
+          currentVideoUrl, formatElapsed,
           toggleTheme, selectVideoSource, seekToTime, toggleDir, openSettings,
           saveAllConfig, handleProfile, testLlmApi, downloadYoutube, uploadVideoFile,
           deleteVideo, uploadSubtitleBypass, startSubtitlePipeline, reapplyTerms,
           resetSubtitles, archiveWorkspace, syncSpeakerCardToLines, startDubbing,
           saveSpeakerOverrides, deleteDubbing, stopTask, clearError, switchBatchMode,
-          fetchWorkspaceState,
+          fetchWorkspaceState, fetchBatchState, formatTaskStatus, addBatchTasks,
+          saveTaskInline, deleteBatchTask, moveBatchTask, resetBatchTask,
+          runSingleBatchTask, startBatchQueue, toggleBatchPauseAfterCurrent,
+          stopBatchQueue, clearBatchTasks, loadBatchTaskToStudio, syncStudioToBatch,
+          restoreSingleStash, openBatchPreviewModal,
         };
       }
     }).mount('#app');
