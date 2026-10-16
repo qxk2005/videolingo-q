@@ -34,9 +34,9 @@ def split_chunks_by_chars(chunk_size, max_i):
 
 # Get context from surrounding chunks
 def get_previous_content(chunks, chunk_index):
-    return None if chunk_index == 0 else chunks[chunk_index - 1].split('\n')[-3:] # Get last 3 lines
+    return None if (chunk_index <= 0 or chunk_index - 1 >= len(chunks)) else chunks[chunk_index - 1].split('\n')[-3:] # Get last 3 lines
 def get_after_content(chunks, chunk_index):
-    return None if chunk_index == len(chunks) - 1 else chunks[chunk_index + 1].split('\n')[:2] # Get first 2 lines
+    return None if (chunk_index < 0 or chunk_index + 1 >= len(chunks)) else chunks[chunk_index + 1].split('\n')[:2] # Get first 2 lines
 
 # 🔍 Translate a single chunk
 def translate_chunk(chunk, chunks, theme_prompt, i):
@@ -73,14 +73,23 @@ def _translate_with_fallback(chunk, all_chunks, theme_prompt, i):
     except Exception as e:
         err_str = str(e)
         # 🛡️ 对根本无法通过重试/切分解决的登录和认证硬伤错误，直接拦截并向上抛出，杜绝卡死
-        if "尚未登录" in err_str or "agy login" in err_str or "API key is not set" in err_str or "Authentication required" in err_str or "Antigravity CLI call failed" in err_str or "after re-auth" in err_str:
+        if (
+            "尚未登录" in err_str
+            or "agy login" in err_str
+            or "API key is not set" in err_str
+            or "Authentication required" in err_str
+            or "Antigravity CLI call failed" in err_str
+            or "after re-auth" in err_str
+            or "auth_unavailable" in err_str
+            or "no auth available" in err_str
+        ):
             raise e
 
         console.print(f"[yellow]⚠️ Chunk {i} failed ({e}). Re-splitting into sub-chunks...[/yellow]")
         sub_chunks = _split_chunk_into_sub(chunk, chunk_size=600, max_i=10)
         src_all, trans_all, corrected_all = [], [], []
-        for sc in sub_chunks:
-            _, sc_src, sc_trans, sc_corrected = translate_chunk(sc, [sc], theme_prompt, i)
+        for sc_idx, sc in enumerate(sub_chunks):
+            _, sc_src, sc_trans, sc_corrected = translate_chunk(sc, sub_chunks, theme_prompt, sc_idx)
             src_all.extend([l for l in sc_src.split('\n') if l])
             trans_all.extend([l for l in sc_trans.split('\n') if l])
             corrected_all.extend([l for l in sc_corrected.split('\n') if l])

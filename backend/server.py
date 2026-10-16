@@ -660,10 +660,126 @@ def manage_llm_profile(payload: ProfileActionPayload):
     raise HTTPException(status_code=400, detail="未知操作")
 
 
+class LlmCheckPayload(BaseModel):
+    use_antigravity_cli: Optional[bool] = None
+    antigravity_token_code: Optional[str] = None
+    key: Optional[str] = None
+    base_url: Optional[str] = None
+    model: Optional[str] = None
+    llm_support_json: Optional[bool] = None
+    auto_save_on_success: bool = True
+
+
 @app.post("/api/llm/check")
-def check_llm_connectivity():
-    ok = check_api()
-    return {"valid": bool(ok)}
+def check_llm_connectivity(payload: Optional[LlmCheckPayload] = None):
+    from openai import OpenAI
+    from core.utils.ask_gpt import ask_antigravity_cli
+
+    t0 = time.perf_counter()
+    use_cli = payload.use_antigravity_cli if (payload and payload.use_antigravity_cli is not None) else bool(load_key("api.use_antigravity_cli"))
+    token_code = payload.antigravity_token_code if (payload and payload.antigravity_token_code is not None) else (load_key("api.antigravity_token_code") or "")
+    api_key = (payload.key if (payload and payload.key is not None) else (load_key("api.key") or "")).strip()
+    raw_base_url = (payload.base_url if (payload and payload.base_url is not None) else (load_key("api.base_url") or "")).strip()
+    model_name = (payload.model if (payload and payload.model is not None) else (load_key("api.model") or "")).strip()
+    support_json = payload.llm_support_json if (payload and payload.llm_support_json is not None) else bool(load_key("api.llm_support_json"))
+    auto_save = True if payload is None else bool(payload.auto_save_on_success)
+
+    test_prompt = 'This is a connectivity test, please respond with {"message": "success"} in json format.'
+    try:
+        if use_cli:
+            if token_code:
+                update_key("api.antigravity_token_code", token_code)
+            resp_content = ask_antigravity_cli(test_prompt)
+            target_label = "antigravity-cli (agy)"
+        else:
+            if not api_key:
+                return {
+                    "valid": False,
+                    "saved": False,
+                    "latency_ms": 0,
+                    "model": model_name or "未填写",
+                    "error": "API_KEY 不能为空，请先填写密钥",
+                    "message": "API_KEY 未填写",
+                }
+            if not raw_base_url:
+                return {
+                    "valid": False,
+                    "saved": False,
+                    "latency_ms": 0,
+                    "model": model_name or "未填写",
+                    "error": "BASE_URL 不能为空，请先填写接口地址",
+                    "message": "BASE_URL 未填写",
+                }
+            if not model_name:
+                return {
+                    "valid": False,
+                    "saved": False,
+                    "latency_ms": 0,
+                    "model": "未填写",
+                    "error": "MODEL 不能为空，请先填写模型名称",
+                    "message": "MODEL 未填写",
+                }
+
+            if "ark" in raw_base_url:
+                norm_base_url = "https://ark.cn-beijing.volces.com/api/v3"
+            elif "v1" not in raw_base_url:
+                norm_base_url = raw_base_url.rstrip("/") + "/v1"
+            else:
+                norm_base_url = raw_base_url
+
+            client = OpenAI(api_key=api_key, base_url=norm_base_url, max_retries=0)
+            resp_raw = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": test_prompt}],
+                timeout=25,
+            )
+            resp_content = (resp_raw.choices[0].message.content or "").strip()
+            target_label = model_name
+
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        if not resp_content:
+            return {
+                "valid": False,
+                "saved": False,
+                "latency_ms": latency_ms,
+                "model": target_label,
+                "error": "模型返回内容为空，请确认模型名称与接口协议兼容",
+                "message": "模型返回为空",
+            }
+
+        saved = False
+        if auto_save:
+            update_key("api.use_antigravity_cli", bool(use_cli))
+            if token_code is not None:
+                update_key("api.antigravity_token_code", token_code)
+            if not use_cli:
+                update_key("api.key", api_key)
+                update_key("api.base_url", raw_base_url)
+                update_key("api.model", model_name)
+                update_key("api.llm_support_json", bool(support_json))
+            saved = True
+
+        clean_preview = re.sub(r"<think>.*?</think>", "", resp_content, flags=re.DOTALL).strip()
+        clean_preview = re.sub(r"\s+", " ", clean_preview)[:120]
+        return {
+            "valid": True,
+            "saved": saved,
+            "latency_ms": latency_ms,
+            "model": target_label,
+            "reply_preview": clean_preview or resp_content[:120],
+            "message": "API 连接测试通过，已自动保存 LLM 配置" if saved else "API 连接测试通过",
+        }
+    except Exception as e:
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        err_detail = str(e).strip() or repr(e)
+        return {
+            "valid": False,
+            "saved": False,
+            "latency_ms": latency_ms,
+            "model": "antigravity-cli (agy)" if use_cli else (model_name or "未知模型"),
+            "error": err_detail,
+            "message": "API 连接失败",
+        }
 
 
 class VoicePreviewPayload(BaseModel):
@@ -723,7 +839,8 @@ def get_workspace_state():
         srt_path = "output/youtube_subtitle.srt"
         vtt_path = "output/youtube_subtitle.vtt"
         if os.path.exists(srt_path):
-            srt_to_vtt(srt_path, vtt_path)
+            if not os.path.exists(vtt_path) or os.path.getmtime(srt_path) > os.path.getmtime(vtt_path):
+                srt_to_vtt(srt_path, vtt_path)
         if os.path.exists(vtt_path):
             vtt_url = "/api/media/youtube_subtitle.vtt"
 

@@ -1324,7 +1324,7 @@
             <span class="font-bold text-sm">系统参数设置 (`config.yaml`)</span>
           </div>
           <div class="flex items-center gap-2">
-            <button @click="saveAllConfig" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition">
+            <button @click="saveAllConfig(true)" class="px-4 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 transition">
               💾 保存全部设置
             </button>
             <button @click="showSettingsModal = false" class="studio-subtle w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white">
@@ -1361,7 +1361,16 @@
 
               <div v-if="cfg.api.use_antigravity_cli" class="studio-subtle p-3 rounded-xl flex flex-col gap-1.5 border-l-4 border-amber-500">
                 <label class="font-semibold">🔑 Antigravity 登录授权码 (Token Code)</label>
-                <input type="text" v-model="cfg.api.antigravity_token_code" class="studio-input px-3 py-1.5 rounded-lg font-mono" />
+                <div class="flex gap-2">
+                  <input type="text" v-model="cfg.api.antigravity_token_code" placeholder="可选：填入 Google OAuth 授权码供静默重连..." class="studio-input flex-1 px-3 py-1.5 rounded-lg font-mono" />
+                  <button
+                    @click="testLlmApi"
+                    :disabled="llmTestState.testing"
+                    class="studio-card px-3.5 py-1.5 rounded-lg hover:border-blue-500 font-semibold disabled:opacity-50 shrink-0"
+                  >
+                    {{ llmTestState.testing ? '⏳ 测试中...' : '📡 测试 CLI' }}
+                  </button>
+                </div>
               </div>
 
               <div v-else class="flex flex-col gap-3.5">
@@ -1378,7 +1387,7 @@
                   </div>
                   <div class="flex gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                     <input v-model="newProfileName" type="text" placeholder="输入新预设名称..." class="studio-input flex-1 px-2.5 py-1.5 rounded-lg" />
-                    <button @click="handleProfile('save')" class="px-3.5 py-1.5 rounded-lg bg-blue-600 text-white font-semibold">💾 保存新预设</button>
+                    <button @click="handleProfile('save')" class="px-3.5 py-1.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition">💾 保存新预设</button>
                   </div>
                 </div>
 
@@ -1398,13 +1407,60 @@
                     <label class="font-medium text-slate-500">MODEL</label>
                     <div class="flex gap-1.5">
                       <input type="text" v-model="cfg.api.model" class="studio-input flex-1 px-3 py-1.5 rounded-lg font-mono" />
-                      <button @click="testLlmApi" class="studio-subtle px-3 py-1.5 rounded-lg hover:border-blue-500 font-semibold">📡 测试</button>
+                      <button
+                        @click="testLlmApi"
+                        :disabled="llmTestState.testing"
+                        class="studio-subtle px-3 py-1.5 rounded-lg hover:border-blue-500 font-semibold disabled:opacity-50 shrink-0"
+                      >
+                        {{ llmTestState.testing ? '⏳ 测试中...' : '📡 测试' }}
+                      </button>
                     </div>
                   </div>
                   <label class="studio-subtle px-3 py-2 rounded-lg flex items-center justify-between cursor-pointer">
                     <span>LLM JSON 格式强制输出支持</span>
                     <input type="checkbox" v-model="cfg.api.llm_support_json" class="w-4 h-4 accent-blue-600" />
                   </label>
+                </div>
+              </div>
+
+              <!-- 内联 API 连通性测试结果面板 (Inline Test Result Card) -->
+              <div v-if="llmTestState.testing" class="p-3 rounded-xl border border-blue-500/40 bg-blue-500/10 text-blue-600 dark:text-blue-300 flex items-center gap-2.5 animate-pulse">
+                <span>⏳</span>
+                <span class="font-semibold">正在测试大模型连通性 ({{ cfg.api.use_antigravity_cli ? 'Antigravity CLI' : (cfg.api.model || '未填模型') }})，请稍候...</span>
+              </div>
+
+              <div v-else-if="llmTestState.tested && llmTestState.valid" class="p-3.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 flex flex-col gap-1.5">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-bold text-emerald-600 dark:text-emerald-400 text-sm">✅ API 连接测试通过</span>
+                    <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">⚡ {{ llmTestState.latency_ms }} ms</span>
+                    <span v-if="llmTestState.saved" class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/20 text-blue-600 dark:text-blue-300">💾 已自动保存当前 LLM 配置</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-[11px] text-slate-400 font-mono">{{ llmTestState.tested_at }}</span>
+                    <button @click="llmTestState.tested = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-white px-1">✕</button>
+                  </div>
+                </div>
+                <div class="text-[11px] text-slate-600 dark:text-slate-300 font-mono flex flex-wrap gap-x-4 gap-y-1">
+                  <span>🤖 模型: <b>{{ llmTestState.model }}</b></span>
+                  <span v-if="llmTestState.reply_preview" class="truncate max-w-xl">💬 响应: {{ llmTestState.reply_preview }}</span>
+                </div>
+              </div>
+
+              <div v-else-if="llmTestState.tested && !llmTestState.valid" class="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 flex flex-col gap-2">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-bold text-rose-600 dark:text-rose-400 text-sm">❌ API 连接测试失败</span>
+                    <span v-if="llmTestState.latency_ms" class="px-2 py-0.5 rounded-full text-[11px] font-mono bg-rose-500/20 text-rose-600 dark:text-rose-300">{{ llmTestState.latency_ms }} ms</span>
+                    <span class="text-[11px] text-slate-500 font-mono">模型: {{ llmTestState.model }}</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-[11px] text-slate-400 font-mono">{{ llmTestState.tested_at }}</span>
+                    <button @click="llmTestState.tested = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-white px-1">✕</button>
+                  </div>
+                </div>
+                <div class="p-2.5 rounded-lg bg-slate-950/85 text-rose-300 font-mono text-[11px] leading-relaxed break-all select-all">
+                  {{ llmTestState.error || '连接失败，请检查 API_KEY、BASE_URL 与模型名称是否正确' }}
                 </div>
               </div>
 
@@ -1608,7 +1664,7 @@
     </footer>
 
     <!-- Toast Notification -->
-    <div v-if="toastMessage" class="fixed top-14 right-5 z-50 px-4 py-2.5 rounded-xl bg-slate-900/95 text-white text-xs font-semibold shadow-xl border border-white/10 backdrop-blur">
+    <div v-if="toastMessage" class="fixed top-14 right-5 z-[60] px-4 py-2.5 rounded-xl bg-slate-900/95 text-white text-xs font-semibold shadow-xl border border-white/10 backdrop-blur">
       {{ toastMessage }}
     </div>
 
@@ -1641,6 +1697,17 @@
         const newProfileName = ref('');
         const customTermsText = ref('');
         const voiceCatalogs = reactive({ doubao_male: {}, doubao_female: {}, edge_male: {}, edge_female: {} });
+        const llmTestState = reactive({
+          testing: false,
+          tested: false,
+          valid: false,
+          saved: false,
+          latency_ms: 0,
+          model: '',
+          reply_preview: '',
+          error: '',
+          tested_at: '',
+        });
 
         const wsState = reactive({
           video: {},
@@ -1779,7 +1846,7 @@
           showSettingsModal.value = true;
         }
 
-        async function saveAllConfig() {
+        async function saveAllConfig(closeModal = true) {
           const updates = {
             'api.use_antigravity_cli': Boolean(cfg.api?.use_antigravity_cli),
             'api.antigravity_token_code': cfg.api?.antigravity_token_code || '',
@@ -1818,31 +1885,74 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ updates, custom_terms: customTermsText.value }),
           });
-          showSettingsModal.value = false;
-          showToast('💾 配置已保存并同步到 config.yaml');
+          if (closeModal) {
+            showSettingsModal.value = false;
+            showToast('💾 配置已保存并同步到 config.yaml');
+          }
           fetchWorkspaceState(true);
         }
 
         async function handleProfile(action) {
           const name = action === 'save' ? newProfileName.value.trim() : selectedProfile.value;
           if (!name) return showToast('⚠️ 请先输入或选择预设名称');
-          if (action === 'save') await saveAllConfig();
+          if (action === 'save') await saveAllConfig(false);
           const res = await fetch('/api/llm/profiles', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action, name }),
           });
           const data = await res.json();
+          if (action === 'save') {
+            selectedProfile.value = name;
+            newProfileName.value = '';
+          } else if (action === 'load') {
+            llmTestState.tested = false;
+          }
           showToast(data.message || '操作成功');
           await fetchConfig();
         }
 
         async function testLlmApi() {
-          await saveAllConfig();
-          showToast('📡 正在检测 API 连通性...');
-          const res = await fetch('/api/llm/check', { method: 'POST' });
-          const data = await res.json();
-          showToast(data.valid ? '✅ API 连接测试通过！' : '❌ API 连接失败，请检查密钥与地址');
+          llmTestState.testing = true;
+          llmTestState.tested = false;
+          llmTestState.error = '';
+          llmTestState.reply_preview = '';
+          try {
+            const res = await fetch('/api/llm/check', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                use_antigravity_cli: Boolean(cfg.api?.use_antigravity_cli),
+                antigravity_token_code: cfg.api?.antigravity_token_code || '',
+                key: cfg.api?.key || '',
+                base_url: cfg.api?.base_url || '',
+                model: cfg.api?.model || '',
+                llm_support_json: Boolean(cfg.api?.llm_support_json),
+                auto_save_on_success: true,
+              }),
+            });
+            const data = await res.json();
+            const now = new Date();
+            llmTestState.tested = true;
+            llmTestState.valid = Boolean(data.valid);
+            llmTestState.saved = Boolean(data.saved);
+            llmTestState.latency_ms = Number(data.latency_ms || 0);
+            llmTestState.model = data.model || (cfg.api?.use_antigravity_cli ? 'antigravity-cli (agy)' : (cfg.api?.model || ''));
+            llmTestState.reply_preview = data.reply_preview || '';
+            llmTestState.error = data.error || '';
+            llmTestState.tested_at = now.toTimeString().slice(0, 8);
+          } catch (err) {
+            const now = new Date();
+            llmTestState.tested = true;
+            llmTestState.valid = false;
+            llmTestState.saved = false;
+            llmTestState.latency_ms = 0;
+            llmTestState.model = cfg.api?.use_antigravity_cli ? 'antigravity-cli (agy)' : (cfg.api?.model || '未知模型');
+            llmTestState.error = String(err?.message || err || '网络请求异常');
+            llmTestState.tested_at = now.toTimeString().slice(0, 8);
+          } finally {
+            llmTestState.testing = false;
+          }
         }
 
         function formatElapsed(sec) {
@@ -2338,7 +2448,7 @@
           isDark, workspaceMode, activeStage, activeVideoSource, activeLineInfo,
           speakerSubTab, showSettingsModal, settingsTab, showConsole, toastMessage,
           videoPlayerRef, ytbUrl, ytbRes, expandedDirs, cfg, llmProfiles,
-          selectedProfile, newProfileName, customTermsText, voiceCatalogs,
+          selectedProfile, newProfileName, customTermsText, voiceCatalogs, llmTestState,
           wsState, speakerReview, batchTasks, batchQueue, batchForm, showBatchAdvForm,
           expandedTaskConfigId, batchPreviewTask, batchPreviewSource, batchPreviewVideoUrl,
           currentVideoUrl, formatElapsed,

@@ -210,11 +210,13 @@ def _normalize_keys_to_strings(data):
 
 @except_handler("GPT request failed", retry=3, delay=0.5)
 def ask_gpt(prompt, resp_type=None, valid_def=None, log_title="default"):
-    # check cache
-    cached = _load_cache(prompt, resp_type, log_title)
-    if cached:
-        rprint("use cache response")
-        return cached
+    # check cache (bypass when log_title is None / 'None', e.g. connectivity test)
+    skip_cache = log_title is None or str(log_title) == "None"
+    if not skip_cache:
+        cached = _load_cache(prompt, resp_type, log_title)
+        if cached:
+            rprint("use cache response")
+            return cached
 
     if load_key("api.use_antigravity_cli") or load_key("api.use_gemini_cli"):
         model = "antigravity-cli"
@@ -273,7 +275,8 @@ def ask_gpt(prompt, resp_type=None, valid_def=None, log_title="default"):
             _save_cache(model, prompt, resp_content, resp_type, resp, log_title="error", message=valid_resp['message'])
             raise ValueError(f"❎ API response error: {valid_resp['message']}")
 
-    _save_cache(model, prompt, resp_content, resp_type, resp, log_title=log_title)
+    if not skip_cache:
+        _save_cache(model, prompt, resp_content, resp_type, resp, log_title=log_title)
     return resp
 
 
