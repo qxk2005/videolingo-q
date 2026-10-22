@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "videolingo-q": {
+      "command": "/Users/niuzhidao/Documents/Program/videolingo/VideoLingo/start_mcp_server.sh",
+      "args": [],
+      "env": {
+        "VIDEOLINGO_API_URL": "http://127.0.0.1:8502"
+      }
+    }
+  }
+}

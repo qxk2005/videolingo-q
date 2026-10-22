@@ -14,4 +14,5 @@ if ! "$PYTHON_BIN" -c "import fastapi, uvicorn, multipart, websockets" >/dev/nul
 fi
 
 echo "🚀 Launching VideoLingo Q 2.0 Vue Studio on http://127.0.0.1:8502 ..."
+echo "🔌 MCP Streamable HTTP: http://127.0.0.1:8502/mcp | MCP SSE: http://127.0.0.1:8502/mcp/sse"
 exec "$PYTHON_BIN" backend/server.py

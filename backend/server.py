@@ -1945,6 +1945,20 @@ class BatchQueueManager:
             uploader = ""
             duration_str = ""
 
+            if os.path.isfile(os.path.expanduser(url)):
+                local_p = os.path.abspath(os.path.expanduser(url))
+                title = os.path.basename(local_p)
+                with self.lock:
+                    curr = self.get_task(tid)
+                    if curr:
+                        curr["title"] = title
+                        if curr["status"] == "probing":
+                            curr["status"] = "pending"
+                            curr["current_step"] = "排队等待中（本地文件）"
+                        curr["updated_at"] = self._now_str()
+                        self._save()
+                continue
+
             # 1. Fast path: YouTube oEmbed API (< 300ms)
             yt_id = _1_ytdlp.get_youtube_video_id(url)
             proxies = None
@@ -2230,9 +2244,10 @@ class BatchQueueManager:
 
         try:
             url = t["url"].strip()
+            is_local_file = os.path.isfile(os.path.expanduser(url))
             resolution = str(t.get("resolution") or load_key("ytb_resolution") or "1080")
 
-            # Step 1: Download video & probe official subtitles
+            # Step 1: Download video (or import local file) & probe official subtitles
             orig_video = None
             try:
                 orig_video = _1_ytdlp.find_video_files()
@@ -2240,23 +2255,30 @@ class BatchQueueManager:
                 orig_video = None
 
             if not orig_video or not os.path.exists(orig_video):
-                self._update_running_task_progress(
-                    t, 1, total_steps, f"下载视频 ({resolution}p)", "正在调用 yt-dlp 下载视频流与封面...", 5.0
-                )
-                _1_ytdlp.download_video_ytdlp(url, resolution=resolution)
-                save_youtube_url(url)
-                # Sync title & cover if fetched
-                if os.path.exists("output/video_title.txt"):
-                    with open("output/video_title.txt", "r", encoding="utf-8") as f:
-                        fetched_title = f.read().strip()
-                        if fetched_title:
-                            t["title"] = fetched_title
+                if is_local_file:
+                    self._update_running_task_progress(
+                        t, 1, total_steps, "导入本地媒体文件", "正在复制本地视频/音频到工作区...", 5.0
+                    )
+                    imported_name = _import_local_media_to_output(os.path.expanduser(url), wipe_first=False)
+                    t["title"] = imported_name
+                else:
+                    self._update_running_task_progress(
+                        t, 1, total_steps, f"下载视频 ({resolution}p)", "正在调用 yt-dlp 下载视频流与封面...", 5.0
+                    )
+                    _1_ytdlp.download_video_ytdlp(url, resolution=resolution)
+                    save_youtube_url(url)
+                    # Sync title & cover if fetched
+                    if os.path.exists("output/video_title.txt"):
+                        with open("output/video_title.txt", "r", encoding="utf-8") as f:
+                            fetched_title = f.read().strip()
+                            if fetched_title:
+                                t["title"] = fetched_title
                 _copy_workspace_files("output", task_dir, clear_dst=True)
 
             if self.stop_requested or STATE.stop_requested:
                 raise InterruptedError("任务已被手动暂停")
 
-            if t.get("prefer_official_sub", True) and not os.path.exists(_2_CLEANED_CHUNKS):
+            if (not is_local_file) and t.get("prefer_official_sub", True) and not os.path.exists(_2_CLEANED_CHUNKS):
                 self._update_running_task_progress(
                     t, 1, total_steps, "检测官方字幕", "正在探测原视频 CC 字幕或自动字幕轨道...", 12.0
                 )
@@ -2811,8 +2833,552 @@ async def websocket_logs(ws: WebSocket):
 
 
 # =====================================================================
-# Serve Vue 3 SPA Frontend
+# Agent / MCP Deep Collaboration & One-Shot Endpoints
 # =====================================================================
+class LocalFileImportPayload(BaseModel):
+    file_path: str
+
+
+def _import_local_media_to_output(file_path: str, wipe_first: bool = True) -> str:
+    abs_src = os.path.abspath(os.path.expanduser(file_path.strip()))
+    if not os.path.isfile(abs_src):
+        raise HTTPException(status_code=404, detail=f"找不到本地文件: {abs_src}")
+
+    if wipe_first:
+        if "BATCH_MANAGER" in globals():
+            BATCH_MANAGER.detach_studio_task()
+        _wipe_output_workspace()
+
+    os.makedirs("output", exist_ok=True)
+    raw_name = os.path.basename(abs_src)
+    ext = raw_name.rsplit(".", 1)[-1].lower() if "." in raw_name else "mp4"
+    base_name = re.sub(r"[^\w\-_\.]", "_", raw_name.rsplit(".", 1)[0]) or "imported_media"
+    clean_filename = f"{base_name}.{ext}"
+    save_path = os.path.join("output", clean_filename)
+    if os.path.abspath(save_path) != abs_src:
+        shutil.copy2(abs_src, save_path)
+
+    with open(os.path.join("output", "video_title.txt"), "w", encoding="utf-8") as f:
+        f.write(raw_name)
+
+    if ext in ["mp3", "wav", "m4a", "flac"]:
+        vcodec = get_ffmpeg_video_encoder() or "libx264"
+        mp4_path = os.path.join("output", f"{base_name}.mp4")
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=1280x720:r=1",
+                "-i",
+                save_path,
+                "-c:v",
+                vcodec,
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-pix_fmt",
+                "yuv420p",
+                "-shortest",
+                mp4_path,
+            ],
+            check=False,
+        )
+        if os.path.exists(mp4_path):
+            if os.path.exists(save_path) and os.path.abspath(save_path) != os.path.abspath(mp4_path):
+                os.remove(save_path)
+            clean_filename = os.path.basename(mp4_path)
+    return clean_filename
+
+
+@app.post("/api/video/import-local")
+def import_local_video_by_path(payload: LocalFileImportPayload):
+    if STATE.running:
+        raise HTTPException(status_code=409, detail="当前已有任务正在运行")
+    fname = _import_local_media_to_output(payload.file_path, wipe_first=True)
+    return {"status": "ok", "file": fname}
+
+
+@app.post("/api/subtitle/import-local")
+def import_local_subtitle_by_path(payload: LocalFileImportPayload):
+    abs_src = os.path.abspath(os.path.expanduser(payload.file_path.strip()))
+    if not os.path.isfile(abs_src):
+        raise HTTPException(status_code=404, detail=f"找不到本地字幕文件: {abs_src}")
+    os.makedirs("output", exist_ok=True)
+    ext = os.path.basename(abs_src).rsplit(".", 1)[-1].lower() if "." in os.path.basename(abs_src) else "srt"
+    save_path = f"output/uploaded_subtitle.{ext}"
+    if os.path.abspath(save_path) != abs_src:
+        shutil.copy2(abs_src, save_path)
+    lang = load_key("whisper.language")
+    if lang == "auto":
+        lang = "en"
+    ok = use_subtitle_file(save_path, lang)
+    if not ok:
+        raise HTTPException(status_code=400, detail="字幕文件解析失败，请检查格式")
+    if "BATCH_MANAGER" in globals():
+        BATCH_MANAGER.sync_from_studio_if_loaded()
+    return {"status": "ok", "file": os.path.basename(abs_src)}
+
+
+class OneShotProcessPayload(BaseModel):
+    url: Optional[str] = None
+    local_file_path: Optional[str] = None
+    mode: str = "dub_video"  # "dub_video" | "sub_video" | "sub_only"
+    source_lang: Optional[str] = None
+    target_lang: Optional[str] = None
+    resolution: str = "1080"
+    prefer_official_sub: bool = True
+    tts_method: Optional[str] = None
+    male_voice: Optional[str] = None
+    female_voice: Optional[str] = None
+    pause_before_dub: bool = False
+
+
+@app.post("/api/pipeline/one-shot")
+def start_one_shot_pipeline(payload: OneShotProcessPayload):
+    if STATE.running:
+        raise HTTPException(status_code=409, detail="当前已有任务正在运行")
+
+    if not payload.url and not payload.local_file_path:
+        try:
+            existing_vid = _1_ytdlp.find_video_files()
+        except Exception:
+            existing_vid = None
+        if not existing_vid or not os.path.exists(existing_vid):
+            raise HTTPException(status_code=400, detail="请提供视频 url 或 local_file_path，或先在工作台加载视频")
+
+    def _one_shot_worker():
+        mode = payload.mode if payload.mode in ("dub_video", "sub_video", "sub_only") else "dub_video"
+        total_steps = 5 if mode == "sub_only" else (6 if mode == "sub_video" else 10)
+
+        with STATE.lock:
+            STATE.start_task(
+                stage="one_shot",
+                total_steps=total_steps,
+                step_name="1. 正在初始化一键全流程处理任务...",
+            )
+
+        try:
+            # Apply optional config overrides
+            if payload.source_lang:
+                update_key("whisper.language", payload.source_lang.strip())
+            if payload.target_lang:
+                update_key("target_language", payload.target_lang.strip())
+            if payload.tts_method:
+                update_key("tts_method", payload.tts_method.strip())
+            tts_m = (payload.tts_method or load_key("tts_method") or "doubao_tts").strip()
+            if payload.male_voice:
+                mv = payload.male_voice.strip()
+                if tts_m == "edge_tts":
+                    update_key("edge_tts.male_voice", mv)
+                else:
+                    update_key("doubao_tts.male_voice", mv)
+            if payload.female_voice:
+                fv = payload.female_voice.strip()
+                if tts_m == "edge_tts":
+                    update_key("edge_tts.female_voice", fv)
+                    update_key("edge_tts.voice", fv)
+                else:
+                    update_key("doubao_tts.female_voice", fv)
+                    update_key("doubao_tts.voice", fv)
+            update_key("pause_before_dub", bool(payload.pause_before_dub))
+
+            # Stage A: Media Acquisition
+            if payload.local_file_path:
+                STATE.step_index = 1
+                STATE.percent = 5.0
+                STATE.step_name = "1. 正在导入本地媒体文件..."
+                STATE.sub_step = f"正在导入 {os.path.basename(payload.local_file_path)}..."
+                _import_local_media_to_output(payload.local_file_path, wipe_first=True)
+            elif payload.url:
+                url = payload.url.strip()
+                if os.path.isfile(os.path.expanduser(url)):
+                    STATE.step_index = 1
+                    STATE.percent = 5.0
+                    STATE.step_name = "1. 正在导入本地媒体文件..."
+                    _import_local_media_to_output(url, wipe_first=True)
+                else:
+                    if "BATCH_MANAGER" in globals():
+                        BATCH_MANAGER.detach_studio_task()
+                    _wipe_output_workspace()
+                    STATE.step_index = 1
+                    STATE.percent = 5.0
+                    STATE.step_name = f"1. 正在下载在线视频 ({payload.resolution}p)..."
+                    STATE.sub_step = "正在调用 yt-dlp 下载音视频流..."
+                    _1_ytdlp.download_video_ytdlp(url, resolution=payload.resolution)
+                    save_youtube_url(url)
+                    if payload.prefer_official_sub:
+                        STATE.percent = 12.0
+                        STATE.sub_step = "正在探测并下载官方字幕轨道..."
+                        sub_path, sub_type = _1_ytdlp.download_subtitle_ytdlp(url)
+                        if sub_path:
+                            lang = load_key("whisper.language")
+                            if lang == "auto":
+                                lang = "en"
+                            use_subtitle_file(sub_path, lang)
+
+            if STATE.stop_requested:
+                return
+
+            # Stage B: Subtitle Pipeline
+            if not os.path.exists(_2_CLEANED_CHUNKS):
+                STATE.step_index = 2
+                STATE.percent = 20.0
+                STATE.step_name = "2. 正在执行 WhisperX 转录与说话人声纹分离..."
+                STATE.sub_step = "正在提取音频并运行 WhisperX..."
+                _2_asr.transcribe()
+                STATE.percent = 28.0
+                STATE.sub_step = "正在执行 Pyannote 多说话人分离..."
+                _2_5_diarize.diarize_main()
+                if STATE.stop_requested:
+                    return
+
+            if not os.path.exists(_3_2_SPLIT_BY_MEANING):
+                STATE.step_index = 3
+                STATE.percent = 36.0
+                STATE.step_name = "3. 正在执行 NLP + LLM 语义分句..."
+                _3_1_split_nlp.split_by_spacy()
+                _3_2_split_meaning.split_sentences_by_meaning()
+                if STATE.stop_requested:
+                    return
+
+            if not os.path.exists(_4_2_TRANSLATION):
+                STATE.step_index = 4
+                STATE.percent = 48.0
+                STATE.step_name = "4. 正在提取专业术语并执行三步翻译..."
+                _4_1_summarize.get_summary()
+                STATE.percent = 55.0
+                _4_2_translate.translate_all()
+                if STATE.stop_requested:
+                    return
+
+            if not os.path.exists(_5_SPLIT_SUB):
+                STATE.step_index = 5
+                STATE.percent = 65.0
+                STATE.step_name = "5. 正在切分长字幕并生成双语时间轴..."
+                _5_split_sub.split_for_sub_main()
+                if STATE.stop_requested:
+                    return
+
+            if not os.path.exists(SRC_SRT):
+                _6_gen_sub.align_timestamp_main()
+                if STATE.stop_requested:
+                    return
+
+            if mode == "sub_only":
+                STATE.percent = 100.0
+                STATE.toast = "🎉 双语字幕全部生成完成！"
+                return
+
+            if not os.path.exists(SUB_VIDEO):
+                STATE.step_index = 6
+                STATE.percent = 72.0
+                STATE.step_name = "6. 正在将双语字幕烧录至视频..."
+                _7_sub_into_vid.merge_subtitles_to_video()
+                if STATE.stop_requested:
+                    return
+
+            if mode == "sub_video":
+                STATE.percent = 100.0
+                STATE.toast = "🎉 带字幕视频 (output_sub.mp4) 烧录完成！"
+                return
+
+            # Stage C: Dubbing Pipeline
+            if not os.path.exists(_RAW_AUDIO_FILE):
+                STATE.step_index = 7
+                STATE.percent = 76.0
+                STATE.step_name = "7. 正在提取基础音频并执行说话人性别识别..."
+                video_file = _1_ytdlp.find_video_files()
+                if video_file and os.path.exists(video_file):
+                    convert_video_to_audio(video_file)
+
+            if not os.path.exists(_8_1_AUDIO_TASK):
+                STATE.step_index = 7
+                STATE.percent = 78.0
+                STATE.step_name = "7. 正在执行说话人性别识别与配音切分..."
+                _8_1_audio_task.gen_audio_task_main()
+                _8_2_dub_chunks.gen_dub_chunks()
+
+            if STATE.stop_requested:
+                return
+
+            if payload.pause_before_dub and not STATE.speaker_review_confirmed:
+                STATE.percent = 80.0
+                STATE.toast = "⏸️ 已完成说话人识别，等待确认角色性别与音色后继续合成配音"
+                return
+
+            STATE.step_index = 8
+            STATE.percent = 82.0
+            STATE.step_name = "8. 正在准备各角色参考音频..."
+            if not load_key("skip_refer"):
+                _9_refer_audio.extract_refer_audio_main()
+
+            if STATE.stop_requested:
+                return
+
+            STATE.step_index = 9
+            STATE.percent = 88.0
+            STATE.step_name = "9. 正在并发调用 TTS 合成多角色配音并对齐时间轴..."
+            _10_gen_audio.gen_audio()
+            _11_merge_audio.merge_full_audio()
+
+            if STATE.stop_requested:
+                return
+
+            STATE.step_index = 10
+            STATE.percent = 96.0
+            STATE.step_name = "10. 正在混流配音与背景伴奏合成最终视频..."
+            _12_dub_to_vid.merge_video_audio()
+            STATE.percent = 100.0
+            STATE.toast = "🎉 一键全自动字幕翻译与多角色配音视频合成完成！"
+        except Exception as e:
+            traceback.print_exc()
+            STATE.error = str(e)
+        finally:
+            if "BATCH_MANAGER" in globals():
+                BATCH_MANAGER.sync_from_studio_if_loaded()
+            STATE.finish_task()
+
+    threading.Thread(target=_one_shot_worker, daemon=True).start()
+    return {"status": "started", "mode": payload.mode}
+
+
+def _parse_srt_blocks(srt_path: str) -> List[Dict[str, Any]]:
+    if not os.path.exists(srt_path):
+        return []
+    with open(srt_path, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read().strip()
+    if not content:
+        return []
+    raw_blocks = re.split(r"\r?\n\r?\n+", content)
+    entries = []
+    for block in raw_blocks:
+        lines = [line.strip("\r") for line in block.splitlines() if line.strip("\r") != ""]
+        if len(lines) < 2:
+            continue
+        try:
+            idx = int(lines[0].strip())
+            timecode = lines[1].strip()
+            text = "\n".join(lines[2:])
+        except ValueError:
+            idx = len(entries) + 1
+            timecode = lines[0].strip()
+            text = "\n".join(lines[1:])
+        entries.append({"index": idx, "timecode": timecode, "text": text})
+    return entries
+
+
+def _write_srt_blocks(srt_path: str, entries: List[Dict[str, Any]]):
+    out_blocks = []
+    for i, item in enumerate(entries, start=1):
+        idx = item.get("index") or i
+        tc = item.get("timecode", "00:00:00,000 --> 00:00:02,000")
+        txt = item.get("text", "")
+        out_blocks.append(f"{idx}\n{tc}\n{txt}")
+    with open(srt_path, "w", encoding="utf-8") as f:
+        f.write("\n\n".join(out_blocks) + "\n")
+
+
+@app.get("/api/content/subtitles")
+def get_subtitle_content(
+    srt_type: str = "src_trans",
+    task_id: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 100,
+    query: Optional[str] = None,
+):
+    valid_types = {"src", "trans", "src_trans", "trans_src", "dub"}
+    if srt_type not in valid_types:
+        raise HTTPException(status_code=400, detail=f"srt_type 必须是 {sorted(valid_types)} 之一")
+
+    base_dir = "output"
+    if task_id and "BATCH_MANAGER" in globals():
+        t_dir = BATCH_MANAGER.get_task_dir(task_id)
+        if not os.path.exists(os.path.join(base_dir, f"{srt_type}.srt")) and os.path.exists(t_dir):
+            base_dir = t_dir
+        elif task_id != BATCH_MANAGER.active_task_id and task_id != BATCH_MANAGER.studio_loaded_task_id:
+            base_dir = t_dir
+
+    srt_path = os.path.join(base_dir, f"{srt_type}.srt")
+    available_files = [
+        t for t in ["src", "trans", "src_trans", "trans_src", "dub"] if os.path.exists(os.path.join(base_dir, f"{t}.srt"))
+    ]
+    if not os.path.exists(srt_path):
+        return {
+            "exists": False,
+            "srt_type": srt_type,
+            "file_path": srt_path,
+            "available_srt_types": available_files,
+            "total": 0,
+            "entries": [],
+        }
+
+    entries = _parse_srt_blocks(srt_path)
+    if query and query.strip():
+        q_lower = query.strip().lower()
+        entries = [e for e in entries if q_lower in e["text"].lower()]
+
+    total = len(entries)
+    safe_offset = max(0, int(offset))
+    safe_limit = max(1, min(500, int(limit)))
+    paged = entries[safe_offset : safe_offset + safe_limit]
+
+    return {
+        "exists": True,
+        "srt_type": srt_type,
+        "file_path": srt_path,
+        "available_srt_types": available_files,
+        "total": total,
+        "offset": safe_offset,
+        "limit": safe_limit,
+        "entries": paged,
+    }
+
+
+class SubtitleEditItem(BaseModel):
+    index: int
+    text: str
+
+
+class SubtitleUpdatePayload(BaseModel):
+    srt_type: str = "src_trans"
+    edits: List[SubtitleEditItem]
+    reburn_video: bool = False
+
+
+@app.post("/api/content/subtitles/update")
+def update_subtitle_content(payload: SubtitleUpdatePayload):
+    valid_types = {"src", "trans", "src_trans", "trans_src", "dub"}
+    if payload.srt_type not in valid_types:
+        raise HTTPException(status_code=400, detail=f"srt_type 必须是 {sorted(valid_types)} 之一")
+
+    srt_path = os.path.join("output", f"{payload.srt_type}.srt")
+    if not os.path.exists(srt_path):
+        raise HTTPException(status_code=404, detail=f"字幕文件不存在: {srt_path}")
+
+    entries = _parse_srt_blocks(srt_path)
+    edit_map = {item.index: item.text for item in payload.edits}
+    updated_count = 0
+    for entry in entries:
+        if entry["index"] in edit_map:
+            entry["text"] = edit_map[entry["index"]]
+            updated_count += 1
+
+    _write_srt_blocks(srt_path, entries)
+    if "BATCH_MANAGER" in globals():
+        BATCH_MANAGER.sync_from_studio_if_loaded()
+
+    reburn_started = False
+    if payload.reburn_video and not STATE.running:
+        start_subtitle_pipeline(burn_only=True)
+        reburn_started = True
+
+    return {
+        "status": "ok",
+        "srt_path": srt_path,
+        "updated_entries": updated_count,
+        "reburn_started": reburn_started,
+    }
+
+
+@app.get("/api/content/terminology")
+def get_terminology_content():
+    term_path = "output/log/terminology.json"
+    term_data = {"theme": "", "terms": []}
+    if os.path.exists(term_path):
+        try:
+            with open(term_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    term_data = loaded
+        except Exception:
+            pass
+
+    suspicious = []
+    if os.path.exists(SRC_SRT):
+        try:
+            suspicious = detect_suspicious_terms_from_srt(SRC_SRT)[:25]
+        except Exception:
+            suspicious = []
+
+    return {
+        "terminology_file_exists": os.path.exists(term_path),
+        "theme": term_data.get("theme", ""),
+        "terms": term_data.get("terms", []),
+        "suspicious_terms": suspicious,
+        "domain_vocab": str(load_key("domain_vocab") or ""),
+    }
+
+
+class TerminologyUpdatePayload(BaseModel):
+    theme: Optional[str] = None
+    terms: Optional[List[Dict[str, str]]] = None
+    domain_vocab: Optional[str] = None
+    reapply_to_chunks: bool = False
+
+
+@app.post("/api/content/terminology")
+def update_terminology_content(payload: TerminologyUpdatePayload):
+    term_path = "output/log/terminology.json"
+    os.makedirs(os.path.dirname(term_path), exist_ok=True)
+    term_data: Dict[str, Any] = {"theme": "", "terms": []}
+    if os.path.exists(term_path):
+        try:
+            with open(term_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    term_data = loaded
+        except Exception:
+            pass
+
+    if payload.theme is not None:
+        term_data["theme"] = payload.theme
+
+    if payload.terms is not None:
+        existing_terms = term_data.get("terms", [])
+        by_src = {str(t.get("src", "")).strip().lower(): t for t in existing_terms if t.get("src")}
+        for item in payload.terms:
+            src_val = str(item.get("src", "")).strip()
+            if not src_val:
+                continue
+            by_src[src_val.lower()] = {
+                "src": src_val,
+                "tgt": str(item.get("tgt", "")).strip(),
+                "note": str(item.get("note", "")).strip(),
+            }
+        term_data["terms"] = list(by_src.values())
+
+    with open(term_path, "w", encoding="utf-8") as f:
+        json.dump(term_data, f, ensure_ascii=False, indent=4)
+
+    if payload.domain_vocab is not None:
+        update_key("domain_vocab", payload.domain_vocab)
+
+    reapplied = False
+    if payload.reapply_to_chunks:
+        reapply_terms()
+        reapplied = True
+
+    return {
+        "status": "ok",
+        "theme": term_data.get("theme", ""),
+        "terms_count": len(term_data.get("terms", [])),
+        "domain_vocab": str(load_key("domain_vocab") or ""),
+        "reapplied_to_chunks": reapplied,
+    }
+
+
+# =====================================================================
+# Serve Vue 3 SPA Frontend & Mount MCP Endpoints
+# =====================================================================
+from backend.mcp_server import register_mcp_routes
+
+register_mcp_routes(app)
+
+
 @app.get("/", response_class=HTMLResponse)
 def serve_vue_studio():
     dist_index = os.path.join(ROOT_DIR, "frontend", "dist", "index.html")
