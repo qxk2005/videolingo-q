@@ -14,7 +14,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from core.utils import *
 from core.utils.models import *
 from core.asr_backend.audio_preprocess import get_audio_duration
-from core.tts_backend.tts_main import tts_main
+from core.tts_backend.tts_main import (
+    tts_main,
+    ensure_segment_hashes_initialized,
+    record_segment_text_hash,
+    copy_segment_text_hash,
+    remove_segment_text_hashes_for_numbers,
+)
 
 console = Console()
 
@@ -61,6 +67,12 @@ def check_and_clear_audio_cache():
             for d in [_AUDIO_TMP_DIR, _AUDIO_SEGS_DIR]:
                 if os.path.exists(d):
                     shutil.rmtree(d)
+            hash_meta = os.path.join(os.path.dirname(_AUDIO_TMP_DIR), ".segment_text_hashes.json")
+            if os.path.exists(hash_meta):
+                try:
+                    os.remove(hash_meta)
+                except Exception:
+                    pass
     settings_dir = os.path.dirname(TTS_SETTINGS_FILE)
     if settings_dir:
         os.makedirs(settings_dir, exist_ok=True)
@@ -78,6 +90,7 @@ def adjust_audio_speed(input_file: str, output_file: str, speed_factor: float) -
     # If the speed factor is close to 1, directly copy the file
     if abs(speed_factor - 1.0) < 0.001:
         shutil.copy2(input_file, output_file)
+        copy_segment_text_hash(input_file, output_file)
         return
     
     # Check for invalid speed factors
@@ -85,6 +98,7 @@ def adjust_audio_speed(input_file: str, output_file: str, speed_factor: float) -
         rprint(f"[red]❌ Error: Invalid speed factor {speed_factor} (must be positive)[/red]")
         rprint(f"[yellow]⚠️ Copying file unchanged due to invalid speed factor[/yellow]")
         shutil.copy2(input_file, output_file)
+        copy_segment_text_hash(input_file, output_file)
         return
     
     # Clamp speed factor to FFmpeg atempo limits (0.5 to 100.0)
@@ -110,9 +124,11 @@ def adjust_audio_speed(input_file: str, output_file: str, speed_factor: float) -
                 trimmed_audio = audio[:(expected_duration * 1000)]  # pydub uses milliseconds
                 trimmed_audio.export(output_file, format="wav")
                 print(f"✂️ Trimmed to expected duration: {expected_duration:.2f} seconds")
+                copy_segment_text_hash(input_file, output_file)
                 return
             elif output_duration >= expected_duration * 1.02:
                 raise Exception(f"Audio duration abnormal: input file={input_file}, output file={output_file}, speed factor={speed_factor}, input duration={input_duration:.2f}s, output duration={output_duration:.2f}s")
+            copy_segment_text_hash(input_file, output_file)
             return
         except subprocess.CalledProcessError as e:
             if attempt < max_retries - 1:
@@ -171,6 +187,7 @@ def invalidate_audio_cache_for_numbers(numbers: list) -> int:
                         deleted += 1
                     except Exception:
                         pass
+    remove_segment_text_hashes_for_numbers(numbers, os.path.dirname(_AUDIO_TMP_DIR))
     # Also remove final merged dub files so steps 3 & 4 re-merge cleanly
     for final_f in ["output/dub.wav", "output/dub.mp3", "output/output_dub.mp4", "output/normalized_dub.wav"]:
         if os.path.exists(final_f):
@@ -259,6 +276,7 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
                     segment.export(temp_file, format="wav")
                     
                     trim_tts_silence(temp_file)
+                    record_segment_text_hash(temp_file, lines[line_index])
                     dur = get_audio_duration(temp_file)
                     real_dur += dur
                 
@@ -281,6 +299,7 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
                         if os.path.exists(temp_file):
                             try: os.remove(temp_file)
                             except Exception: pass
+                    remove_segment_text_hashes_for_numbers([number], os.path.dirname(_AUDIO_TMP_DIR))
                     real_dur = 0
             else:
                 rprint(f"[yellow]⚠️ Continuous split fallback: Expected {len(lines)} segments but found different counts. Falling back to individual generation.[/yellow]")
@@ -544,6 +563,7 @@ def gen_audio() -> None:
     
     # 📝 Step2: Load task file
     tasks_df = pd.read_excel(_8_1_AUDIO_TASK)
+    ensure_segment_hashes_initialized(tasks_df, os.path.dirname(_AUDIO_TMP_DIR))
     rprint("[green]📊 Loaded task file successfully[/green]")
     
     # 🔊 Step3: Generate TTS audio

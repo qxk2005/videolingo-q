@@ -540,8 +540,8 @@ def _build_speaker_review_payload() -> Dict[str, Any]:
         ]
         cur_voice = non_empty_voices[0] if non_empty_voices else ""
         sample_row = spk_rows.iloc[0]
-        sample_text = str(sample_row.get("text", ""))
-        sample_origin = str(sample_row.get("origin", ""))
+        sample_text = "" if pd.isna(sample_row.get("text")) else str(sample_row.get("text", ""))
+        sample_origin = "" if pd.isna(sample_row.get("origin")) else str(sample_row.get("origin", ""))
         sample_start = _to_sec_float(sample_row.get("start_time", 0))
         clip_path = sample_clips.get(spk)
         clip_url = None
@@ -575,8 +575,8 @@ def _build_speaker_review_payload() -> Dict[str, Any]:
                 "gender": str(row.get("gender", "female")),
                 "voice": str(row.get("voice", "")),
                 "cut_off": int(row.get("cut_off", 0)) if pd.notna(row.get("cut_off")) else 0,
-                "text": str(row.get("text", "")),
-                "origin": str(row.get("origin", "")),
+                "text": "" if pd.isna(row.get("text")) else str(row.get("text", "")),
+                "origin": "" if pd.isna(row.get("origin")) else str(row.get("origin", "")),
             }
         )
 
@@ -1306,16 +1306,28 @@ def start_dubbing_pipeline(force_continue: bool = False):
                 _8_2_dub_chunks.gen_dub_chunks()
             else:
                 df_existing = pd.read_excel(_8_1_AUDIO_TASK)
+                has_lines = (
+                    "lines" in df_existing.columns
+                    and len(df_existing) > 0
+                    and df_existing["lines"].notna().all()
+                )
                 needs_rechunk = (
                     "cut_off" not in df_existing.columns
                     or "gap" not in df_existing.columns
                     or (len(df_existing) > 0 and float(df_existing["gap"].iloc[-1]) <= 0)
                 )
-                if needs_rechunk:
+                if not has_lines:
                     STATE.step_index = 1
                     STATE.percent = 30.0
                     STATE.sub_step = "正在重新计算字幕时间容差与跨角色配音切分点..."
                     _8_2_dub_chunks.gen_dub_chunks()
+                elif needs_rechunk:
+                    STATE.step_index = 1
+                    STATE.percent = 30.0
+                    STATE.sub_step = "正在重新计算字幕时间容差与跨角色配音切分点..."
+                    df_existing = _8_2_dub_chunks.analyze_subtitle_timing_and_speed(df_existing)
+                    df_existing = _8_2_dub_chunks.process_cutoffs(df_existing)
+                    df_existing.to_excel(_8_1_AUDIO_TASK, index=False)
 
             if STATE.stop_requested:
                 return
@@ -1389,6 +1401,7 @@ class SaveSpeakerReviewPayload(BaseModel):
     speakers: List[SpeakerOverrideItem] = []
     lines: List[LineOverrideItem] = []
     incremental_rebuild: bool = False
+    force_sync_numbers: List[int] = []
 
 
 @app.post("/api/speakers/save")
@@ -1402,6 +1415,9 @@ def save_speaker_overrides(payload: SaveSpeakerReviewPayload):
             convert_video_to_audio(video_file)
 
     df = pd.read_excel(_8_1_AUDIO_TASK)
+    from core.tts_backend.tts_main import ensure_segment_hashes_initialized
+    ensure_segment_hashes_initialized(df, os.path.dirname(_8_1_AUDIO_TASK))
+
     for col, default in [("gender", "female"), ("speaker_id", "SPEAKER_00"), ("voice", "")]:
         if col not in df.columns:
             df[col] = default
@@ -1410,6 +1426,7 @@ def save_speaker_overrides(payload: SaveSpeakerReviewPayload):
     df["gender"] = df["gender"].fillna("female").astype(str)
 
     affected_numbers = set()
+    force_sync_set = set(payload.force_sync_numbers or [])
     spk_map = {s.speaker_id: s for s in payload.speakers}
     line_map = {l.number: l for l in payload.lines}
 
@@ -1418,7 +1435,7 @@ def save_speaker_overrides(payload: SaveSpeakerReviewPayload):
         orig_spk = str(row["speaker_id"])
         orig_gender = str(row["gender"])
         orig_voice = str(row["voice"])
-        orig_text = str(row["text"])
+        orig_text = "" if pd.isna(row.get("text")) else str(row.get("text"))
 
         new_spk = orig_spk
         new_gender = orig_gender
@@ -1443,16 +1460,21 @@ def save_speaker_overrides(payload: SaveSpeakerReviewPayload):
             if l_item.text is not None and l_item.text != orig_text:
                 new_text = l_item.text
 
+        text_changed = (new_text != orig_text) or (num in force_sync_set)
         if (
             new_spk != orig_spk
             or new_gender != orig_gender
             or new_voice != orig_voice
-            or new_text != orig_text
+            or text_changed
         ):
             df.at[idx, "speaker_id"] = new_spk
             df.at[idx, "gender"] = new_gender
             df.at[idx, "voice"] = new_voice
             df.at[idx, "text"] = new_text
+            if text_changed:
+                df.at[idx, "lines"] = _8_2_dub_chunks.sync_lines_with_text(
+                    row.get("lines"), new_text
+                )
             affected_numbers.add(num)
 
     # Re-evaluate timing and cut_off boundaries across speakers

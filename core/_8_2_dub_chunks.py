@@ -236,5 +236,260 @@ def gen_dub_chunks():
     df.to_excel(_8_1_AUDIO_TASK, index=False)
     rprint("[✅ Complete] Matching completed successfully!")
 
+
+_STRICT_CLOSING_PUNCT = set("，。！？；：、,.!?;:）》】”’)]}…—~%")
+_STRICT_OPENING_PUNCT = set("（《【“‘([{$¥€£@#")
+
+
+def _speakable_char_len(s: str) -> int:
+    s_clean = re.sub(r"\[[^\]]+\]|\([^)]+\)|（[^）]+）", "", str(s or ""))
+    s_clean = re.sub(r"[^\w]", "", s_clean).replace("_", "")
+    return len(s_clean)
+
+
+def _norm_for_seg_match(s: str) -> str:
+    return re.sub(r"[^\w]", "", str(s or "").lower()).replace("_", "")
+
+
+def _compute_forbidden_cut_positions(text: str) -> set:
+    """Return indices `pos` (1..len-1) where cutting `text[:pos]` | `text[pos:]` is forbidden."""
+    forbidden = set()
+    atomic_patterns = [
+        r"[A-Za-z0-9_]+(?:[.:/-][A-Za-z0-9_]+)+",      # Opus4.8, 4.8, v1.2.3, server.py, GPT-4o
+        r"[A-Za-z]+\s+\d+(?:\.\d+)*",                  # Opus 4.8, Python 3.10, Claude 3.7
+        r"(?:[A-Za-z]\.){2,}",                         # e.g., U.S.
+        r"[A-Za-z0-9_]+(?:['’-][A-Za-z0-9_]+)*",       # English words & numbers: Claude, 1337, I'm
+        r"—+|…+|\.{2,}",                               # ——, ……, ...
+    ]
+    for pat in atomic_patterns:
+        for m in re.finditer(pat, text):
+            for p in range(m.start() + 1, m.end()):
+                forbidden.add(p)
+
+    # Straight double-quote pairing ("..."): odd is opening, even is closing
+    dq_positions = [i for i, ch in enumerate(text) if ch == '"']
+    for q_idx, pos_q in enumerate(dq_positions):
+        if q_idx % 2 == 0:
+            if pos_q + 1 < len(text):
+                forbidden.add(pos_q + 1)
+        else:
+            if pos_q > 0:
+                forbidden.add(pos_q)
+
+    n = len(text)
+    for pos in range(1, n):
+        if text[pos] in _STRICT_CLOSING_PUNCT:
+            forbidden.add(pos)
+        if text[pos - 1] in _STRICT_OPENING_PUNCT:
+            forbidden.add(pos)
+    return forbidden
+
+
+def _merge_multiline_for_single_segment(lines_in: list) -> str:
+    if not lines_in:
+        return ""
+    merged = lines_in[0]
+    for nxt in lines_in[1:]:
+        if not merged:
+            merged = nxt
+            continue
+        if merged[-1] in "，。！？；：、—…":
+            merged += nxt if ord(nxt[0]) > 127 else (" " + nxt)
+        elif merged[-1] in ",.!?;:":
+            merged += " " + nxt
+        else:
+            merged += " " + nxt
+    return merged
+
+
+def _split_text_preserving_segments(new_text: str, orig_segments: list) -> list:
+    """Map edited `new_text` onto the exact segment count of `orig_segments` while preserving
+    natural clause boundaries, multi-line breaks, version numbers, decimals, and punctuation."""
+    import difflib
+
+    K = len(orig_segments)
+    raw_text = "" if new_text is None else str(new_text)
+    non_empty_lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+
+    if K <= 1:
+        if not non_empty_lines:
+            return [raw_text.strip()]
+        return [_merge_multiline_for_single_segment(non_empty_lines)]
+
+    # If user explicitly supplied K non-empty lines via newline breaks, map 1-to-1
+    if len(non_empty_lines) == K and all(
+        _speakable_char_len(ln) >= 2 or _speakable_char_len(orig_segments[idx]) < 2
+        for idx, ln in enumerate(non_empty_lines)
+    ):
+        return non_empty_lines
+
+    if not non_empty_lines:
+        return [raw_text.strip()] + [""] * (K - 1)
+
+    joined = ""
+    newline_cuts = set()
+    for idx_p, part in enumerate(non_empty_lines):
+        if idx_p > 0:
+            if joined and joined[-1] not in "，。！？；：、—…":
+                if joined[-1] not in " ":
+                    joined += " "
+            newline_cuts.add(len(joined))
+        joined += part
+
+    N = len(joined)
+    if N < K:
+        return [joined] + [""] * (K - 1)
+
+    forbidden = _compute_forbidden_cut_positions(joined)
+    valid_cuts = [p for p in range(1, N) if p not in forbidden]
+    if len(valid_cuts) < K - 1:
+        valid_cuts = list(range(1, N))
+
+    inside_paired = set()
+    for pat_pair in (r"“[^”]+”", r"《[^》]+》", r"（[^）]+）", r"\([^)]+\)", r'"[^"]+"'):
+        for m in re.finditer(pat_pair, joined):
+            if (m.end() - m.start()) < int(N * 0.8):
+                for p in range(m.start() + 1, m.end()):
+                    inside_paired.add(p)
+
+    orig_norms = [_norm_for_seg_match(s) for s in orig_segments]
+    orig_lens = [max(1, len(str(s or "").strip())) for s in orig_segments]
+    total_orig_len = sum(orig_lens)
+    orig_ratios = [l / total_orig_len for l in orig_lens]
+    orig_cum = []
+    acc = 0.0
+    for r in orig_ratios:
+        acc += r
+        orig_cum.append(acc)
+
+    def _boundary_bonus(pos: int) -> float:
+        if pos in newline_cuts:
+            return 3.2
+        pair_pen = -1.4 if pos in inside_paired else 0.0
+        prev_ch = joined[pos - 1]
+        k_back = pos - 1
+        while k_back > 0 and joined[k_back].isspace():
+            k_back -= 1
+        eff_prev = joined[k_back]
+        if eff_prev in "。！？!?；;":
+            return 2.2 + pair_pen
+        if eff_prev in "，、：,:—":
+            return 1.8 + pair_pen
+        if prev_ch.isspace():
+            return 1.1 + pair_pen
+        cur_ch = joined[pos]
+        if (ord(prev_ch) < 128) != (ord(cur_ch) < 128):
+            return 0.35 + pair_pen
+        return pair_pen
+
+    def _seg_score(k: int, i: int, j: int) -> float:
+        sub = joined[i:j].strip()
+        if not sub:
+            return -1e6
+        spk_len = _speakable_char_len(sub)
+        orig_spk_len = _speakable_char_len(orig_segments[k])
+        if spk_len == 0:
+            return -1e6
+        penalty = -50.0 if (spk_len < 2 and orig_spk_len >= 2) else 0.0
+        norm_sub = _norm_for_seg_match(sub)
+        sim = (
+            difflib.SequenceMatcher(None, norm_sub, orig_norms[k]).ratio()
+            if (norm_sub and orig_norms[k])
+            else 0.0
+        )
+        q_len = (j - i) / N
+        len_pen = abs(q_len - orig_ratios[k]) * 2.2
+        cum_pen = (abs((j / N) - orig_cum[k]) * 1.5) if k < K - 1 else 0.0
+        b_bonus = _boundary_bonus(j) if j < N else 0.0
+        return sim * 2.5 + b_bonus - len_pen - cum_pen + penalty
+
+    nodes = [0] + valid_cuts + [N]
+    M = len(nodes)
+    NEG_INF = -1e9
+    dp = [[NEG_INF] * M for _ in range(K)]
+    parent = [[-1] * M for _ in range(K)]
+
+    for m in range(1, M - (K - 1)):
+        dp[0][m] = _seg_score(0, 0, nodes[m])
+
+    for k in range(1, K):
+        m_min = k + 1
+        m_max = M if k == K - 1 else (M - (K - 1 - k))
+        target_range = [M - 1] if k == K - 1 else range(m_min, m_max)
+        for m in target_range:
+            best_v = NEG_INF
+            best_p = -1
+            for p in range(k, m):
+                if dp[k - 1][p] <= NEG_INF / 2:
+                    continue
+                val = dp[k - 1][p] + _seg_score(k, nodes[p], nodes[m])
+                if val > best_v:
+                    best_v = val
+                    best_p = p
+            dp[k][m] = best_v
+            parent[k][m] = best_p
+
+    cuts = [N]
+    curr_m = M - 1
+    for k in range(K - 1, 0, -1):
+        prev_m = parent[k][curr_m]
+        if prev_m < 0:
+            step = max(1, N // K)
+            return [
+                joined[idx_k * step : (N if idx_k == K - 1 else (idx_k + 1) * step)].strip()
+                for idx_k in range(K)
+            ]
+        cuts.append(nodes[prev_m])
+        curr_m = prev_m
+    cuts.append(0)
+    cuts.reverse()
+
+    return [joined[cuts[k] : cuts[k + 1]].strip() for k in range(K)]
+
+
+def sync_lines_with_text(orig_lines_val, new_text: str):
+    """Synchronize `lines` field with edited `new_text` while preserving original container type,
+    segment count, and any per-segment dict fields (such as timestamps or metadata)."""
+    import ast
+
+    was_str = isinstance(orig_lines_val, str)
+    parsed = None
+    if was_str:
+        s_raw = orig_lines_val.strip()
+        if s_raw:
+            try:
+                parsed = ast.literal_eval(s_raw)
+            except Exception:
+                parsed = [s_raw]
+    elif isinstance(orig_lines_val, (list, tuple)):
+        parsed = list(orig_lines_val)
+
+    if not parsed or not isinstance(parsed, list):
+        single = _split_text_preserving_segments(new_text, [""])
+        return repr(single) if was_str else single
+
+    if all(isinstance(item, dict) for item in parsed):
+        text_keys = []
+        for item in parsed:
+            for candidate_k in ("text", "line", "content"):
+                if candidate_k in item:
+                    text_keys.append(candidate_k)
+                    break
+            else:
+                text_keys.append("text")
+        orig_strs = [str(item.get(tk, "")) for item, tk in zip(parsed, text_keys)]
+        new_strs = _split_text_preserving_segments(new_text, orig_strs)
+        updated_dicts = []
+        for item, tk, ns in zip(parsed, text_keys, new_strs):
+            copied = dict(item)
+            copied[tk] = ns
+            updated_dicts.append(copied)
+        return repr(updated_dicts) if was_str else updated_dicts
+
+    orig_strs = [str(item) for item in parsed]
+    new_strs = _split_text_preserving_segments(new_text, orig_strs)
+    return repr(new_strs) if was_str else new_strs
+
+
 if __name__ == "__main__":
     gen_dub_chunks()

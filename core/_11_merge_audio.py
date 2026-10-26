@@ -6,7 +6,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 from rich.console import Console
 from core.utils import *
 from core.utils.models import *
-from core.tts_backend.tts_main import tts_main, is_audio_valid
+from core.tts_backend.tts_main import tts_main, is_audio_valid, ensure_segment_hashes_initialized
 from core._10_gen_audio import adjust_audio_speed, TEMP_FILE_TEMPLATE
 from core.asr_backend.audio_preprocess import get_audio_duration
 console = Console()
@@ -198,6 +198,7 @@ def merge_full_audio():
     
     with console.status("[bold cyan]📊 Loading data from Excel...[/bold cyan]"):
         df, lines, new_sub_times = load_and_flatten_data(_8_1_AUDIO_TASK)
+        ensure_segment_hashes_initialized(df, os.path.dirname(_AUDIO_SEGS_DIR))
     console.print("[bold green]✅ Data loaded successfully[/bold green]")
     
     with console.status("[bold cyan]🔍 Getting audio file list...[/bold cyan]"):

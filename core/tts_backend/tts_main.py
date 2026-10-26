@@ -1,6 +1,9 @@
 import os
 import re
+import json
 import time
+import hashlib
+import threading
 import subprocess
 from pydub import AudioSegment
 
@@ -11,8 +14,12 @@ from core.tts_backend.edge_tts import edge_tts
 from core.prompts import get_correct_text_prompt
 from core.utils import *
 
+_SEGMENT_HASH_LOCK = threading.RLock()
+_SEGMENT_HASH_FILENAME = ".segment_text_hashes.json"
+
 def clean_text_for_tts(text):
     """Remove problematic characters for TTS"""
+    text = "" if text is None else str(text)
     chars_to_remove = ['&', '®', '™', '©']
     for char in chars_to_remove:
         text = text.replace(char, '')
@@ -20,9 +27,167 @@ def clean_text_for_tts(text):
     text = re.sub(r'\[[^\]]+\]|\([^)]+\)|（[^）]+）', '', text)
     return text.strip()
 
+
+def compute_tts_text_hash(text: str) -> str:
+    normalized = clean_text_for_tts(text)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
+
+def _extract_segment_slot(file_path: str):
+    """Identify (audio_dir, bucket, seg_key) for tmp/{num}_{idx}_temp.wav or segs/{num}_{idx}.wav."""
+    if not file_path:
+        return None
+    norm_path = os.path.abspath(file_path)
+    fname = os.path.basename(norm_path)
+    parent = os.path.dirname(norm_path)
+    parent_name = os.path.basename(parent)
+    audio_dir = os.path.dirname(parent)
+
+    if parent_name == "tmp":
+        m = re.match(r"^(\d+_\d+)_temp\.wav$", fname)
+        if m:
+            return audio_dir, "tmp", m.group(1)
+    elif parent_name == "segs":
+        m = re.match(r"^(\d+_\d+)\.wav$", fname)
+        if m:
+            return audio_dir, "segs", m.group(1)
+    return None
+
+
+def _load_hash_store(audio_dir: str) -> dict:
+    meta_path = os.path.join(audio_dir, _SEGMENT_HASH_FILENAME)
+    if not os.path.exists(meta_path):
+        return {"tmp": {}, "segs": {}}
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            data.setdefault("tmp", {})
+            data.setdefault("segs", {})
+            return data
+    except Exception:
+        pass
+    return {"tmp": {}, "segs": {}}
+
+
+def _save_hash_store(audio_dir: str, data: dict) -> None:
+    os.makedirs(audio_dir, exist_ok=True)
+    meta_path = os.path.join(audio_dir, _SEGMENT_HASH_FILENAME)
+    tmp_meta = meta_path + ".tmp"
+    with open(tmp_meta, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2, sort_keys=True)
+    os.replace(tmp_meta, meta_path)
+
+
+def ensure_segment_hashes_initialized(tasks_df, audio_dir: str = "output/audio") -> None:
+    """Seed baseline text hashes for existing segment wav files once so unmodified segments stay cached
+    while any subsequent text edit is detected even if wav files were not manually deleted."""
+    import ast
+    abs_audio_dir = os.path.abspath(audio_dir)
+    meta_path = os.path.join(abs_audio_dir, _SEGMENT_HASH_FILENAME)
+    with _SEGMENT_HASH_LOCK:
+        if os.path.exists(meta_path) or tasks_df is None:
+            return
+        tmp_dir = os.path.join(abs_audio_dir, "tmp")
+        segs_dir = os.path.join(abs_audio_dir, "segs")
+        if not os.path.exists(tmp_dir) and not os.path.exists(segs_dir):
+            return
+        store = {"tmp": {}, "segs": {}}
+        for _, row in tasks_df.iterrows():
+            raw_lines = row.get("lines")
+            if raw_lines is None or (isinstance(raw_lines, float) and str(raw_lines) == "nan"):
+                continue
+            try:
+                lines_list = ast.literal_eval(raw_lines) if isinstance(raw_lines, str) else list(raw_lines)
+            except Exception:
+                continue
+            num = row.get("number")
+            for idx_l, ln in enumerate(lines_list):
+                line_text = ln.get("text", "") if isinstance(ln, dict) else str(ln)
+                h = compute_tts_text_hash(line_text)
+                seg_key = f"{num}_{idx_l}"
+                if os.path.exists(os.path.join(tmp_dir, f"{seg_key}_temp.wav")):
+                    store["tmp"][seg_key] = h
+                if os.path.exists(os.path.join(segs_dir, f"{seg_key}.wav")):
+                    store["segs"][seg_key] = h
+        if store["tmp"] or store["segs"]:
+            _save_hash_store(abs_audio_dir, store)
+
+
+def record_segment_text_hash(file_path: str, text: str) -> None:
+    slot = _extract_segment_slot(file_path)
+    if not slot:
+        return
+    audio_dir, bucket, seg_key = slot
+    h = compute_tts_text_hash(text)
+    with _SEGMENT_HASH_LOCK:
+        store = _load_hash_store(audio_dir)
+        store[bucket][seg_key] = h
+        _save_hash_store(audio_dir, store)
+
+
+def copy_segment_text_hash(src_path: str, dst_path: str) -> None:
+    src_slot = _extract_segment_slot(src_path)
+    dst_slot = _extract_segment_slot(dst_path)
+    if not src_slot or not dst_slot:
+        return
+    src_dir, src_bucket, src_key = src_slot
+    dst_dir, dst_bucket, dst_key = dst_slot
+    with _SEGMENT_HASH_LOCK:
+        src_store = _load_hash_store(src_dir)
+        h = src_store.get(src_bucket, {}).get(src_key)
+        if not h:
+            return
+        dst_store = src_store if src_dir == dst_dir else _load_hash_store(dst_dir)
+        dst_store[dst_bucket][dst_key] = h
+        _save_hash_store(dst_dir, dst_store)
+
+
+def remove_segment_text_hashes_for_numbers(numbers: list, audio_dir: str = "output/audio") -> None:
+    if not numbers:
+        return
+    abs_audio_dir = os.path.abspath(audio_dir)
+    meta_path = os.path.join(abs_audio_dir, _SEGMENT_HASH_FILENAME)
+    with _SEGMENT_HASH_LOCK:
+        if not os.path.exists(meta_path):
+            return
+        store = _load_hash_store(abs_audio_dir)
+        prefixes = tuple(f"{num}_" for num in numbers)
+        exact_keys = {str(num) for num in numbers}
+        changed = False
+        for bucket in ("tmp", "segs"):
+            b_map = store.get(bucket, {})
+            for k in list(b_map.keys()):
+                if k in exact_keys or k.startswith(prefixes):
+                    del b_map[k]
+                    changed = True
+        if changed:
+            _save_hash_store(abs_audio_dir, store)
+
+
+def is_segment_text_hash_valid(file_path: str, text: str) -> bool:
+    slot = _extract_segment_slot(file_path)
+    if not slot:
+        return True
+    audio_dir, bucket, seg_key = slot
+    meta_path = os.path.join(audio_dir, _SEGMENT_HASH_FILENAME)
+    with _SEGMENT_HASH_LOCK:
+        if not os.path.exists(meta_path):
+            return True
+        store = _load_hash_store(audio_dir)
+        stored_hash = store.get(bucket, {}).get(seg_key)
+    if stored_hash is None:
+        return False
+    return stored_hash == compute_tts_text_hash(text)
+
+
 def is_audio_valid(file_path: str, text: str) -> bool:
-    """Validate if the generated audio is healthy and valid."""
-    cleaned_text = re.sub(r'[^\w\s]', '', text).strip()
+    """Validate if the generated audio is healthy, valid, and matches the current text."""
+    if not is_segment_text_hash_valid(file_path, text):
+        rprint(f"[yellow]⚠️ Audio cache text mismatch detected for <{file_path}>, invalidating stale segment...[/yellow]")
+        return False
+
+    cleaned_text = re.sub(r'[^\w\s]', '', str(text or '')).strip()
     # For very short texts or single characters, it may generate tiny audio or silence
     if not cleaned_text or len(cleaned_text) <= 1:
         return True
@@ -58,12 +223,14 @@ def is_audio_valid(file_path: str, text: str) -> bool:
     return True
 
 def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
-    text = clean_text_for_tts(text)
+    raw_input_text = "" if text is None else str(text)
+    text = clean_text_for_tts(raw_input_text)
     # Check if text is empty or single character, single character voiceovers are prone to bugs
     cleaned_text = re.sub(r'[^\w\s]', '', text).strip()
     if not cleaned_text or len(cleaned_text) <= 1:
         silence = AudioSegment.silent(duration=100)  # 100ms = 0.1s
         silence.export(save_as, format="wav")
+        record_segment_text_hash(save_as, raw_input_text)
         rprint(f"Created silent audio for empty/single-char text: {save_as}")
         return
     
@@ -85,7 +252,7 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
     
     # Skip if file exists, is non-empty and is valid
     if os.path.exists(save_as) and os.path.getsize(save_as) > 0:
-        if is_audio_valid(save_as, text):
+        if is_audio_valid(save_as, raw_input_text):
             return
         else:
             rprint(f"[yellow]⚠️ Detected invalid/corrupted audio cache <{save_as}> for text: '{text}'. Removing and regenerating...[/yellow]")
@@ -116,6 +283,7 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
             # Check generated audio duration
             duration = get_audio_duration(save_as)
             if duration > 0:
+                record_segment_text_hash(save_as, raw_input_text)
                 break
             else:
                 if os.path.exists(save_as):
@@ -125,6 +293,7 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
                     # Create silent audio file
                     silence = AudioSegment.silent(duration=100)  # 100ms silence
                     silence.export(save_as, format="wav")
+                    record_segment_text_hash(save_as, raw_input_text)
                     return
                 print(f"Attempt {attempt + 1} failed, retrying...")
         except Exception as e:

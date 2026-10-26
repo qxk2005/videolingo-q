@@ -403,7 +403,8 @@ def _render_speaker_review_section():
     from core.utils.audio_gender import extract_speaker_sample_clips
     from core.st_utils.sidebar_setting import get_available_tts_voices
     from core._10_gen_audio import invalidate_audio_cache_for_numbers
-    from core._8_2_dub_chunks import process_cutoffs
+    from core._8_2_dub_chunks import process_cutoffs, sync_lines_with_text
+    from core.tts_backend.tts_main import ensure_segment_hashes_initialized
 
     sample_clips = extract_speaker_sample_clips(df_tasks)
     voice_catalog = get_available_tts_voices()  # {display_label: voice_id}
@@ -499,6 +500,7 @@ def _render_speaker_review_section():
         def _apply_speaker_and_table_edits() -> list:
             """Apply speaker-card and table edits to df_tasks, persist to Excel, and return modified task numbers."""
             orig_df = df_tasks.copy()
+            ensure_segment_hashes_initialized(orig_df, os.path.dirname(_8_1_AUDIO_TASK))
             updated_df = df_tasks.copy()
 
             # 1. Apply per-row edits from st.data_editor first
@@ -518,10 +520,21 @@ def _render_speaker_review_section():
             changed_nums = []
             for idx_row in range(len(updated_df)):
                 num = int(updated_df.iloc[idx_row]['number'])
+                orig_t = '' if pd.isna(orig_df.iloc[idx_row].get('text')) else str(orig_df.iloc[idx_row].get('text', ''))
+                new_t = '' if pd.isna(updated_df.iloc[idx_row].get('text')) else str(updated_df.iloc[idx_row].get('text', ''))
+                row_changed = False
                 for col in ['speaker_id', 'gender', 'voice', 'text']:
-                    if str(orig_df.iloc[idx_row].get(col, '') or '') != str(updated_df.iloc[idx_row].get(col, '') or ''):
-                        changed_nums.append(num)
+                    orig_v = '' if pd.isna(orig_df.iloc[idx_row].get(col)) else str(orig_df.iloc[idx_row].get(col, ''))
+                    new_v = '' if pd.isna(updated_df.iloc[idx_row].get(col)) else str(updated_df.iloc[idx_row].get(col, ''))
+                    if orig_v != new_v:
+                        row_changed = True
                         break
+                if row_changed:
+                    if new_t != orig_t:
+                        updated_df.at[idx_row, 'lines'] = sync_lines_with_text(
+                            orig_df.iloc[idx_row].get('lines'), new_t
+                        )
+                    changed_nums.append(num)
 
             if changed_nums:
                 # Recompute chunk cutoffs so speaker/gender/voice transitions always have cut_off = 1
