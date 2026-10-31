@@ -163,6 +163,9 @@ def process_cutoffs(df):
 
 def gen_dub_chunks():
     rprint("[🎬 Starting] Generating dubbing chunks...")
+    from core._8_1_audio_task import sync_subtitles_to_audio_files, _tc_str_to_sec
+
+    sync_subtitles_to_audio_files(TRANS_SRT, SRC_SRT)
     df = pd.read_excel(_8_1_AUDIO_TASK)
     
     rprint("[📊 Processing] Analyzing timing and speed...")
@@ -177,22 +180,25 @@ def gen_dub_chunks():
     
     # Process subtitle content
     content_lines = []
+    content_starts = []
     ori_content_lines = []
     
     # Process translated subtitles
-    for block in content.strip().split('\n\n'):
-        lines = [line.strip() for line in block.split('\n') if line.strip()]
+    for block in re.split(r'\r?\n\r?\n+', content.strip()):
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
         if len(lines) >= 3:
+            s_tc = lines[1].split('-->')[0].strip() if '-->' in lines[1] else '0'
             text = ' '.join(lines[2:])
-            text = re.sub(r'\([^)]*\)|（[^）]*）', '', text).strip().replace('-', '')
+            text = re.sub(r'\([^)]*\)|（[^）]*）|\[[^\]]*\]', '', text).strip().replace('-', '')
             content_lines.append(text)
+            content_starts.append(_tc_str_to_sec(s_tc))
             
     # Process source subtitles (same structure)
-    for block in ori_content.strip().split('\n\n'):
-        lines = [line.strip() for line in block.split('\n') if line.strip()]
+    for block in re.split(r'\r?\n\r?\n+', ori_content.strip()):
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
         if len(lines) >= 3:
             text = ' '.join(lines[2:])
-            text = re.sub(r'\([^)]*\)|（[^）]*）', '', text).strip().replace('-', '')
+            text = re.sub(r'\([^)]*\)|（[^）]*）|\[[^\]]*\]', '', text).strip().replace('-', '')
             ori_content_lines.append(text)
 
     # Match processing
@@ -205,6 +211,11 @@ def gen_dub_chunks():
         if not text or not isinstance(text, str):
             return ''
         return re.sub(r'[^\w\s]|[\s]', '', text)
+
+    try:
+        slow_factor = float(load_key("video_slow_factor") or 1.0)
+    except Exception:
+        slow_factor = 1.0
 
     # Use orig_text (pre-trim) for matching so trimmed text doesn't cause mismatch.
     match_col = 'orig_text' if 'orig_text' in df.columns else 'text'
@@ -223,14 +234,35 @@ def gen_dub_chunks():
             
             if current == target:
                 df.at[idx, 'lines'] = matches
-                df.at[idx, 'src_lines'] = [ori_content_lines[i] for i in match_indices]
+                df.at[idx, 'src_lines'] = [
+                    ori_content_lines[k] if k < len(ori_content_lines) else '' for k in match_indices
+                ]
                 last_idx = i + 1
                 break
-        else:  # If no match is found
-            rprint(f"[❌ Error] Matching failed at line {idx}:")
-            rprint(f"Target: '{target}'")
-            rprint(f"Current: '{current}'")
-            raise ValueError("Matching failed")
+        else:
+            # Timestamp-boundary fallback when subtitle text was manually edited outside standard sync
+            ts_indices = []
+            if idx + 1 < len(df):
+                next_unscaled_start = _tc_str_to_sec(df.iloc[idx + 1]['start_time']) * slow_factor
+                k = last_idx
+                while k < len(content_lines) and content_starts[k] < next_unscaled_start - 0.02:
+                    ts_indices.append(k)
+                    k += 1
+            else:
+                ts_indices = list(range(last_idx, len(content_lines)))
+
+            if ts_indices:
+                rprint(f"[yellow]⚠️ Row {idx} text differed from {TRANS_SRT}; aligned {len(ts_indices)} line(s) by timestamp boundary.[/yellow]")
+                df.at[idx, 'lines'] = [content_lines[k] for k in ts_indices]
+                df.at[idx, 'src_lines'] = [
+                    ori_content_lines[k] if k < len(ori_content_lines) else '' for k in ts_indices
+                ]
+                last_idx = ts_indices[-1] + 1
+            else:
+                rprint(f"[❌ Error] Matching failed at line {idx}:")
+                rprint(f"Target: '{target}'")
+                rprint(f"Current: '{current}'")
+                raise ValueError("Matching failed")
 
     # Save results
     df.to_excel(_8_1_AUDIO_TASK, index=False)

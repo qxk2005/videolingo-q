@@ -1318,6 +1318,7 @@ def start_dubbing_pipeline(force_continue: bool = False):
                 STATE.sub_step = "正在计算跨角色隔离的配音切分点..."
                 _8_2_dub_chunks.gen_dub_chunks()
             else:
+                sync_res = _8_1_audio_task.sync_subtitles_to_audio_files()
                 df_existing = pd.read_excel(_8_1_AUDIO_TASK)
                 has_lines = (
                     "lines" in df_existing.columns
@@ -1325,7 +1326,8 @@ def start_dubbing_pipeline(force_continue: bool = False):
                     and df_existing["lines"].notna().all()
                 )
                 needs_rechunk = (
-                    "cut_off" not in df_existing.columns
+                    bool(sync_res.get("updated_task_rows", 0) > 0)
+                    or "cut_off" not in df_existing.columns
                     or "gap" not in df_existing.columns
                     or (len(df_existing) > 0 and float(df_existing["gap"].iloc[-1]) <= 0)
                 )
@@ -2470,9 +2472,24 @@ class BatchQueueManager:
                 _8_2_dub_chunks.gen_dub_chunks()
                 _copy_workspace_files("output", task_dir, clear_dst=True)
             else:
+                sync_res = _8_1_audio_task.sync_subtitles_to_audio_files()
                 df_existing = pd.read_excel(_8_1_AUDIO_TASK)
-                if "cut_off" not in df_existing.columns or "gap" not in df_existing.columns:
+                has_lines = (
+                    "lines" in df_existing.columns
+                    and len(df_existing) > 0
+                    and df_existing["lines"].notna().all()
+                )
+                if not has_lines:
                     _8_2_dub_chunks.gen_dub_chunks()
+                    _copy_workspace_files("output", task_dir, clear_dst=True)
+                elif (
+                    sync_res.get("updated_task_rows", 0) > 0
+                    or "cut_off" not in df_existing.columns
+                    or "gap" not in df_existing.columns
+                ):
+                    df_existing = _8_2_dub_chunks.analyze_subtitle_timing_and_speed(df_existing)
+                    df_existing = _8_2_dub_chunks.process_cutoffs(df_existing)
+                    df_existing.to_excel(_8_1_AUDIO_TASK, index=False)
                     _copy_workspace_files("output", task_dir, clear_dst=True)
 
             # Check per-task pause_before_dub
@@ -3184,6 +3201,24 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
                 STATE.step_name = "7. 正在执行说话人性别识别与配音切分..."
                 _8_1_audio_task.gen_audio_task_main()
                 _8_2_dub_chunks.gen_dub_chunks()
+            else:
+                sync_res = _8_1_audio_task.sync_subtitles_to_audio_files()
+                df_existing = pd.read_excel(_8_1_AUDIO_TASK)
+                has_lines = (
+                    "lines" in df_existing.columns
+                    and len(df_existing) > 0
+                    and df_existing["lines"].notna().all()
+                )
+                if not has_lines:
+                    _8_2_dub_chunks.gen_dub_chunks()
+                elif (
+                    sync_res.get("updated_task_rows", 0) > 0
+                    or "cut_off" not in df_existing.columns
+                    or "gap" not in df_existing.columns
+                ):
+                    df_existing = _8_2_dub_chunks.analyze_subtitle_timing_and_speed(df_existing)
+                    df_existing = _8_2_dub_chunks.process_cutoffs(df_existing)
+                    df_existing.to_excel(_8_1_AUDIO_TASK, index=False)
 
             if STATE.stop_requested:
                 raise InterruptedError("任务已被手动停止")
@@ -3334,6 +3369,57 @@ class SubtitleUpdatePayload(BaseModel):
     reburn_video: bool = False
 
 
+def _sync_sibling_display_srts(edited_srt_type: str, base_dir: str = "output") -> List[str]:
+    """Keep `src.srt`, `trans.srt`, `src_trans.srt`, and `trans_src.srt` consistent when one is edited."""
+    synced = []
+    if edited_srt_type not in {"src", "trans", "src_trans", "trans_src"}:
+        return synced
+
+    src_p = os.path.join(base_dir, "src.srt")
+    trans_p = os.path.join(base_dir, "trans.srt")
+    st_p = os.path.join(base_dir, "src_trans.srt")
+    ts_p = os.path.join(base_dir, "trans_src.srt")
+
+    if edited_srt_type in {"src_trans", "trans_src"}:
+        bi_path = st_p if edited_srt_type == "src_trans" else ts_p
+        bi_entries = _parse_srt_blocks(bi_path)
+        src_entries = _parse_srt_blocks(src_p)
+        trans_entries = _parse_srt_blocks(trans_p)
+        if bi_entries and len(src_entries) == len(bi_entries) and len(trans_entries) == len(bi_entries):
+            for idx, b in enumerate(bi_entries):
+                parts = [ln.strip() for ln in str(b["text"]).splitlines()]
+                if len(parts) >= 2:
+                    if edited_srt_type == "src_trans":
+                        s_txt, t_txt = parts[0], " ".join(parts[1:])
+                    else:
+                        t_txt, s_txt = parts[0], " ".join(parts[1:])
+                    src_entries[idx]["text"] = s_txt
+                    trans_entries[idx]["text"] = t_txt
+            _write_srt_blocks(src_p, src_entries)
+            _write_srt_blocks(trans_p, trans_entries)
+            synced.extend(["src.srt", "trans.srt"])
+
+    src_entries = _parse_srt_blocks(src_p)
+    trans_entries = _parse_srt_blocks(trans_p)
+    if src_entries and len(src_entries) == len(trans_entries):
+        if os.path.exists(st_p) and edited_srt_type != "src_trans":
+            st_entries = [
+                {"index": s["index"], "timecode": s["timecode"], "text": f"{s['text']}\n{t['text']}"}
+                for s, t in zip(src_entries, trans_entries)
+            ]
+            _write_srt_blocks(st_p, st_entries)
+            synced.append("src_trans.srt")
+        if os.path.exists(ts_p) and edited_srt_type != "trans_src":
+            ts_entries = [
+                {"index": s["index"], "timecode": s["timecode"], "text": f"{t['text']}\n{s['text']}"}
+                for s, t in zip(src_entries, trans_entries)
+            ]
+            _write_srt_blocks(ts_p, ts_entries)
+            synced.append("trans_src.srt")
+
+    return synced
+
+
 @app.post("/api/content/subtitles/update")
 def update_subtitle_content(payload: SubtitleUpdatePayload):
     valid_types = {"src", "trans", "src_trans", "trans_src", "dub"}
@@ -3353,6 +3439,11 @@ def update_subtitle_content(payload: SubtitleUpdatePayload):
             updated_count += 1
 
     _write_srt_blocks(srt_path, entries)
+    synced_srts = _sync_sibling_display_srts(payload.srt_type, "output")
+    audio_sync = {}
+    if payload.srt_type in {"src", "trans", "src_trans", "trans_src"}:
+        audio_sync = _8_1_audio_task.sync_subtitles_to_audio_files()
+
     if "BATCH_MANAGER" in globals():
         BATCH_MANAGER.sync_from_studio_if_loaded()
 
@@ -3365,6 +3456,8 @@ def update_subtitle_content(payload: SubtitleUpdatePayload):
         "status": "ok",
         "srt_path": srt_path,
         "updated_entries": updated_count,
+        "synced_srt_files": synced_srts,
+        "audio_task_sync": audio_sync,
         "reburn_started": reburn_started,
     }
 

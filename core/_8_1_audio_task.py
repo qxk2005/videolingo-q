@@ -255,10 +255,276 @@ def process_srt():
 
     return df
 
+def _tc_str_to_sec(tc_val) -> float:
+    s = str(tc_val or "").strip().replace(",", ".")
+    parts = s.split(":")
+    if len(parts) == 3:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+    if len(parts) == 2:
+        return int(parts[0]) * 60 + float(parts[1])
+    try:
+        return float(s)
+    except Exception:
+        return 0.0
+
+
+def _clean_srt_line_for_audio(text: str) -> str:
+    t = re.sub(r"\([^)]*\)|（[^）]*）|\[[^\]]*\]", "", str(text or "")).strip()
+    return t.replace("-", "")
+
+
+def _clean_for_exact_match(text: str) -> str:
+    if not text or not isinstance(text, str):
+        return ""
+    return re.sub(r"[^\w\s]|[\s]", "", text)
+
+
+def _parse_srt_blocks_for_sync(path: str):
+    if not os.path.exists(path):
+        return []
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        raw = f.read().strip()
+    if not raw:
+        return []
+    blocks = []
+    for b in re.split(r"\r?\n\r?\n+", raw):
+        lines = [ln.strip("\r").strip() for ln in b.splitlines() if ln.strip()]
+        if len(lines) < 2:
+            continue
+        try:
+            idx = int(lines[0])
+            tc = lines[1]
+            txt = " ".join(lines[2:])
+        except ValueError:
+            idx = len(blocks) + 1
+            tc = lines[0]
+            txt = " ".join(lines[1:])
+        if "-->" not in tc:
+            continue
+        s_tc, e_tc = [x.strip() for x in tc.split("-->", 1)]
+        blocks.append(
+            {
+                "index": idx,
+                "timecode": tc,
+                "start_sec": _tc_str_to_sec(s_tc),
+                "end_sec": _tc_str_to_sec(e_tc),
+                "text": txt,
+            }
+        )
+    return blocks
+
+
+def _write_srt_blocks_for_sync(path: str, blocks: list) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    out = [f"{b['index']}\n{b['timecode']}\n{b['text']}" for b in blocks]
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n\n".join(out) + "\n")
+
+
+def _sync_single_audio_srt(display_srt_path: str, audio_srt_path: str) -> int:
+    """Propagate text edits from display SRT (e.g. output/trans.srt) into remerged audio SRT."""
+    disp = _parse_srt_blocks_for_sync(display_srt_path)
+    aud = _parse_srt_blocks_for_sync(audio_srt_path)
+    if not disp or not aud:
+        return 0
+
+    changed = 0
+    if len(disp) == len(aud):
+        for d, a in zip(disp, aud):
+            if d["text"].strip() != a["text"].strip():
+                a["text"] = d["text"].strip()
+                changed += 1
+    else:
+        last_i = 0
+        new_texts = []
+        for a in aud:
+            grp = []
+            for i in range(last_i, len(disp)):
+                grp.append(disp[i])
+                if disp[i]["end_sec"] >= a["end_sec"] - 0.05:
+                    last_i = i + 1
+                    break
+            else:
+                last_i = len(disp)
+            if not grp:
+                return 0
+            joined = " ".join(x["text"].strip() for x in grp if x["text"].strip())
+            new_texts.append(joined)
+        if last_i != len(disp):
+            return 0
+        for a, nt in zip(aud, new_texts):
+            if nt != a["text"].strip():
+                a["text"] = nt
+                changed += 1
+
+    if changed > 0:
+        _write_srt_blocks_for_sync(audio_srt_path, aud)
+    return changed
+
+
+def _apply_orig_diff_to_trimmed_text(old_orig: str, new_orig: str, old_text: str) -> str:
+    import difflib
+
+    old_o = str(old_orig or "").strip()
+    new_o = str(new_orig or "").strip()
+    old_t = str(old_text or "").strip()
+    if not old_t or old_t == old_o or not old_o:
+        return new_o
+
+    tok_re = re.compile(r"[A-Za-z0-9_]+(?:[.:/-][A-Za-z0-9_]+)*|[\u4e00-\u9fff]|\s+|[^\w\s]", re.UNICODE)
+    t_old = tok_re.findall(old_o)
+    t_new = tok_re.findall(new_o)
+    opcodes = difflib.SequenceMatcher(None, t_old, t_new, autojunk=False).get_opcodes()
+
+    updated = old_t
+    for tag, i1, i2, j1, j2 in opcodes:
+        if tag == "equal":
+            continue
+        left_ctx = "".join(t_old[max(0, i1 - 2) : i1])
+        right_ctx = "".join(t_old[i2 : min(len(t_old), i2 + 2)])
+        old_seg = "".join(t_old[i1:i2])
+        new_seg = "".join(t_new[j1:j2])
+
+        if not re.sub(r"[\s,，.。!！?？:：;；、]", "", old_seg) and not re.sub(
+            r"[\s,，.。!！?？:：;；、]", "", new_seg
+        ):
+            continue
+
+        candidates = []
+        if left_ctx or right_ctx:
+            candidates.append((left_ctx + old_seg + right_ctx, left_ctx + new_seg + right_ctx))
+        if left_ctx:
+            candidates.append((left_ctx + old_seg, left_ctx + new_seg))
+        if right_ctx:
+            candidates.append((old_seg + right_ctx, new_seg + right_ctx))
+        if old_seg.strip():
+            candidates.append((old_seg.strip(), new_seg.strip()))
+
+        for src_pat, dst_pat in candidates:
+            if src_pat and src_pat in updated:
+                updated = updated.replace(src_pat, dst_pat, 1)
+                break
+        else:
+            return new_o
+
+    return updated
+
+
+def sync_subtitles_to_audio_files(
+    display_trans_srt: str = "output/trans.srt",
+    display_src_srt: str = "output/src.srt",
+) -> dict:
+    """Keep `trans_subs_for_audio.srt`, `src_subs_for_audio.srt`, and existing `tts_tasks.xlsx`
+    synchronized with any post-translation edits made to `output/trans.srt` or `output/src.srt`."""
+    trans_srt_changed = _sync_single_audio_srt(display_trans_srt, TRANS_SUBS_FOR_AUDIO_FILE)
+    src_srt_changed = _sync_single_audio_srt(display_src_srt, SRC_SUBS_FOR_AUDIO_FILE)
+    updated_task_rows = 0
+    invalidated_files = 0
+
+    if os.path.exists(_8_1_AUDIO_TASK) and os.path.exists(display_trans_srt):
+        disp_trans = _parse_srt_blocks_for_sync(display_trans_srt)
+        disp_src = _parse_srt_blocks_for_sync(display_src_srt)
+        if disp_trans:
+            df = pd.read_excel(_8_1_AUDIO_TASK)
+            if len(df) > 0:
+                try:
+                    slow_factor = float(load_key("video_slow_factor") or 1.0)
+                except Exception:
+                    slow_factor = 1.0
+
+                last_t = 0
+                trans_groups = []
+                src_groups = []
+                has_same_len_src = len(disp_src) == len(disp_trans)
+
+                for idx in range(len(df)):
+                    if idx + 1 < len(df):
+                        next_unscaled_start = _tc_str_to_sec(df.iloc[idx + 1]["start_time"]) * slow_factor
+                        grp_idx = []
+                        while last_t < len(disp_trans) and disp_trans[last_t]["start_sec"] < next_unscaled_start - 0.02:
+                            grp_idx.append(last_t)
+                            last_t += 1
+                    else:
+                        grp_idx = list(range(last_t, len(disp_trans)))
+                        last_t = len(disp_trans)
+                    trans_groups.append(grp_idx)
+                    src_groups.append(grp_idx if has_same_len_src else [])
+
+                if all(len(g) > 0 for g in trans_groups) and last_t == len(disp_trans):
+                    if "orig_text" not in df.columns:
+                        df["orig_text"] = df["text"].copy()
+
+                    has_lines_col = "lines" in df.columns
+                    affected_numbers = []
+
+                    for idx, grp_idx in enumerate(trans_groups):
+                        clean_lines = [
+                            _clean_srt_line_for_audio(disp_trans[i]["text"])
+                            for i in grp_idx
+                            if _clean_srt_line_for_audio(disp_trans[i]["text"])
+                        ]
+                        new_orig = " ".join(clean_lines)
+                        old_orig = "" if pd.isna(df.at[idx, "orig_text"]) else str(df.at[idx, "orig_text"])
+                        old_text = "" if pd.isna(df.at[idx, "text"]) else str(df.at[idx, "text"])
+
+                        if _clean_for_exact_match(new_orig) != _clean_for_exact_match(old_orig):
+                            new_text = _apply_orig_diff_to_trimmed_text(old_orig, new_orig, old_text)
+                            df.at[idx, "orig_text"] = new_orig
+                            df.at[idx, "text"] = new_text
+                            if has_lines_col and pd.notna(df.at[idx, "lines"]):
+                                from core._8_2_dub_chunks import sync_lines_with_text
+
+                                if _clean_for_exact_match(new_text) == _clean_for_exact_match(new_orig):
+                                    was_str = isinstance(df.at[idx, "lines"], str)
+                                    df.at[idx, "lines"] = repr(clean_lines) if was_str else clean_lines
+                                else:
+                                    df.at[idx, "lines"] = sync_lines_with_text(clean_lines, new_text)
+                                    if isinstance(df.iloc[idx]["lines"], list):
+                                        df.at[idx, "lines"] = repr(df.at[idx, "lines"])
+                            affected_numbers.append(int(df.at[idx, "number"]))
+                            updated_task_rows += 1
+
+                        if has_same_len_src and "origin" in df.columns and src_groups[idx]:
+                            new_src_origin = " ".join(
+                                disp_src[i]["text"].strip() for i in src_groups[idx] if disp_src[i]["text"].strip()
+                            )
+                            old_src_origin = "" if pd.isna(df.at[idx, "origin"]) else str(df.at[idx, "origin"])
+                            if new_src_origin and new_src_origin != old_src_origin:
+                                df.at[idx, "origin"] = new_src_origin
+                                if "src_lines" in df.columns and pd.notna(df.at[idx, "src_lines"]):
+                                    src_l = [
+                                        _clean_srt_line_for_audio(disp_src[i]["text"]) for i in src_groups[idx]
+                                    ]
+                                    df.at[idx, "src_lines"] = (
+                                        repr(src_l) if isinstance(df.at[idx, "src_lines"], str) else src_l
+                                    )
+
+                    if updated_task_rows > 0 or trans_srt_changed > 0 or src_srt_changed > 0:
+                        df.to_excel(_8_1_AUDIO_TASK, index=False)
+                        if affected_numbers:
+                            try:
+                                from core._10_gen_audio import invalidate_audio_cache_for_numbers
+
+                                invalidated_files = invalidate_audio_cache_for_numbers(affected_numbers)
+                            except Exception:
+                                pass
+                        rprint(
+                            f"[green]🔄 Synced {updated_task_rows} edited subtitle task row(s) into {_8_1_AUDIO_TASK}[/green]"
+                        )
+
+    return {
+        "trans_audio_srt_changed": trans_srt_changed,
+        "src_audio_srt_changed": src_srt_changed,
+        "updated_task_rows": updated_task_rows,
+        "invalidated_cache_files": invalidated_files,
+    }
+
+
 def gen_audio_task_main():
-    # Auto-invalidate stale task file if subtitle SRT was regenerated after it
+    sync_subtitles_to_audio_files()
+    # Auto-invalidate stale task file if subtitle SRT was regenerated with new structure after it
     if os.path.exists(_8_1_AUDIO_TASK) and os.path.exists(TRANS_SUBS_FOR_AUDIO_FILE):
-        if os.path.getmtime(TRANS_SUBS_FOR_AUDIO_FILE) > os.path.getmtime(_8_1_AUDIO_TASK):
+        if os.path.getmtime(TRANS_SUBS_FOR_AUDIO_FILE) > os.path.getmtime(_8_1_AUDIO_TASK) + 0.5:
             os.remove(_8_1_AUDIO_TASK)
             rprint("[yellow]🔄 Subtitle SRT is newer than audio task file, regenerating...[/yellow]")
     if os.path.exists(_8_1_AUDIO_TASK):
