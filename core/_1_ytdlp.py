@@ -267,17 +267,22 @@ def sanitize_filename(filename):
     return filename if filename else 'video'
 
 def _add_cookies_options(ydl_opts):
-    has_cookies = False
     cookies_path = load_key("youtube.cookies_path")
     if cookies_path and os.path.exists(cookies_path) and os.path.getsize(cookies_path) > 0:
         ydl_opts["cookiefile"] = str(cookies_path)
-        has_cookies = True
     else:
         try:
             cookies_from_browser = str(load_key("youtube.cookies_from_browser") or "").strip()
             if cookies_from_browser:
                 ydl_opts["cookiesfrombrowser"] = (cookies_from_browser,)
-                has_cookies = True
+        except Exception:
+            pass
+
+    if "proxy" not in ydl_opts:
+        try:
+            proxy = str(load_key("proxy") or "").strip()
+            if proxy:
+                ydl_opts["proxy"] = proxy
         except Exception:
             pass
 
@@ -285,20 +290,9 @@ def _add_cookies_options(ydl_opts):
         ydl_opts["js_runtimes"] = {'node': {}, 'deno': {}, 'quickjs': {}, 'bun': {}}
     if "remote_components" not in ydl_opts:
         ydl_opts["remote_components"] = {'ejs:github', 'ejs:npm'}
-    if "extractor_args" not in ydl_opts:
-        if has_cookies:
-            # Put cookie-capable web clients first so YouTube Premium high-bitrate & member-only HD streams are unlocked
-            ydl_opts["extractor_args"] = {
-                'youtube': {
-                    'player_client': ['web', 'mweb', 'tv_embedded']
-                }
-            }
-        else:
-            ydl_opts["extractor_args"] = {
-                'youtube': {
-                    'player_client': ['tv_embedded', 'android', 'web', 'mweb']
-                }
-            }
+    # Note: Do NOT override extractor_args['youtube']['player_client'] here.
+    # Forcing legacy 'web'/'mweb' clients triggers YouTube GVS PO Token blocks and downgrades streams to format 18 (360p).
+    # Letting modern yt-dlp negotiate its built-in default clients (tv_samsung / visionos / m3u8 + deno EJS) unlocks full 1080p/4K & Premium streams.
 
 _ytdlp_updated_in_session = False
 
@@ -332,8 +326,15 @@ def download_video_ytdlp(url, save_path='output', resolution='1080'):
     # Get YoutubeDL class after updating
     YoutubeDL = update_ytdlp()
 
+    fmt_selector = (
+        'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best'
+        if resolution == 'best'
+        else f'bestvideo[height<={resolution}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={resolution}]+bestaudio/best[height<={resolution}]'
+    )
     ydl_opts = {
-        'format': 'bestvideo+bestaudio/best' if resolution == 'best' else f'bestvideo[height<={resolution}]+bestaudio/best[height<={resolution}]',
+        'format': fmt_selector,
+        'format_sort': ['quality', 'res', 'proto:https', 'vcodec:h264', 'acodec:m4a'],
+        'merge_output_format': 'mp4',
         'outtmpl': f'{save_path}/%(title)s.%(ext)s',
         'noplaylist': True,
         'writethumbnail': True,
