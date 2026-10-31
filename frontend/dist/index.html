@@ -90,10 +90,28 @@
 
       <!-- Right: Concise Action Controls -->
       <div class="flex items-center gap-2.5">
+        <button
+          @click="openSettings('cookies')"
+          class="px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap border"
+          :class="cookiesStatus.effective_mode === 'file'
+            ? (cookiesStatus.has_auth_cookie ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:border-emerald-500' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:border-amber-500')
+            : (cookiesStatus.effective_mode === 'browser' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 hover:border-blue-500' : 'studio-subtle text-slate-500 hover:border-blue-500')"
+          title="点击管理 YouTube 会员 Cookies（配置后 WebUI 与 MCP 调用自动共用）"
+        >
+          <span>🍪</span>
+          <span v-if="cookiesStatus.effective_mode === 'file'">
+            {{ cookiesStatus.has_auth_cookie ? '会员 Cookie 已就绪' : 'Cookie 文件(无登录态)' }}
+          </span>
+          <span v-else-if="cookiesStatus.effective_mode === 'browser'">
+            浏览器 Cookie: {{ cookiesStatus.cookies_from_browser }}
+          </span>
+          <span v-else>配置 Cookies</span>
+        </button>
+
         <button @click="openSettings('llm')" class="studio-subtle px-3.5 py-1.5 rounded-lg text-xs font-semibold hover:border-blue-500 transition flex items-center gap-1.5 whitespace-nowrap">
           <span>⚙️</span>
           <span>参数设置</span>
-          <span class="text-slate-400 font-normal hidden sm:inline">(LLM / 字幕 / 配音)</span>
+          <span class="text-slate-400 font-normal hidden sm:inline">(LLM / 字幕 / 配音 / Cookies)</span>
         </button>
 
         <button @click="toggleTheme" class="studio-subtle px-3 py-1.5 rounded-lg text-xs font-medium hover:border-blue-500 transition flex items-center gap-1.5 whitespace-nowrap">
@@ -311,16 +329,38 @@
           <!-- ==================== STAGE A: 下载或上传视频 ==================== -->
           <div v-if="activeStage === 'a'" class="flex flex-col gap-3.5 text-xs">
             <div class="studio-subtle p-4 rounded-xl flex flex-col gap-3">
-              <div class="flex items-center justify-between">
-                <span class="font-bold text-sm">🔗 YouTube 视频链接与极速字幕通道</span>
-                <button @click="openSettings('sub')" class="text-blue-500 hover:underline font-medium">⚙️ 配置 Cookies 与防风控</button>
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-bold text-sm">🔗 YouTube 视频链接与极速字幕通道</span>
+                  <span
+                    @click="openSettings('cookies')"
+                    class="px-2 py-0.5 rounded-full text-[11px] font-semibold cursor-pointer border transition"
+                    :class="cookiesStatus.effective_mode === 'file'
+                      ? (cookiesStatus.has_auth_cookie ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30')
+                      : (cookiesStatus.effective_mode === 'browser' ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30' : 'bg-slate-500/10 text-slate-500 border-slate-500/20')"
+                  >
+                    <template v-if="cookiesStatus.effective_mode === 'file'">
+                      {{ cookiesStatus.has_auth_cookie ? `🍪 会员 Cookie 已生效 (本地文件 · ${cookiesStatus.yt_cookie_count} 条)` : '⚠️ 本地 Cookie 未检出登录态' }}
+                    </template>
+                    <template v-else-if="cookiesStatus.effective_mode === 'browser'">
+                      🌐 自动读取浏览器: {{ cookiesStatus.cookies_from_browser }}
+                    </template>
+                    <template v-else>
+                      ⚪ 未配置会员 Cookie
+                    </template>
+                  </span>
+                </div>
+                <button @click="openSettings('cookies')" class="px-2.5 py-1 rounded-lg bg-blue-600/15 text-blue-600 dark:text-blue-400 hover:bg-blue-600 hover:text-white font-semibold transition">
+                  🍪 配置会员 Cookies 与防风控
+                </button>
               </div>
               <div class="flex gap-2">
                 <input v-model="ytbUrl" type="text" placeholder="粘贴 YouTube 链接 (如 https://www.youtube.com/watch?v=...)" class="studio-input flex-1 px-3 py-2 rounded-lg font-mono text-xs" />
                 <select v-model="ytbRes" class="studio-input px-3 py-2 rounded-lg font-semibold">
                   <option value="360">360p 极速</option>
-                  <option value="1080">1080p 高清</option>
-                  <option value="best">Best 最佳画质</option>
+                  <option value="720">720p 标清</option>
+                  <option value="1080">1080p 高清 (含会员高码率)</option>
+                  <option value="best">Best 最佳画质 (4K / 原画)</option>
                 </select>
               </div>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5">
@@ -1345,6 +1385,10 @@
             <button @click="settingsTab = 'dub'" :class="settingsTab === 'dub' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:bg-slate-500/10'" class="px-3 py-2.5 rounded-lg text-xs font-semibold text-left transition flex items-center gap-2">
               <span>🔊</span><span>配音与声纹设置</span>
             </button>
+            <button @click="settingsTab = 'cookies'" :class="settingsTab === 'cookies' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:bg-slate-500/10'" class="px-3 py-2.5 rounded-lg text-xs font-semibold text-left transition flex items-center justify-between gap-2">
+              <span class="flex items-center gap-2"><span>🍪</span><span>YouTube 会员 Cookies</span></span>
+              <span v-if="cookiesStatus.effective_mode !== 'none'" class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+            </button>
           </div>
 
           <!-- Right Form Content -->
@@ -1545,17 +1589,132 @@
                   </div>
                 </div>
 
-                <div class="studio-subtle p-3 rounded-xl flex flex-col gap-2" v-if="cfg.youtube">
-                  <div class="font-semibold">🛡️ YouTube Cookies 管理</div>
+                <div class="studio-subtle p-3 rounded-xl flex flex-col justify-between gap-2" v-if="cfg.youtube">
                   <div class="flex items-center justify-between">
-                    <span class="text-slate-500">从浏览器自动读取</span>
-                    <select v-model="cfg.youtube.cookies_from_browser" class="studio-input px-2 py-1 rounded">
+                    <span class="font-semibold">🍪 YouTube 会员 Cookies</span>
+                    <span class="text-[11px] font-semibold" :class="cookiesStatus.effective_mode !== 'none' ? 'text-emerald-500' : 'text-slate-400'">
+                      {{ cookiesStatus.effective_mode === 'file' ? '✅ 本地文件生效中' : (cookiesStatus.effective_mode === 'browser' ? `🌐 ${cookiesStatus.cookies_from_browser}` : '未配置') }}
+                    </span>
+                  </div>
+                  <button @click="settingsTab = 'cookies'" class="w-full py-1.5 px-3 rounded-lg bg-blue-600/15 text-blue-600 dark:text-blue-400 hover:bg-blue-600 hover:text-white font-semibold transition text-center">
+                    👉 打开完整 Cookies 管理（上传 / 粘贴 / 浏览器提取）
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- TAB 4: YouTube 会员 Cookies 管理 -->
+            <div v-if="settingsTab === 'cookies'" class="flex flex-col gap-4">
+              <!-- Live Status Banner -->
+              <div
+                class="p-3.5 rounded-xl border flex flex-col gap-1.5"
+                :class="cookiesStatus.effective_mode === 'file'
+                  ? (cookiesStatus.has_auth_cookie ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-amber-500/40 bg-amber-500/10')
+                  : (cookiesStatus.effective_mode === 'browser' ? 'border-blue-500/40 bg-blue-500/10' : 'studio-subtle')"
+              >
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="font-bold text-sm flex items-center gap-2">
+                    <template v-if="cookiesStatus.effective_mode === 'file'">
+                      <span class="text-emerald-600 dark:text-emerald-400">
+                        {{ cookiesStatus.has_auth_cookie ? '✅ 当前生效：本地持久化 Cookie 文件（已检出登录态）' : '⚠️ 当前生效：本地 Cookie 文件（未检出 YouTube 登录态字段）' }}
+                      </span>
+                    </template>
+                    <template v-else-if="cookiesStatus.effective_mode === 'browser'">
+                      <span class="text-blue-600 dark:text-blue-400">🌐 当前生效：自动从 {{ cookiesStatus.cookies_from_browser }} 浏览器读取</span>
+                    </template>
+                    <template v-else>
+                      <span class="text-slate-500">⚪ 当前未配置会员 Cookie（仅限普通公开流下载）</span>
+                    </template>
+                  </div>
+                  <span v-if="cookiesStatus.updated_at" class="text-[11px] font-mono text-slate-400">
+                    更新于 {{ cookiesStatus.updated_at }}
+                  </span>
+                </div>
+                <div class="text-xs text-slate-500 dark:text-slate-300 leading-relaxed">
+                  <template v-if="cookiesStatus.effective_mode === 'file'">
+                    共载入 <b>{{ cookiesStatus.cookie_count }}</b> 条记录（其中 YouTube/Google 域名 <b>{{ cookiesStatus.yt_cookie_count }}</b> 条）。该文件保存在 <code>output/youtube_cookies.txt</code>，清空或归档工作区均不会删除，<b>后续通过 MCP 工具或批量队列调用时将自动携带此会员凭证解锁 1080p Premium 高码率、4K 与会员专属视频</b>。
+                  </template>
+                  <template v-else-if="cookiesStatus.effective_mode === 'browser'">
+                    下载时将实时读取本机 <b>{{ cookiesStatus.cookies_from_browser }}</b> 浏览器的 Cookie。提示：macOS 后台执行 MCP 调用时读取 Chrome/Edge/Safari 可能触发「钥匙串访问」弹窗阻塞；若需全自动无人值守调用，强烈建议使用下方「方式一」导入或粘贴一次 Cookie 文件。
+                  </template>
+                  <template v-else>
+                    配置 YouTube 登录态 Cookie 后，可解锁 YouTube Premium 高码率（1080p Enhanced Bitrate / 4K）、频道会员视频与年龄受限视频，并有效规避人机验证风控。一次保存后 WebUI 与 MCP 自动共用。
+                  </template>
+                </div>
+              </div>
+
+              <!-- Method 1: Upload or Paste Persistent Cookie File (Recommended for MCP) -->
+              <div class="studio-subtle p-4 rounded-xl flex flex-col gap-3 border border-blue-500/20">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div class="font-bold text-sm flex items-center gap-2">
+                      <span>📤 方式一：导入或粘贴持久化 Cookie 文件</span>
+                      <span class="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold">MCP 无人值守推荐</span>
+                    </div>
+                    <div class="text-slate-400 mt-0.5">
+                      自动兼容 3 种格式：① <b>Get cookies.txt LOCALLY</b> 导出的 <code>.txt</code>；② <b>Cookie-Editor</b> 导出的 <code>JSON</code>；③ 无需插件，按 F12 在 Network 复制 <code>youtube.com</code> 请求头中的 <code>Cookie: ...</code> 字符串
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2 shrink-0">
+                    <label class="px-3.5 py-2 rounded-lg bg-blue-600 text-white font-semibold cursor-pointer hover:bg-blue-700 transition">
+                      <input type="file" class="hidden" accept=".txt,.json" @change="uploadCookiesFile" />
+                      📂 选择 cookies.txt / JSON 上传
+                    </label>
+                    <button
+                      v-if="cookiesStatus.file_exists"
+                      @click="clearCookiesFile"
+                      class="px-3 py-2 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/25 font-semibold hover:bg-rose-500 hover:text-white transition"
+                    >
+                      🗑️ 清除本地文件
+                    </button>
+                  </div>
+                </div>
+
+                <div class="flex flex-col gap-2 pt-2 border-t border-slate-200 dark:border-slate-700/80">
+                  <textarea
+                    v-model="cookiesPasteText"
+                    rows="5"
+                    placeholder="在此直接粘贴 Netscape 格式 cookies.txt 内容、Cookie-Editor JSON 数组，或浏览器 F12 复制的 Cookie: SID=...; SAPISID=... 字符串..."
+                    class="studio-input w-full p-2.5 rounded-lg font-mono text-xs leading-relaxed"
+                  ></textarea>
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-slate-400 text-[11px]">🔒 凭证仅保存在您本机 <code>output/youtube_cookies.txt</code> (权限 600)，绝不外传且已在文件树中隐藏。</span>
+                    <button
+                      @click="savePastedCookies"
+                      :disabled="cookiesSaving || !cookiesPasteText.trim()"
+                      class="px-4 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50 transition shrink-0"
+                    >
+                      {{ cookiesSaving ? '⏳ 正在校验保存...' : '💾 解析并保存 Cookie' }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Method 2: Browser Auto-Read -->
+              <div class="studio-subtle p-4 rounded-xl flex flex-col gap-2.5" v-if="cfg.youtube">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div class="font-bold text-sm">🌐 方式二：从本地浏览器实时提取 (`cookies_from_browser`)</div>
+                    <div class="text-slate-400 mt-0.5">
+                      当上方本地 <code>youtube_cookies.txt</code> 文件存在时将优先使用本地文件（避免覆盖或弹窗）；清除本地文件后自动启用此处所选浏览器。
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <select v-model="cfg.youtube.cookies_from_browser" class="studio-input px-3 py-1.5 rounded-lg font-semibold">
                       <option value="">不自动提取</option>
                       <option value="chrome">Chrome</option>
-                      <option value="safari">Safari</option>
                       <option value="edge">Edge</option>
+                      <option value="safari">Safari</option>
                       <option value="firefox">Firefox</option>
+                      <option value="brave">Brave</option>
+                      <option value="arc">Arc</option>
                     </select>
+                    <button
+                      @click="saveBrowserCookieChoice"
+                      class="px-3.5 py-1.5 rounded-lg studio-card font-semibold hover:border-blue-500 transition"
+                    >
+                      💾 保存浏览器选项
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1697,6 +1856,19 @@
         const newProfileName = ref('');
         const customTermsText = ref('');
         const voiceCatalogs = reactive({ doubao_male: {}, doubao_female: {}, edge_male: {}, edge_female: {} });
+        const cookiesStatus = reactive({
+          effective_mode: 'none',
+          file_exists: false,
+          file_path: 'output/youtube_cookies.txt',
+          size_bytes: 0,
+          updated_at: '',
+          cookie_count: 0,
+          yt_cookie_count: 0,
+          has_auth_cookie: false,
+          cookies_from_browser: '',
+        });
+        const cookiesPasteText = ref('');
+        const cookiesSaving = ref(false);
         const llmTestState = reactive({
           testing: false,
           tested: false,
@@ -1806,6 +1978,9 @@
           llmProfiles.value = data.profiles || {};
           customTermsText.value = data.custom_terms || '';
           Object.assign(voiceCatalogs, data.voice_catalogs || {});
+          if (data.cookies_status) {
+            Object.assign(cookiesStatus, data.cookies_status);
+          }
           if (cfg.ytb_resolution) {
             ytbRes.value = String(cfg.ytb_resolution);
             batchForm.resolution = String(cfg.ytb_resolution);
@@ -1880,16 +2055,94 @@
             'doubao_tts.male_voice': cfg.doubao_tts?.male_voice || '',
             'doubao_tts.female_voice': cfg.doubao_tts?.female_voice || '',
           };
-          await fetch('/api/config', {
+          const res = await fetch('/api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ updates, custom_terms: customTermsText.value }),
           });
+          const resData = await res.json().catch(() => ({}));
+          if (resData.cookies_status) {
+            Object.assign(cookiesStatus, resData.cookies_status);
+          }
           if (closeModal) {
             showSettingsModal.value = false;
             showToast('💾 配置已保存并同步到 config.yaml');
           }
           fetchWorkspaceState(true);
+        }
+
+        async function uploadCookiesFile(e) {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          cookiesSaving.value = true;
+          try {
+            const fd = new FormData();
+            fd.append('file', file);
+            const res = await fetch('/api/cookies/upload', { method: 'POST', body: fd });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              showToast(`❌ ${data.detail || 'Cookie 文件格式解析失败'}`);
+              return;
+            }
+            if (data.config) Object.assign(cfg, data.config);
+            if (data.cookies_status) Object.assign(cookiesStatus, data.cookies_status);
+            showToast(
+              cookiesStatus.has_auth_cookie
+                ? `✅ 会员 Cookie 导入成功！已识别 ${cookiesStatus.yt_cookie_count} 条凭证`
+                : '⚠️ Cookie 已导入，但未检出登录态字段，请确认导出前已登录 YouTube'
+            );
+          } finally {
+            cookiesSaving.value = false;
+            e.target.value = '';
+          }
+        }
+
+        async function savePastedCookies() {
+          if (!cookiesPasteText.value.trim()) return showToast('⚠️ 请先粘贴 Cookie 内容');
+          cookiesSaving.value = true;
+          try {
+            const res = await fetch('/api/cookies/paste', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: cookiesPasteText.value }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              showToast(`❌ ${data.detail || 'Cookie 内容格式解析失败'}`);
+              return;
+            }
+            cookiesPasteText.value = '';
+            if (data.config) Object.assign(cfg, data.config);
+            if (data.cookies_status) Object.assign(cookiesStatus, data.cookies_status);
+            showToast(
+              cookiesStatus.has_auth_cookie
+                ? `✅ 会员 Cookie 保存成功！已识别 ${cookiesStatus.yt_cookie_count} 条凭证`
+                : '⚠️ Cookie 已保存，但未检出登录态字段，请确认已在浏览器登录 YouTube'
+            );
+          } finally {
+            cookiesSaving.value = false;
+          }
+        }
+
+        async function clearCookiesFile() {
+          const res = await fetch('/api/cookies', { method: 'DELETE' });
+          const data = await res.json().catch(() => ({}));
+          if (data.config) Object.assign(cfg, data.config);
+          if (data.cookies_status) Object.assign(cookiesStatus, data.cookies_status);
+          showToast('🗑️ 已清除本地 youtube_cookies.txt 文件');
+        }
+
+        async function saveBrowserCookieChoice() {
+          const browserVal = cfg.youtube?.cookies_from_browser || '';
+          const res = await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ updates: { 'youtube.cookies_from_browser': browserVal } }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (data.config) Object.assign(cfg, data.config);
+          if (data.cookies_status) Object.assign(cookiesStatus, data.cookies_status);
+          showToast(browserVal ? `💾 已保存浏览器提取源: ${browserVal}` : '💾 已关闭浏览器自动提取 Cookie');
         }
 
         async function handleProfile(action) {
@@ -2448,12 +2701,14 @@
           isDark, workspaceMode, activeStage, activeVideoSource, activeLineInfo,
           speakerSubTab, showSettingsModal, settingsTab, showConsole, toastMessage,
           videoPlayerRef, ytbUrl, ytbRes, expandedDirs, cfg, llmProfiles,
-          selectedProfile, newProfileName, customTermsText, voiceCatalogs, llmTestState,
+          selectedProfile, newProfileName, customTermsText, voiceCatalogs,
+          cookiesStatus, cookiesPasteText, cookiesSaving, llmTestState,
           wsState, speakerReview, batchTasks, batchQueue, batchForm, showBatchAdvForm,
           expandedTaskConfigId, batchPreviewTask, batchPreviewSource, batchPreviewVideoUrl,
           currentVideoUrl, formatElapsed,
           toggleTheme, selectVideoSource, seekToTime, toggleDir, openSettings,
-          saveAllConfig, handleProfile, testLlmApi, downloadYoutube, uploadVideoFile,
+          saveAllConfig, uploadCookiesFile, savePastedCookies, clearCookiesFile, saveBrowserCookieChoice,
+          handleProfile, testLlmApi, downloadYoutube, uploadVideoFile,
           deleteVideo, uploadSubtitleBypass, startSubtitlePipeline, reapplyTerms,
           resetSubtitles, archiveWorkspace, syncSpeakerCardToLines, startDubbing,
           saveSpeakerOverrides, deleteDubbing, stopTask, clearError, switchBatchMode,

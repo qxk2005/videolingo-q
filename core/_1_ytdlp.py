@@ -267,27 +267,38 @@ def sanitize_filename(filename):
     return filename if filename else 'video'
 
 def _add_cookies_options(ydl_opts):
+    has_cookies = False
     cookies_path = load_key("youtube.cookies_path")
-    if cookies_path and os.path.exists(cookies_path):
+    if cookies_path and os.path.exists(cookies_path) and os.path.getsize(cookies_path) > 0:
         ydl_opts["cookiefile"] = str(cookies_path)
-    
-    try:
-        cookies_from_browser = load_key("youtube.cookies_from_browser")
-        if cookies_from_browser:
-            ydl_opts["cookiesfrombrowser"] = (cookies_from_browser,)
-    except Exception:
-        pass
+        has_cookies = True
+    else:
+        try:
+            cookies_from_browser = str(load_key("youtube.cookies_from_browser") or "").strip()
+            if cookies_from_browser:
+                ydl_opts["cookiesfrombrowser"] = (cookies_from_browser,)
+                has_cookies = True
+        except Exception:
+            pass
 
     if "js_runtimes" not in ydl_opts:
         ydl_opts["js_runtimes"] = {'node': {}, 'deno': {}, 'quickjs': {}, 'bun': {}}
     if "remote_components" not in ydl_opts:
         ydl_opts["remote_components"] = {'ejs:github', 'ejs:npm'}
     if "extractor_args" not in ydl_opts:
-        ydl_opts["extractor_args"] = {
-            'youtube': {
-                'player_client': ['tv_embedded', 'android', 'web', 'mweb']
+        if has_cookies:
+            # Put cookie-capable web clients first so YouTube Premium high-bitrate & member-only HD streams are unlocked
+            ydl_opts["extractor_args"] = {
+                'youtube': {
+                    'player_client': ['web', 'mweb', 'tv_embedded']
+                }
             }
-        }
+        else:
+            ydl_opts["extractor_args"] = {
+                'youtube': {
+                    'player_client': ['tv_embedded', 'android', 'web', 'mweb']
+                }
+            }
 
 _ytdlp_updated_in_session = False
 

@@ -443,7 +443,9 @@ def _build_file_tree(root_dir: str = "output") -> List[Dict[str, Any]]:
         files = [
             f
             for f in items
-            if os.path.isfile(os.path.join(curr_path, f)) and not f.startswith(".")
+            if os.path.isfile(os.path.join(curr_path, f))
+            and not f.startswith(".")
+            and f != "youtube_cookies.txt"
         ]
         for d in dirs:
             full = os.path.join(curr_path, d)
@@ -597,19 +599,206 @@ def _build_speaker_review_payload() -> Dict[str, Any]:
 
 
 # =====================================================================
-# API Endpoints: Configuration & Profiles
+# API Endpoints: Configuration, Cookies & Profiles
 # =====================================================================
+COOKIES_FILE_PATH = "output/youtube_cookies.txt"
+
+
+def _normalize_cookies_content(raw_text: str) -> str:
+    """
+    Normalize Cookie content into a valid Netscape HTTP Cookie File format
+    compatible with both yt-dlp and Python http.cookiejar.MozillaCookieJar.
+    Supports:
+    1) Netscape cookies.txt (with or without header, including #HttpOnly_ lines)
+    2) JSON array exported by Cookie-Editor / EditThisCookie
+    3) Raw HTTP 'Cookie: name=val; ...' header string copied from browser DevTools
+    """
+    text = (raw_text or "").strip().lstrip("\ufeff")
+    if not text:
+        raise ValueError("Cookie 内容为空，请上传或粘贴有效的 Cookie 内容")
+
+    header = "# Netscape HTTP Cookie File\n# Normalized by VideoLingo Q\n\n"
+    default_exp = int(time.time()) + 365 * 86400
+
+    # 1. JSON format (Cookie-Editor / EditThisCookie)
+    if text.startswith("[") or text.startswith("{"):
+        try:
+            parsed = json.loads(text)
+            cookie_list = parsed if isinstance(parsed, list) else parsed.get("cookies", [])
+            if not isinstance(cookie_list, list) or not cookie_list:
+                raise ValueError("JSON 中未找到有效的 Cookie 数组")
+            lines = []
+            for item in cookie_list:
+                if not isinstance(item, dict) or not item.get("name"):
+                    continue
+                domain = str(item.get("domain") or ".youtube.com").strip() or ".youtube.com"
+                include_subdomains = "FALSE" if item.get("hostOnly") is True and not domain.startswith(".") else "TRUE"
+                if include_subdomains == "TRUE" and not domain.startswith("."):
+                    domain = "." + domain
+                path = str(item.get("path") or "/").strip() or "/"
+                secure = "TRUE" if item.get("secure", True) else "FALSE"
+                exp_raw = item.get("expirationDate") or item.get("expires") or default_exp
+                try:
+                    expires = max(0, int(float(exp_raw)))
+                except Exception:
+                    expires = default_exp
+                name = str(item.get("name")).strip()
+                value = str(item.get("value") if item.get("value") is not None else "").replace("\t", "").replace("\n", "").replace("\r", "")
+                lines.append(f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expires}\t{name}\t{value}")
+            if not lines:
+                raise ValueError("JSON 中没有可解析的 Cookie 字段")
+            return header + "\n".join(lines) + "\n"
+        except json.JSONDecodeError as e:
+            raise ValueError(f"JSON 格式 Cookie 解析失败: {e}")
+
+    # 2. Netscape 7-column tab-separated format
+    raw_lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    netscape_lines = []
+    for ln in raw_lines:
+        stripped = ln.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#HttpOnly_"):
+            stripped = stripped[len("#HttpOnly_"):]
+        elif stripped.startswith("#"):
+            continue
+        parts = stripped.split("\t")
+        if len(parts) >= 7:
+            domain = parts[0].strip()
+            flag = "TRUE" if parts[1].strip().upper() == "TRUE" or domain.startswith(".") else "FALSE"
+            path = parts[2].strip() or "/"
+            secure = "TRUE" if parts[3].strip().upper() == "TRUE" else "FALSE"
+            try:
+                expires = max(0, int(float(parts[4].strip())))
+            except Exception:
+                expires = default_exp
+            name = parts[5].strip()
+            value = "\t".join(parts[6:]).strip()
+            if domain and name:
+                netscape_lines.append(f"{domain}\t{flag}\t{path}\t{secure}\t{expires}\t{name}\t{value}")
+
+    if netscape_lines:
+        return header + "\n".join(netscape_lines) + "\n"
+
+    # 3. Raw HTTP Cookie header string (e.g. 'Cookie: SID=...; SAPISID=...; LOGIN_INFO=...')
+    cookie_str = text
+    if cookie_str.lower().startswith("cookie:"):
+        cookie_str = cookie_str.split(":", 1)[1].strip()
+    if "=" in cookie_str and (";" in cookie_str or len(cookie_str) > 12):
+        pairs = [seg.strip() for seg in cookie_str.split(";") if seg.strip() and "=" in seg]
+        kv_lines = []
+        for pair in pairs:
+            k, v = pair.split("=", 1)
+            k = k.strip()
+            v = v.strip()
+            if not k or "\n" in k or " " in k or "\t" in k:
+                continue
+            kv_lines.append(f".youtube.com\tTRUE\t/\tTRUE\t{default_exp}\t{k}\t{v}")
+        if kv_lines:
+            return header + "\n".join(kv_lines) + "\n"
+
+    raise ValueError(
+        "无法识别该 Cookie 格式。支持：1) Netscape 格式 cookies.txt；2) Cookie-Editor 导出的 JSON；3) 浏览器 F12 复制的 Cookie 请求头字符串。"
+    )
+
+
+def _save_normalized_cookies(raw_text: str, clear_browser: bool = False) -> Dict[str, Any]:
+    normalized = _normalize_cookies_content(raw_text)
+    os.makedirs("output", exist_ok=True)
+    with open(COOKIES_FILE_PATH, "w", encoding="utf-8") as f:
+        f.write(normalized)
+    try:
+        os.chmod(COOKIES_FILE_PATH, 0o600)
+    except Exception:
+        pass
+    update_key("youtube.cookies_path", COOKIES_FILE_PATH)
+    if clear_browser:
+        update_key("youtube.cookies_from_browser", "")
+    return _get_cookies_status()
+
+
+def _get_cookies_status() -> Dict[str, Any]:
+    configured_path = str(load_key("youtube.cookies_path") or "").strip()
+    target_file = configured_path if (configured_path and os.path.exists(configured_path)) else COOKIES_FILE_PATH
+    file_exists = os.path.exists(target_file) and os.path.getsize(target_file) > 0
+
+    cookie_count = 0
+    yt_cookie_count = 0
+    has_auth_cookie = False
+    updated_at = ""
+    size_bytes = 0
+    auth_names = {
+        "SAPISID",
+        "__Secure-3PAPISID",
+        "__Secure-1PAPISID",
+        "SID",
+        "__Secure-3PSID",
+        "__Secure-1PSID",
+        "LOGIN_INFO",
+    }
+
+    if file_exists:
+        try:
+            st = os.stat(target_file)
+            size_bytes = st.st_size
+            updated_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime))
+            with open(target_file, "r", encoding="utf-8", errors="ignore") as f:
+                for ln in f:
+                    s = ln.strip()
+                    if not s or (s.startswith("#") and not s.startswith("#HttpOnly_")):
+                        continue
+                    if s.startswith("#HttpOnly_"):
+                        s = s[len("#HttpOnly_"):]
+                    parts = s.split("\t")
+                    if len(parts) >= 7:
+                        cookie_count += 1
+                        dom = parts[0].lower()
+                        cname = parts[5].strip()
+                        if "youtube.com" in dom or "google.com" in dom or "googlevideo.com" in dom:
+                            yt_cookie_count += 1
+                        if cname in auth_names and parts[6].strip():
+                            has_auth_cookie = True
+        except Exception:
+            pass
+
+    browser = ""
+    try:
+        browser = str(load_key("youtube.cookies_from_browser") or "").strip()
+    except Exception:
+        browser = ""
+
+    if file_exists:
+        effective_mode = "file"
+    elif browser:
+        effective_mode = "browser"
+    else:
+        effective_mode = "none"
+
+    return {
+        "effective_mode": effective_mode,
+        "file_exists": file_exists,
+        "file_path": target_file if file_exists else COOKIES_FILE_PATH,
+        "size_bytes": size_bytes,
+        "updated_at": updated_at,
+        "cookie_count": cookie_count,
+        "yt_cookie_count": yt_cookie_count,
+        "has_auth_cookie": has_auth_cookie,
+        "cookies_from_browser": browser,
+    }
+
+
 @app.get("/api/config")
 def get_config():
     cfg = _read_full_config()
     profiles = _load_profiles()
     custom_terms = str(load_key("domain_vocab") or "")
-    cookies_file = "output/youtube_cookies.txt"
+    cookies_status = _get_cookies_status()
     return {
         "config": cfg,
         "profiles": profiles,
         "custom_terms": custom_terms,
-        "cookies_exists": os.path.exists(cookies_file),
+        "cookies_exists": cookies_status["file_exists"],
+        "cookies_status": cookies_status,
         "voice_catalogs": {
             "doubao_male": DOUBAO_MALE_VOICES,
             "doubao_female": DOUBAO_FEMALE_VOICES,
@@ -623,6 +812,7 @@ def get_config():
 class ConfigUpdatePayload(BaseModel):
     updates: Dict[str, Any] = {}
     custom_terms: Optional[str] = None
+    cookies_content: Optional[str] = None
 
 
 @app.post("/api/config")
@@ -631,7 +821,18 @@ def update_config(payload: ConfigUpdatePayload):
         update_key(k, v)
     if payload.custom_terms is not None:
         update_key("domain_vocab", payload.custom_terms)
-    return {"status": "ok", "config": _read_full_config()}
+    if payload.cookies_content and payload.cookies_content.strip():
+        try:
+            _save_normalized_cookies(payload.cookies_content)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    cookies_status = _get_cookies_status()
+    return {
+        "status": "ok",
+        "config": _read_full_config(),
+        "cookies_exists": cookies_status["file_exists"],
+        "cookies_status": cookies_status,
+    }
 
 
 class ProfileActionPayload(BaseModel):
@@ -821,14 +1022,65 @@ def preview_tts_voice(payload: VoicePreviewPayload):
                 pass
 
 
+class CookiesPastePayload(BaseModel):
+    content: str
+    clear_browser: bool = False
+
+
+@app.get("/api/cookies/status")
+def get_cookies_status_api():
+    st = _get_cookies_status()
+    return {"status": "ok", "cookies_exists": st["file_exists"], "cookies_status": st}
+
+
+@app.post("/api/cookies/upload")
+async def upload_cookies_file(file: UploadFile = File(...)):
+    raw_bytes = await file.read()
+    raw_text = raw_bytes.decode("utf-8", errors="replace")
+    try:
+        st = _save_normalized_cookies(raw_text)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "status": "ok",
+        "cookies_exists": st["file_exists"],
+        "cookies_status": st,
+        "config": _read_full_config(),
+    }
+
+
+@app.post("/api/cookies/paste")
+def paste_cookies_content(payload: CookiesPastePayload):
+    try:
+        st = _save_normalized_cookies(payload.content, clear_browser=payload.clear_browser)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "status": "ok",
+        "cookies_exists": st["file_exists"],
+        "cookies_status": st,
+        "config": _read_full_config(),
+    }
+
+
 @app.delete("/api/cookies")
 def delete_cookies():
-    cookies_file = "output/youtube_cookies.txt"
-    if os.path.exists(cookies_file):
-        os.remove(cookies_file)
-    if load_key("youtube.cookies_path") == cookies_file:
+    configured_path = str(load_key("youtube.cookies_path") or "").strip()
+    for candidate in {COOKIES_FILE_PATH, configured_path}:
+        if candidate and os.path.abspath(candidate).startswith(os.path.abspath("output")) and os.path.exists(candidate):
+            try:
+                os.remove(candidate)
+            except Exception:
+                pass
+    if configured_path == COOKIES_FILE_PATH:
         update_key("youtube.cookies_path", "")
-    return {"status": "ok"}
+    st = _get_cookies_status()
+    return {
+        "status": "ok",
+        "cookies_exists": st["file_exists"],
+        "cookies_status": st,
+        "config": _read_full_config(),
+    }
 
 
 # =====================================================================
@@ -2864,6 +3116,8 @@ def stream_batch_task_media(task_id: str, file_path: str, request: Request):
 def stream_output_media(file_path: str, request: Request):
     safe_base = os.path.abspath("output")
     target = os.path.abspath(os.path.join(safe_base, file_path))
+    if os.path.basename(target) == "youtube_cookies.txt":
+        raise HTTPException(status_code=403, detail="禁止直接读取敏感凭证文件")
     if not target.startswith(safe_base) or not os.path.exists(target) or not os.path.isfile(target):
         raise HTTPException(status_code=404, detail="文件不存在")
 

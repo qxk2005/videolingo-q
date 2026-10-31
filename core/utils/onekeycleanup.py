@@ -18,9 +18,9 @@ def cleanup(history_dir="history"):
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(gpt_log_dir, exist_ok=True)
 
-    # Move non-log files
+    # Move non-log files (preserve persistent youtube_cookies.txt across archives)
     for file in glob.glob("output/*"):
-        if not file.endswith(('log', 'gpt_log')):
+        if not file.endswith(('log', 'gpt_log', 'youtube_cookies.txt')):
             move_file(file, video_history_dir)
 
     # Move log files
