@@ -1,3 +1,4 @@
+from core.tts_backend.single_attempt_scope import single_attempt_active, single_attempt_call
 import os
 import json
 import time
@@ -209,6 +210,7 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
     
     tts_method = load_key("tts_method")
     success_continuous = False
+    scoped_once = single_attempt_active()
     
     # If all slice temp files already exist and are valid, skip re-synthesis (enables incremental rebuild!)
     from core.tts_backend.tts_main import is_audio_valid
@@ -225,7 +227,7 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
         return number, cached_dur
 
     # Apply continuous dubbing optimization for multi-line chunks in doubao_tts
-    if len(lines) > 1 and tts_method == "doubao_tts":
+    if not scoped_once and len(lines) > 1 and tts_method == "doubao_tts":
         try:
             import tempfile
             from pydub.silence import detect_nonsilent
@@ -312,11 +314,11 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
             
     # Fallback to original sentence-by-sentence generation
     if not success_continuous:
-        if len(lines) > 1 and tts_method == "doubao_tts":
+        if not scoped_once and len(lines) > 1 and tts_method == "doubao_tts":
             rprint(f"[cyan]ℹ️ Continuous dubbing: switched to individual sentence generation for chunk {number}...[/cyan]")
         for line_index in range(len(lines)):
             temp_file = TEMP_FILE_TEMPLATE.format(f"{number}_{line_index}")
-            if os.path.exists(temp_file):
+            if not scoped_once and os.path.exists(temp_file):
                 try:
                     os.remove(temp_file)
                 except Exception:
@@ -327,6 +329,8 @@ def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
             tts_main(line, temp_file, number, tasks_df, gender=gender, voice=voice)
             trim_tts_silence(temp_file)  # Remove TTS leading/trailing silence before measuring
             dur = get_audio_duration(temp_file)
+            if dur <= 0 and scoped_once:
+                raise RuntimeError("Single-attempt TTS invalid audio; stopped without regeneration")
             if dur <= 0 and os.path.exists(temp_file):
                 os.remove(temp_file)
                 tts_main(line, temp_file, number, tasks_df, gender=gender, voice=voice)
@@ -351,7 +355,7 @@ def generate_tts_audio(tasks_df: pd.DataFrame) -> pd.DataFrame:
     
     # Use user-defined tts_max_workers. For gpt_sovits, force 1 to avoid conflicts.
     tts_method = load_key("tts_method")
-    tts_max_workers = load_key("tts_max_workers")
+    tts_max_workers = 1 if single_attempt_active() else load_key("tts_max_workers")
     
     if tts_method == "gpt_sovits":
         tts_max_workers = 1

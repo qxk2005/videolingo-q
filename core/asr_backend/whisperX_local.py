@@ -68,7 +68,8 @@ def transcribe_audio(raw_audio_file, vocal_audio_file, start, end):
 
     # Build initial_prompt from domain vocabulary to bias Whisper toward specialized terms
     # For explicit pairs (wrong -> correct), only the correct term is included as a hint
-    domain_vocab_str = load_key("domain_vocab")
+    from core.asr_backend.task_vocabulary import scoped_vocabulary
+    domain_vocab_str = scoped_vocabulary(load_key("domain_vocab"))
     if domain_vocab_str and domain_vocab_str.strip():
         import re as _re
         raw_terms = [t.strip() for t in domain_vocab_str.replace('\n', ',').split(',') if t.strip()]

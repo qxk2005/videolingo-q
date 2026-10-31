@@ -34,7 +34,8 @@ _MLX_MODEL_MAP = {
 
 
 def _build_initial_prompt():
-    domain_vocab_str = load_key("domain_vocab")
+    from core.asr_backend.task_vocabulary import scoped_vocabulary
+    domain_vocab_str = scoped_vocabulary(load_key("domain_vocab"))
     if not domain_vocab_str or not domain_vocab_str.strip():
         return ""
     raw_terms = [t.strip() for t in domain_vocab_str.replace('\n', ',').split(',') if t.strip()]

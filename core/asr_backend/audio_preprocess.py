@@ -1,3 +1,4 @@
+from core.asr_backend.task_vocabulary import scoped_vocabulary
 import os, subprocess, re
 import difflib
 from collections import defaultdict
@@ -210,7 +211,7 @@ def apply_domain_vocab_correction(df: pd.DataFrame) -> pd.DataFrame:
       - Plain term:       "Claude Cowork"           → fuzzy-matched (cutoff 0.75)
       - Explicit pair:    "called cowork -> Claude Cowork"  → exact case-insensitive match
     """
-    vocab_str = load_key("domain_vocab")
+    vocab_str = scoped_vocabulary(load_key("domain_vocab"))
     if not vocab_str or not vocab_str.strip():
         return df
 

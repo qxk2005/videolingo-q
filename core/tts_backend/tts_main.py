@@ -1,4 +1,6 @@
+from core.tts_backend.single_attempt_scope import single_attempt_active, single_attempt_call
 import os
+import pandas as pd
 import re
 import json
 import time
@@ -264,11 +266,12 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
     print(f"Generating ({voice or gender or 'default'}) <{text}...>")
     TTS_METHOD = load_key("tts_method")
     
-    max_retries = 3
+    scoped_once = single_attempt_active()
+    max_retries = 1 if scoped_once else 3
     last_error_is_network = False
     for attempt in range(max_retries):
         try:
-            if attempt >= max_retries - 1 and not last_error_is_network:
+            if not scoped_once and attempt >= max_retries - 1 and not last_error_is_network:
                 print("Asking GPT to correct text...")
                 correct_text = ask_gpt(get_correct_text_prompt(text), resp_type="json", log_title='tts_correct_text')
                 text = correct_text['text']
@@ -276,7 +279,11 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
             if TTS_METHOD == 'edge_tts':
                 edge_tts(text, save_as, voice=voice, gender=gender)
             elif TTS_METHOD == 'doubao_tts':
-                doubao_tts(text, save_as, voice_type=voice, gender=gender)
+                if scoped_once:
+                    single_attempt_call(doubao_tts.__wrapped__, text, save_as,
+                                        number=number, voice_type=voice, gender=gender)
+                else:
+                    doubao_tts(text, save_as, voice_type=voice, gender=gender)
             else:
                 raise ValueError(f"Unsupported TTS method: {TTS_METHOD}")
                 
@@ -286,6 +293,8 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
                 record_segment_text_hash(save_as, raw_input_text)
                 break
             else:
+                if scoped_once:
+                    raise RuntimeError("Single-attempt TTS produced no audio; stopped without retry")
                 if os.path.exists(save_as):
                     os.remove(save_as)
                 if attempt == max_retries - 1:
