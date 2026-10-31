@@ -8,6 +8,14 @@ from openai import OpenAI
 from core.utils.config_utils import load_key
 from rich import print as rprint
 from core.utils.decorator import except_handler
+from core.utils.cancel_utils import (
+    TaskCancelledError,
+    check_task_cancelled,
+    is_client_cancelled,
+    is_task_cancelled,
+    register_cancellable_client,
+    register_cancellable_process,
+)
 
 # ------------
 # cache gpt response
@@ -87,39 +95,47 @@ def run_command_in_pty(cmd, stdin_data=None, timeout=60):
     )
     os.close(slave)
     
-    if stdin_data:
-        try:
-            os.write(master, stdin_data.encode('utf-8'))
-        except OSError:
-            pass
-        
-    output_chunks = []
-    try:
-        while True:
-            r, w, x = select.select([master], [], [], timeout)
-            if not r:
-                process.terminate()
-                break
+    with register_cancellable_process(process):
+        if stdin_data:
             try:
-                data = os.read(master, 4096)
-                if not data:
-                    break
-                chunk = data.decode('utf-8', errors='ignore')
-                output_chunks.append(chunk)
-                
-                # Check for interactive login trigger and abort early
-                full_so_far = "".join(output_chunks)
-                if "Authentication required" in full_so_far or "accounts.google.com" in full_so_far or "authorization code" in full_so_far:
+                os.write(master, stdin_data.encode('utf-8'))
+            except OSError:
+                pass
+            
+        output_chunks = []
+        import time as _time
+        deadline = _time.monotonic() + float(timeout)
+        try:
+            while True:
+                check_task_cancelled()
+                rem = deadline - _time.monotonic()
+                if rem <= 0:
                     process.terminate()
                     break
+                r, w, x = select.select([master], [], [], min(0.5, rem))
+                if not r:
+                    continue
+                try:
+                    data = os.read(master, 4096)
+                    if not data:
+                        break
+                    chunk = data.decode('utf-8', errors='ignore')
+                    output_chunks.append(chunk)
+                    
+                    # Check for interactive login trigger and abort early
+                    full_so_far = "".join(output_chunks)
+                    if "Authentication required" in full_so_far or "accounts.google.com" in full_so_far or "authorization code" in full_so_far:
+                        process.terminate()
+                        break
+                except OSError:
+                    break
+        finally:
+            try:
+                os.close(master)
             except OSError:
-                break
-    finally:
-        try:
-            os.close(master)
-        except OSError:
-            pass
-        process.wait()
+                pass
+            process.wait()
+            check_task_cancelled()
         
     full_output = "".join(output_chunks)
     return process.returncode, full_output, ""
@@ -213,6 +229,7 @@ def ask_gpt(prompt, resp_type=None, valid_def=None, log_title="default"):
     # check cache (bypass when log_title is None / 'None', e.g. connectivity test)
     skip_cache = log_title is None or str(log_title) == "None"
     if not skip_cache:
+        check_task_cancelled()
         cached = _load_cache(prompt, resp_type, log_title)
         if cached:
             rprint("use cache response")
@@ -241,7 +258,22 @@ def ask_gpt(prompt, resp_type=None, valid_def=None, log_title="default"):
             #response_format=response_format,
             timeout=300
         )
-        resp_raw = client.chat.completions.create(**params)
+        if skip_cache:
+            try:
+                resp_raw = client.chat.completions.create(**params)
+            finally:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+        else:
+            with register_cancellable_client(client):
+                try:
+                    resp_raw = client.chat.completions.create(**params)
+                except Exception as exc:
+                    if is_task_cancelled() or is_client_cancelled(client):
+                        raise TaskCancelledError("任务已被手动停止") from exc
+                    raise
 
         # process and return full result
         resp_content = resp_raw.choices[0].message.content

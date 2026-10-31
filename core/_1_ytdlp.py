@@ -3,6 +3,7 @@ import glob
 import re
 import subprocess
 from core.utils import *
+from core.utils.cancel_utils import check_task_cancelled
 import base64
 import hashlib
 import time
@@ -329,6 +330,7 @@ def download_video_ytdlp(url, save_path='output', resolution='1080'):
         'retries': 20,
         'fragment_retries': 20,
         'nocheckcertificate': True,
+        'progress_hooks': [lambda _d: check_task_cancelled()],
     }
 
     import shutil

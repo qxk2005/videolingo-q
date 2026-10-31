@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import platform
 from core.utils import *
+from core.utils.cancel_utils import check_task_cancelled, is_task_cancelled, register_cancellable_process, TaskCancelledError
 
 SRC_FONT_SIZE = 15
 TRANS_FONT_SIZE = 17
@@ -95,19 +96,35 @@ def merge_subtitles_to_video():
     ])
 
     rprint("🎬 Start merging subtitles to video...")
+    check_task_cancelled()
     start_time = time.time()
     process = subprocess.Popen(ffmpeg_cmd)
 
     try:
-        process.wait()
+        with register_cancellable_process(process):
+            process.wait()
+        if is_task_cancelled():
+            if os.path.exists(OUTPUT_VIDEO):
+                try:
+                    os.remove(OUTPUT_VIDEO)
+                except Exception:
+                    pass
+            raise TaskCancelledError("任务已被手动停止")
         if process.returncode == 0:
             rprint(f"\n✅ Done! Time taken: {time.time() - start_time:.2f} seconds")
         else:
             rprint("\n❌ FFmpeg execution error")
-    except Exception as e:
-        rprint(f"\n❌ Error occurred: {e}")
+    except BaseException as e:
         if process.poll() is None:
             process.kill()
+        if is_task_cancelled() and os.path.exists(OUTPUT_VIDEO):
+            try:
+                os.remove(OUTPUT_VIDEO)
+            except Exception:
+                pass
+        if isinstance(e, TaskCancelledError):
+            raise
+        rprint(f"\n❌ Error occurred: {e}")
 
 if __name__ == "__main__":
     merge_subtitles_to_video()

@@ -2,6 +2,7 @@ import functools
 import time
 import os
 from rich import print as rprint
+from core.utils.cancel_utils import check_task_cancelled, is_task_cancelled, sleep_cancellable, TaskCancelledError
 
 # ------------------------------
 # retry decorator
@@ -13,9 +14,12 @@ def except_handler(error_msg, retry=0, delay=1, default_return=None):
         def wrapper(*args, **kwargs):
             last_exception = None
             for i in range(retry + 1):
+                check_task_cancelled()
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
+                    if is_task_cancelled():
+                        raise TaskCancelledError("任务已被手动停止") from e
                     last_exception = e
                     # 🛡️ 对根本无法通过重试解决的系统/凭证类硬伤错误进行即时拦截并直接向上抛出
                     err_str = str(e)
@@ -27,7 +31,7 @@ def except_handler(error_msg, retry=0, delay=1, default_return=None):
                         if default_return is not None:
                             return default_return
                         raise last_exception
-                    time.sleep(delay * (2**i))
+                    sleep_cancellable(delay * (2**i))
         return wrapper
     return decorator
 

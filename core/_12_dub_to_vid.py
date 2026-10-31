@@ -139,10 +139,30 @@ def merge_video_audio():
     ])
     
     try:
+        from core.utils.cancel_utils import check_task_cancelled, is_task_cancelled, register_cancellable_process, TaskCancelledError
+        check_task_cancelled()
         # Remove stderr=subprocess.PIPE to avoid buffer deadlock for long-running FFmpeg processes
         # This allows you to see the encoding progress in the console.
-        subprocess.run(cmd, check=True)
+        proc = subprocess.Popen(cmd)
+        with register_cancellable_process(proc):
+            ret = proc.wait()
+        if is_task_cancelled():
+            if os.path.exists(DUB_VIDEO):
+                try:
+                    os.remove(DUB_VIDEO)
+                except Exception:
+                    pass
+            raise TaskCancelledError("任务已被手动停止")
+        if ret != 0:
+            raise subprocess.CalledProcessError(ret, cmd)
         rprint(f"[bold green]Video and audio successfully merged into {DUB_VIDEO}[/bold green]")
+    except TaskCancelledError:
+        if os.path.exists(DUB_VIDEO):
+            try:
+                os.remove(DUB_VIDEO)
+            except Exception:
+                pass
+        raise
     except subprocess.CalledProcessError as e:
         rprint(f"[bold red]Error: FFmpeg process failed with return code {e.returncode}[/bold red]")
     except Exception as e:

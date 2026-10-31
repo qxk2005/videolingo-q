@@ -48,10 +48,20 @@ def _log_stderr(msg: str):
 # =====================================================================
 # Backend Auto-Starter & HTTP Bridge Client
 # =====================================================================
+_NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _urlopen_local_aware(req: urllib.request.Request, timeout: float):
+    host = (urllib.parse.urlparse(req.full_url).hostname or "").lower()
+    if host in ("127.0.0.1", "localhost", "::1"):
+        return _NO_PROXY_OPENER.open(req, timeout=timeout)
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
 def _is_backend_alive(base_url: str = STUDIO_BASE_URL, timeout: float = 1.5) -> bool:
     try:
         req = urllib.request.Request(f"{base_url}/api/workspace/state", method="GET")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _urlopen_local_aware(req, timeout=timeout) as resp:
             return resp.status == 200
     except Exception:
         return False
@@ -131,7 +141,7 @@ def _api_request(
 
     req = urllib.request.Request(url, data=data_bytes, headers=headers, method=method.upper())
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _urlopen_local_aware(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
             if not raw.strip():
                 return {"status": "ok"}
@@ -158,8 +168,10 @@ def _wait_and_summarize_status(wait_seconds: float = 0.0, include_logs: int = 15
         time.sleep(min(0.8, wait_sec))
         while time.time() < deadline:
             state = _api_request("GET", "/api/workspace/state")
+            batch_state = _api_request("GET", "/api/batch/state")
             task = state.get("task", {})
-            if not task.get("running") or task.get("error"):
+            queue_running = bool(batch_state.get("queue", {}).get("running"))
+            if (not task.get("running") and not queue_running) or task.get("error"):
                 break
             time.sleep(1.0)
 

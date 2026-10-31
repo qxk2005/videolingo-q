@@ -1,4 +1,5 @@
 from core.tts_backend.single_attempt_scope import single_attempt_active, single_attempt_call
+from core.utils.cancel_utils import check_task_cancelled, is_task_cancelled, sleep_cancellable, TaskCancelledError
 import os
 import pandas as pd
 import re
@@ -225,6 +226,7 @@ def is_audio_valid(file_path: str, text: str) -> bool:
     return True
 
 def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
+    check_task_cancelled()
     raw_input_text = "" if text is None else str(text)
     text = clean_text_for_tts(raw_input_text)
     # Check if text is empty or single character, single character voiceovers are prone to bugs
@@ -306,6 +308,8 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
                     return
                 print(f"Attempt {attempt + 1} failed, retrying...")
         except Exception as e:
+            if is_task_cancelled():
+                raise TaskCancelledError("任务已被手动停止") from e
             import subprocess as _sp
             stderr_info = e.stderr if isinstance(e, _sp.CalledProcessError) and e.stderr else ''
             err_msg = f"{str(e)}" + (f"\nstderr: {stderr_info}" if stderr_info else "")
@@ -315,4 +319,4 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
             last_error_is_network = any(kw in err_msg for kw in ('ConnectionReset', 'ClientConnector', 'Cannot connect', 'TimeoutError', 'aiohttp'))
             wait = 3 * (attempt + 1)
             print(f"Attempt {attempt + 1} failed ({'network error, retrying' if last_error_is_network else err_msg}), retrying in {wait}s...")
-            time.sleep(wait)
+            sleep_cancellable(wait)

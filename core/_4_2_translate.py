@@ -137,7 +137,7 @@ def translate_all():
         for i, future in enumerate(concurrent.futures.as_completed(futures)):
             try:
                 results.append(future.result())
-            except Exception as e:
+            except BaseException as e:
                 for f in futures:
                     f.cancel()
                 executor.shutdown(wait=False)

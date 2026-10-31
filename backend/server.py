@@ -33,6 +33,11 @@ logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").set
 from core.utils import load_key, update_key, get_ffmpeg_video_encoder
 from core.utils.config_utils import CONFIG_PATH, yaml as ruamel_yaml, lock as config_lock
 from core.utils.onekeycleanup import cleanup
+from core.utils.cancel_utils import (
+    TaskCancelledError,
+    reset_task_cancel,
+    trigger_task_cancel,
+)
 from core.utils.models import (
     _RAW_AUDIO_FILE,
     _2_CLEANED_CHUNKS,
@@ -222,6 +227,7 @@ class PipelineState:
         self.lock = threading.Lock()
 
     def start_task(self, stage: str, total_steps: int, step_name: str):
+        reset_task_cancel()
         self.running = True
         self.stage = stage
         self.step_index = 1
@@ -238,6 +244,7 @@ class PipelineState:
 
     def finish_task(self):
         self.running = False
+        self.stop_requested = False
         self.stage = None
         self.step_index = 0
         self.total_steps = 0
@@ -253,6 +260,7 @@ class PipelineState:
         elapsed = int(max(0.0, time.time() - self.started_at)) if (self.running and self.started_at > 0) else 0
         return {
             "running": self.running,
+            "stopping": bool(self.running and self.stop_requested),
             "stage": self.stage,
             "step_index": self.step_index,
             "total_steps": self.total_steps,
@@ -1026,6 +1034,8 @@ def download_youtube(payload: YoutubeDownloadPayload):
             else:
                 STATE.percent = 100.0
                 STATE.toast = "✅ 视频下载完成（未检测到英文字幕，后续将使用 WhisperX 转录）"
+        except (InterruptedError, TaskCancelledError):
+            STATE.toast = "⏹️ 视频下载任务已手动停止"
         except Exception as e:
             traceback.print_exc()
             STATE.error = str(e)
@@ -1149,7 +1159,7 @@ def start_subtitle_pipeline(burn_only: bool = False):
                 STATE.sub_step = "正在执行 Pyannote 多说话人声纹分离..."
                 _2_5_diarize.diarize_main()
                 if STATE.stop_requested:
-                    return
+                    raise InterruptedError("任务已被手动停止")
 
             if not os.path.exists(_3_2_SPLIT_BY_MEANING):
                 STATE.step_index = 2
@@ -1159,7 +1169,7 @@ def start_subtitle_pipeline(burn_only: bool = False):
                 _3_1_split_nlp.split_by_spacy()
                 _3_2_split_meaning.split_sentences_by_meaning()
                 if STATE.stop_requested:
-                    return
+                    raise InterruptedError("任务已被手动停止")
 
             if not os.path.exists(_4_2_TRANSLATION):
                 STATE.step_index = 3
@@ -1171,7 +1181,7 @@ def start_subtitle_pipeline(burn_only: bool = False):
                 STATE.sub_step = "正在并发执行「直译 -> 反思 -> 意译」三步翻译..."
                 _4_2_translate.translate_all()
                 if STATE.stop_requested:
-                    return
+                    raise InterruptedError("任务已被手动停止")
 
             if not os.path.exists(_5_SPLIT_SUB):
                 STATE.step_index = 4
@@ -1180,7 +1190,7 @@ def start_subtitle_pipeline(burn_only: bool = False):
                 STATE.sub_step = "正在根据屏幕单行字数限制自适应切分长句..."
                 _5_split_sub.split_for_sub_main()
                 if STATE.stop_requested:
-                    return
+                    raise InterruptedError("任务已被手动停止")
 
             if not os.path.exists(SRC_SRT):
                 STATE.step_index = 5
@@ -1189,7 +1199,7 @@ def start_subtitle_pipeline(burn_only: bool = False):
                 STATE.sub_step = "正在对齐词级时间戳并执行去重叠平滑..."
                 _6_gen_sub.align_timestamp_main()
                 if STATE.stop_requested:
-                    return
+                    raise InterruptedError("任务已被手动停止")
 
             if load_key("burn_subtitles") and load_key("auto_burn_subtitles") and not os.path.exists(SUB_VIDEO):
                 STATE.step_index = 6
@@ -1200,6 +1210,8 @@ def start_subtitle_pipeline(burn_only: bool = False):
 
             STATE.percent = 100.0
             STATE.toast = "🎉 字幕翻译与生成全部完成！"
+        except (InterruptedError, TaskCancelledError):
+            STATE.toast = "⏹️ 字幕任务已手动停止，已完成步骤缓存已保留"
         except Exception as e:
             traceback.print_exc()
             STATE.error = str(e)
@@ -1214,6 +1226,7 @@ def start_subtitle_pipeline(burn_only: bool = False):
 
 @app.post("/api/pipeline/subtitle/reapply-terms")
 def reapply_terms():
+    reset_task_cancel()
     reapply_vocab_correction_to_cleaned_chunks()
     for f in _SUBTITLE_CACHE_FILES:
         if os.path.exists(f):
@@ -1330,7 +1343,7 @@ def start_dubbing_pipeline(force_continue: bool = False):
                     df_existing.to_excel(_8_1_AUDIO_TASK, index=False)
 
             if STATE.stop_requested:
-                return
+                raise InterruptedError("任务已被手动停止")
 
             pause_before_dub = bool(load_key("pause_before_dub"))
             if pause_before_dub and not STATE.speaker_review_confirmed:
@@ -1348,7 +1361,7 @@ def start_dubbing_pipeline(force_continue: bool = False):
                 STATE.sub_step = "当前 TTS 无需提取参考音频，跳过 Demucs 分离..."
 
             if STATE.stop_requested:
-                return
+                raise InterruptedError("任务已被手动停止")
 
             STATE.step_index = 3
             STATE.percent = 65.0
@@ -1360,7 +1373,7 @@ def start_dubbing_pipeline(force_continue: bool = False):
             _11_merge_audio.merge_full_audio()
 
             if STATE.stop_requested:
-                return
+                raise InterruptedError("任务已被手动停止")
 
             STATE.step_index = 4
             STATE.percent = 95.0
@@ -1369,6 +1382,8 @@ def start_dubbing_pipeline(force_continue: bool = False):
             _12_dub_to_vid.merge_video_audio()
             STATE.percent = 100.0
             STATE.toast = "🎉 多角色配音视频合成完成！"
+        except (InterruptedError, TaskCancelledError):
+            STATE.toast = "⏹️ 配音任务已手动停止，已生成片段缓存已保留"
         except Exception as e:
             traceback.print_exc()
             STATE.error = str(e)
@@ -1512,14 +1527,52 @@ def delete_dubbing_files():
     return {"status": "ok"}
 
 
-@app.post("/api/task/stop")
-def stop_current_task():
+def _request_and_wait_stop(timeout_sec: float = 8.0) -> bool:
+    """Signal immediate cooperative + preemptive cancellation and wait for worker threads to save checkpoints and exit."""
+    was_active = bool(STATE.running or ("BATCH_MANAGER" in globals() and BATCH_MANAGER.running))
     STATE.stop_requested = True
     if "BATCH_MANAGER" in globals():
         BATCH_MANAGER.stop_requested = True
-    STATE.running = False
-    STATE.toast = "⏹️ 已发送任务停止信号"
-    return {"status": "ok"}
+
+    if not was_active:
+        STATE.stop_requested = False
+        if "BATCH_MANAGER" in globals():
+            BATCH_MANAGER.stop_requested = False
+        STATE.toast = "⏹️ 当前没有正在运行的任务"
+        return True
+
+    STATE.toast = "⏹️ 正在中断当前步骤并保存任务断点..."
+    trigger_task_cancel()
+
+    deadline = time.time() + max(0.2, float(timeout_sec))
+    while time.time() < deadline:
+        batch_running = bool("BATCH_MANAGER" in globals() and BATCH_MANAGER.running)
+        if not STATE.running and not batch_running:
+            STATE.toast = "⏹️ 任务与批量队列已停止，已完成步骤断点已保存"
+            return True
+        time.sleep(0.05)
+
+    trigger_task_cancel()
+    batch_running = bool("BATCH_MANAGER" in globals() and BATCH_MANAGER.running)
+    stopped = (not STATE.running) and (not batch_running)
+    if stopped:
+        STATE.toast = "⏹️ 任务与批量队列已停止，已完成步骤断点已保存"
+    else:
+        STATE.toast = "⏹️ 已发送强制中断信号，正在等待当前底层算子收尾保存断点..."
+    return stopped
+
+
+@app.post("/api/task/stop")
+def stop_current_task():
+    stopped = _request_and_wait_stop(timeout_sec=8.0)
+    queue_info = BATCH_MANAGER.get_state_payload().get("queue") if "BATCH_MANAGER" in globals() else None
+    return {
+        "status": "ok",
+        "stopped": stopped,
+        "state": "stopped" if stopped else "stopping",
+        "task": STATE.to_dict(),
+        "queue": queue_info,
+    }
 
 
 @app.post("/api/task/clear-error")
@@ -1562,9 +1615,9 @@ def _copy_workspace_files(src_dir: str, dst_dir: str, clear_dst: bool = True, pr
         d_path = os.path.join(dst_dir, item)
         try:
             if os.path.isdir(s_path):
-                if os.path.exists(d_path):
+                if clear_dst and os.path.exists(d_path):
                     shutil.rmtree(d_path)
-                shutil.copytree(s_path, d_path)
+                shutil.copytree(s_path, d_path, dirs_exist_ok=not clear_dst)
             else:
                 shutil.copy2(s_path, d_path)
         except Exception:
@@ -1617,6 +1670,8 @@ class BatchQueueManager:
                     self.studio_loaded_task_id = data.get("studio_loaded_task_id")
                     for t in self.tasks:
                         if t.get("status") == "running":
+                            if t.get("id") and t.get("id") == self.studio_loaded_task_id and os.path.exists("output"):
+                                _copy_workspace_files("output", self.get_task_dir(t["id"]), clear_dst=False)
                             t["status"] = "paused"
                             t["current_step"] = "上次运行中断，可断点续跑"
                         elif t.get("status") == "probing":
@@ -1888,6 +1943,7 @@ class BatchQueueManager:
                 "tasks": enriched,
                 "queue": {
                     "running": self.running,
+                    "stopping": bool(self.running and self.stop_requested),
                     "pause_after_current": self.pause_after_current,
                     "active_task_id": self.active_task_id,
                     "studio_loaded_task_id": self.studio_loaded_task_id,
@@ -2473,12 +2529,15 @@ class BatchQueueManager:
                 t["updated_at"] = self._now_str()
                 self._save()
 
-        except InterruptedError as ie:
+        except (InterruptedError, TaskCancelledError):
             _copy_workspace_files("output", task_dir, clear_dst=True)
             with self.lock:
+                prev_step = str(t.get("current_step") or "可随时断点续跑")
+                if prev_step.startswith("⏸️ 已暂停 (") and prev_step.endswith(")"):
+                    prev_step = prev_step[len("⏸️ 已暂停 (") : -1]
                 t["status"] = "paused"
-                t["current_step"] = f"⏸️ 已暂停 ({t.get('current_step', '可随时断点续跑')})"
-                t["error_msg"] = str(ie)
+                t["current_step"] = f"⏸️ 已暂停 ({prev_step})"
+                t["error_msg"] = ""
                 t["updated_at"] = self._now_str()
                 self._save()
         except Exception as e:
@@ -2505,6 +2564,7 @@ class BatchQueueManager:
             self.reset_task_checkpoint(single_task_id)
 
         def _queue_worker():
+            reset_task_cancel()
             with self.lock:
                 self.running = True
                 self.pause_after_current = False
@@ -2548,12 +2608,13 @@ class BatchQueueManager:
                             STATE.toast = "⏸️ 当前视频已处理完毕，批量队列已按计划暂停"
                             break
 
-                if not self.stop_requested and not self.pause_after_current:
+                if not self.stop_requested and not STATE.stop_requested and not self.pause_after_current:
                     STATE.percent = 100.0
                     STATE.toast = "🎉 批量队列当前可执行任务已全部处理完毕！"
             finally:
                 with self.lock:
                     self.running = False
+                    self.stop_requested = False
                     self.pause_after_current = False
                     self.active_task_id = None
                     self._bump_rev()
@@ -2677,10 +2738,10 @@ def toggle_pause_after_current():
 
 @app.post("/api/batch/stop")
 def stop_batch_queue():
-    STATE.stop_requested = True
-    BATCH_MANAGER.stop_requested = True
-    STATE.toast = "⏹️ 正在保存当前任务断点并停止批量队列..."
-    return BATCH_MANAGER.get_state_payload()
+    stopped = _request_and_wait_stop(timeout_sec=8.0)
+    payload = BATCH_MANAGER.get_state_payload()
+    payload["stopped"] = stopped
+    return payload
 
 
 @app.post("/api/batch/clear")
@@ -3043,7 +3104,7 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
                             use_subtitle_file(sub_path, lang)
 
             if STATE.stop_requested:
-                return
+                raise InterruptedError("任务已被手动停止")
 
             # Stage B: Subtitle Pipeline
             if not os.path.exists(_2_CLEANED_CHUNKS):
@@ -3056,7 +3117,7 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
                 STATE.sub_step = "正在执行 Pyannote 多说话人分离..."
                 _2_5_diarize.diarize_main()
                 if STATE.stop_requested:
-                    return
+                    raise InterruptedError("任务已被手动停止")
 
             if not os.path.exists(_3_2_SPLIT_BY_MEANING):
                 STATE.step_index = 3
@@ -3065,7 +3126,7 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
                 _3_1_split_nlp.split_by_spacy()
                 _3_2_split_meaning.split_sentences_by_meaning()
                 if STATE.stop_requested:
-                    return
+                    raise InterruptedError("任务已被手动停止")
 
             if not os.path.exists(_4_2_TRANSLATION):
                 STATE.step_index = 4
@@ -3075,7 +3136,7 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
                 STATE.percent = 55.0
                 _4_2_translate.translate_all()
                 if STATE.stop_requested:
-                    return
+                    raise InterruptedError("任务已被手动停止")
 
             if not os.path.exists(_5_SPLIT_SUB):
                 STATE.step_index = 5
@@ -3083,12 +3144,12 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
                 STATE.step_name = "5. 正在切分长字幕并生成双语时间轴..."
                 _5_split_sub.split_for_sub_main()
                 if STATE.stop_requested:
-                    return
+                    raise InterruptedError("任务已被手动停止")
 
             if not os.path.exists(SRC_SRT):
                 _6_gen_sub.align_timestamp_main()
                 if STATE.stop_requested:
-                    return
+                    raise InterruptedError("任务已被手动停止")
 
             if mode == "sub_only":
                 STATE.percent = 100.0
@@ -3101,7 +3162,7 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
                 STATE.step_name = "6. 正在将双语字幕烧录至视频..."
                 _7_sub_into_vid.merge_subtitles_to_video()
                 if STATE.stop_requested:
-                    return
+                    raise InterruptedError("任务已被手动停止")
 
             if mode == "sub_video":
                 STATE.percent = 100.0
@@ -3125,7 +3186,7 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
                 _8_2_dub_chunks.gen_dub_chunks()
 
             if STATE.stop_requested:
-                return
+                raise InterruptedError("任务已被手动停止")
 
             if payload.pause_before_dub and not STATE.speaker_review_confirmed:
                 STATE.percent = 80.0
@@ -3139,7 +3200,7 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
                 _9_refer_audio.extract_refer_audio_main()
 
             if STATE.stop_requested:
-                return
+                raise InterruptedError("任务已被手动停止")
 
             STATE.step_index = 9
             STATE.percent = 88.0
@@ -3148,7 +3209,7 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
             _11_merge_audio.merge_full_audio()
 
             if STATE.stop_requested:
-                return
+                raise InterruptedError("任务已被手动停止")
 
             STATE.step_index = 10
             STATE.percent = 96.0
@@ -3156,6 +3217,8 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
             _12_dub_to_vid.merge_video_audio()
             STATE.percent = 100.0
             STATE.toast = "🎉 一键全自动字幕翻译与多角色配音视频合成完成！"
+        except (InterruptedError, TaskCancelledError):
+            STATE.toast = "⏹️ 一键处理任务已手动停止，已完成步骤缓存已保留"
         except Exception as e:
             traceback.print_exc()
             STATE.error = str(e)

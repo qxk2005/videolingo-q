@@ -1,4 +1,5 @@
 from core.tts_backend.single_attempt_scope import single_attempt_active, single_attempt_call
+from core.utils.cancel_utils import check_task_cancelled, sleep_cancellable
 import os
 import json
 import time
@@ -201,6 +202,7 @@ def invalidate_audio_cache_for_numbers(numbers: list) -> int:
 
 def process_row(row: pd.Series, tasks_df: pd.DataFrame) -> Tuple[int, float]:
     """Helper function for processing single row data with continuous dubbing optimization"""
+    check_task_cancelled()
     number = row['number']
     lines = eval(row['lines']) if isinstance(row['lines'], str) else row['lines']
     gender = row.get('gender', None)
@@ -365,30 +367,38 @@ def generate_tts_audio(tasks_df: pd.DataFrame) -> pd.DataFrame:
         rprint(f"[yellow]⏳ Gemini TTS mode: Using batch-sequential processing (Batch size: {tts_max_workers}) to prevent rate limits...[/yellow]")
         # Process in batches of tts_max_workers
         for i in range(0, len(tasks_df), tts_max_workers):
+            check_task_cancelled()
             batch = tasks_df.iloc[i:i + tts_max_workers]
-            with ThreadPoolExecutor(max_workers=tts_max_workers) as executor:
-                futures = [
-                    executor.submit(process_row, row, tasks_df.copy())
-                    for _, row in batch.iterrows()
-                ]
+            executor = ThreadPoolExecutor(max_workers=tts_max_workers)
+            futures = [
+                executor.submit(process_row, row, tasks_df.copy())
+                for _, row in batch.iterrows()
+            ]
+            try:
                 for future in as_completed(futures):
                     try:
                         number, real_dur = future.result()
                         tasks_df.loc[tasks_df['number'] == number, 'real_dur'] = real_dur
                         progress.advance(task)
-                    except Exception as e:
-                        rprint(f"[red]❌ Error in Gemini batch TTS: {str(e)}[/red]")
+                    except BaseException as e:
+                        for f in futures:
+                            f.cancel()
+                        if isinstance(e, Exception):
+                            rprint(f"[red]❌ Error in Gemini batch TTS: {str(e)}[/red]")
                         raise e
+            finally:
+                executor.shutdown(wait=False)
             # Small wait between batches if not the last batch
             if i + tts_max_workers < len(tasks_df):
                 wait_time = 2  # Adjust wait time as needed
                 rprint(f"[dim]Waiting {wait_time}s for next Gemini batch...[/dim]")
-                time.sleep(wait_time)
+                sleep_cancellable(wait_time)
             update_st_progress(min(i + tts_max_workers, len(tasks_df)), len(tasks_df), task_desc)
     
     elif tts_max_workers == 1:
         # Sequential processing
         for i, (_, row) in enumerate(tasks_df.iterrows()):
+            check_task_cancelled()
             try:
                 number, real_dur = process_row(row, tasks_df)
                 tasks_df.loc[tasks_df['number'] == number, 'real_dur'] = real_dur
@@ -399,12 +409,12 @@ def generate_tts_audio(tasks_df: pd.DataFrame) -> pd.DataFrame:
                 raise e
     else:
         # Parallel processing using the specified batch size (max_workers)
-        with ThreadPoolExecutor(max_workers=tts_max_workers) as executor:
-            futures = [
-                executor.submit(process_row, row, tasks_df.copy())
-                for _, row in tasks_df.iterrows()
-            ]
-            
+        executor = ThreadPoolExecutor(max_workers=tts_max_workers)
+        futures = [
+            executor.submit(process_row, row, tasks_df.copy())
+            for _, row in tasks_df.iterrows()
+        ]
+        try:
             completed_count = 0
             for future in as_completed(futures):
                 try:
@@ -413,9 +423,14 @@ def generate_tts_audio(tasks_df: pd.DataFrame) -> pd.DataFrame:
                     progress.advance(task)
                     completed_count += 1
                     update_st_progress(completed_count, len(tasks_df), task_desc)
-                except Exception as e:
-                    rprint(f"[red]❌ Error in parallel TTS: {str(e)}[/red]")
+                except BaseException as e:
+                    for f in futures:
+                        f.cancel()
+                    if isinstance(e, Exception):
+                        rprint(f"[red]❌ Error in parallel TTS: {str(e)}[/red]")
                     raise e
+        finally:
+            executor.shutdown(wait=False)
 
     if is_internal:
         progress.stop()
