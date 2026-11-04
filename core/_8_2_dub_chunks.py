@@ -100,7 +100,11 @@ def analyze_subtitle_timing_and_speed(df):
                        last_end.second + last_end.microsecond / 1000000)
     df.iloc[-1, df.columns.get_loc('gap')] = max(0.0, whole_dur - last_end_seconds)
     
-    df['tolerance'] = df['gap'].apply(lambda x: TOLERANCE if x > TOLERANCE else x)
+    df['tolerance'] = df['gap'].apply(lambda x: max(0.0, TOLERANCE if x > TOLERANCE else x))
+    for i in range(len(df) - 1):
+        if not _is_same_speaker_row(df.iloc[i], df.iloc[i + 1]):
+            raw_gap = max(0.0, float(df.loc[i, 'gap']))
+            df.loc[i, 'tolerance'] = min(float(df.loc[i, 'tolerance']), max(0.0, raw_gap - 0.05))
     df['tol_dur'] = df['duration'] + df['tolerance']
     df['est_dur'] = df.apply(lambda x: estimate_duration(x['text'], ESTIMATOR), axis=1)
 
@@ -124,10 +128,91 @@ def analyze_subtitle_timing_and_speed(df):
     df['if_too_fast'] = df.apply(calc_if_too_fast, axis=1)
     return df
 
+
+def assign_speech_paragraphs(df: pd.DataFrame) -> pd.DataFrame:
+    """Group consecutive subtitle rows of the same speaker into natural speech paragraphs
+    (5~10 sentences / ~30~45s / gap < 1.2s) for context-consistent Doubao V3 synthesis."""
+    import ast
+    from core._8_1_audio_task import _tc_str_to_sec
+
+    if df is None or len(df) == 0:
+        return df
+
+    para_gap_split = float(load_key("doubao_tts.para_gap_split") or 1.2)
+    soft_sent_limit = 6
+    hard_sent_limit = 10
+    soft_span_sec = 28.0
+    hard_span_sec = 45.0
+    soft_char_limit = 150
+    hard_char_limit = 240
+
+    def _row_line_count(row) -> int:
+        raw_lines = row.get("lines")
+        if raw_lines is not None and not (isinstance(raw_lines, float) and pd.isna(raw_lines)):
+            try:
+                parsed = ast.literal_eval(raw_lines) if isinstance(raw_lines, str) else list(raw_lines)
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    return len(parsed)
+            except Exception:
+                pass
+        return 1
+
+    para_ids = []
+    cur_para = 0
+    para_start_sec = _tc_str_to_sec(df.iloc[0]["start_time"])
+    cur_sents = 0
+    cur_chars = 0
+
+    for i in range(len(df)):
+        row = df.iloc[i]
+        para_ids.append(cur_para)
+        cur_sents += _row_line_count(row)
+        cur_chars += _speakable_char_len(row.get("text", ""))
+        row_end_sec = _tc_str_to_sec(row["end_time"])
+        cur_span = max(0.0, row_end_sec - para_start_sec)
+
+        if i + 1 >= len(df):
+            break
+
+        nxt = df.iloc[i + 1]
+        gap_sec = float(row.get("gap", 0.0) or 0.0)
+        same_spk = _is_same_speaker_row(row, nxt)
+
+        nxt_sents = _row_line_count(nxt)
+        nxt_chars = _speakable_char_len(nxt.get("text", ""))
+        nxt_end_sec = _tc_str_to_sec(nxt["end_time"])
+        next_span = max(0.0, nxt_end_sec - para_start_sec)
+
+        txt_str = str(row.get("text", "") or "").strip()
+        ends_sentence = bool(txt_str) and txt_str[-1] in "。！？.!?"
+
+        must_cut = (
+            (not same_spk)
+            or (gap_sec >= para_gap_split)
+            or (cur_sents + nxt_sents > hard_sent_limit)
+            or (next_span > hard_span_sec)
+            or (cur_chars + nxt_chars > hard_char_limit)
+        )
+        soft_cut = (
+            (cur_sents >= soft_sent_limit or cur_span >= soft_span_sec or cur_chars >= soft_char_limit)
+            and (ends_sentence or gap_sec >= 0.45)
+        )
+
+        if must_cut or soft_cut:
+            cur_para += 1
+            para_start_sec = _tc_str_to_sec(nxt["start_time"])
+            cur_sents = 0
+            cur_chars = 0
+
+    df["para_id"] = para_ids
+    return df
+
+
 def process_cutoffs(df):
     rprint("[✂️ Processing] Generating cutoff points (with speaker-boundary isolation)...")
     df['cut_off'] = 0  # Initialize cut_off column
-    df.loc[df['gap'] >= load_key("tolerance"), 'cut_off'] = 1  # Set to 1 when gap is greater than TOLERANCE
+    tol_val = float(load_key("tolerance") if load_key("tolerance") is not None else 0.35)
+    df.loc[df['gap'] >= tol_val, 'cut_off'] = 1  # Set to 1 when gap is greater than TOLERANCE
 
     # Always force cut_off = 1 when speaker_id, gender, or custom voice changes between i and i+1
     for i in range(len(df) - 1):
@@ -158,7 +243,8 @@ def process_cutoffs(df):
         # Process fast lines
         else:
             idx += merge_rows(df, idx, 1)
-    
+
+    df = assign_speech_paragraphs(df)
     return df
 
 def gen_dub_chunks():
@@ -263,6 +349,9 @@ def gen_dub_chunks():
                 rprint(f"Target: '{target}'")
                 rprint(f"Current: '{current}'")
                 raise ValueError("Matching failed")
+
+    # Re-run paragraph assignment now that exact `lines` counts are populated
+    df = assign_speech_paragraphs(df)
 
     # Save results
     df.to_excel(_8_1_AUDIO_TASK, index=False)

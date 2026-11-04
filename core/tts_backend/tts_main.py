@@ -225,18 +225,28 @@ def is_audio_valid(file_path: str, text: str) -> bool:
         
     return True
 
-def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
+def tts_main(
+    text,
+    save_as,
+    number=None,
+    task_df=None,
+    gender=None,
+    voice=None,
+    section_id=None,
+    context_texts=None,
+    return_words=False,
+):
     check_task_cancelled()
     raw_input_text = "" if text is None else str(text)
     text = clean_text_for_tts(raw_input_text)
     # Check if text is empty or single character, single character voiceovers are prone to bugs
     cleaned_text = re.sub(r'[^\w\s]', '', text).strip()
     if not cleaned_text or len(cleaned_text) <= 1:
-        silence = AudioSegment.silent(duration=100)  # 100ms = 0.1s
+        silence = AudioSegment.silent(duration=100, frame_rate=24000)  # 100ms = 0.1s at 24kHz
         silence.export(save_as, format="wav")
         record_segment_text_hash(save_as, raw_input_text)
         rprint(f"Created silent audio for empty/single-char text: {save_as}")
-        return
+        return {"ok": True, "words": [], "sample_rate": 24000, "duration": 0.1} if return_words else None
     
     # Resolve gender and custom voice from task_df if not explicitly provided
     if task_df is not None and number is not None:
@@ -254,8 +264,8 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
     if voice and (pd.isna(voice) or not str(voice).strip()):
         voice = None
     
-    # Skip if file exists, is non-empty and is valid
-    if os.path.exists(save_as) and os.path.getsize(save_as) > 0:
+    # Skip if file exists, is non-empty and is valid (only when word timestamps aren't explicitly needed)
+    if not return_words and os.path.exists(save_as) and os.path.getsize(save_as) > 0:
         if is_audio_valid(save_as, raw_input_text):
             return
         else:
@@ -271,6 +281,7 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
     scoped_once = single_attempt_active()
     max_retries = 1 if scoped_once else 3
     last_error_is_network = False
+    tts_result = None
     for attempt in range(max_retries):
         try:
             if not scoped_once and attempt >= max_retries - 1 and not last_error_is_network:
@@ -280,12 +291,30 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
             
             if TTS_METHOD == 'edge_tts':
                 edge_tts(text, save_as, voice=voice, gender=gender)
+                tts_result = {"ok": True, "words": [], "sample_rate": 24000, "duration": 0.0}
             elif TTS_METHOD == 'doubao_tts':
                 if scoped_once:
-                    single_attempt_call(doubao_tts.__wrapped__, text, save_as,
-                                        number=number, voice_type=voice, gender=gender)
+                    tts_result = single_attempt_call(
+                        doubao_tts.__wrapped__,
+                        text,
+                        save_as,
+                        number=number,
+                        voice_type=voice,
+                        gender=gender,
+                        section_id=section_id,
+                        context_texts=context_texts,
+                        return_words=return_words,
+                    )
                 else:
-                    doubao_tts(text, save_as, voice_type=voice, gender=gender)
+                    tts_result = doubao_tts(
+                        text,
+                        save_as,
+                        voice_type=voice,
+                        gender=gender,
+                        section_id=section_id,
+                        context_texts=context_texts,
+                        return_words=return_words,
+                    )
             else:
                 raise ValueError(f"Unsupported TTS method: {TTS_METHOD}")
                 
@@ -293,6 +322,8 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
             duration = get_audio_duration(save_as)
             if duration > 0:
                 record_segment_text_hash(save_as, raw_input_text)
+                if return_words and isinstance(tts_result, dict):
+                    tts_result["duration"] = duration
                 break
             else:
                 if scoped_once:
@@ -302,10 +333,10 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
                 if attempt == max_retries - 1:
                     print(f"Warning: Generated audio duration is 0 for text: {text}")
                     # Create silent audio file
-                    silence = AudioSegment.silent(duration=100)  # 100ms silence
+                    silence = AudioSegment.silent(duration=100, frame_rate=24000)  # 100ms silence
                     silence.export(save_as, format="wav")
                     record_segment_text_hash(save_as, raw_input_text)
-                    return
+                    return {"ok": True, "words": [], "sample_rate": 24000, "duration": 0.1} if return_words else None
                 print(f"Attempt {attempt + 1} failed, retrying...")
         except Exception as e:
             if is_task_cancelled():
@@ -320,3 +351,4 @@ def tts_main(text, save_as, number=None, task_df=None, gender=None, voice=None):
             wait = 3 * (attempt + 1)
             print(f"Attempt {attempt + 1} failed ({'network error, retrying' if last_error_is_network else err_msg}), retrying in {wait}s...")
             sleep_cancellable(wait)
+    return tts_result if return_words else None

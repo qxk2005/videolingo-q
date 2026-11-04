@@ -136,6 +136,7 @@ doubao_tts:
   male_voice: 'zh_male_ruyayichen_uranus_bigtts'
   female_voice: 'zh_female_vv_uranus_bigtts'
   voice: 'zh_female_vv_uranus_bigtts'
+  style_prompt: '请用自然平稳、吐字清晰、语速均匀连贯的科普解说语气播讲，保持声线与情绪稳定克制。'
 
 # *Audio speed range
 speed_factor:
@@ -151,7 +152,7 @@ video_slow_factor: 1.0
 # *Merge audio configuration
 min_subtitle_duration: 2.5 # Minimum subtitle duration, will be forcibly extended
 min_trim_duration: 3.5 # Subtitles shorter than this value won't be split
-tolerance: 1.5 # Allowed extension time to the next subtitle
+tolerance: 0.35 # Tight trailing silence borrow (<= 0.35s) to prevent scene-cut bleeding; excess handled by bidirectional local video slowdown
 
 
 

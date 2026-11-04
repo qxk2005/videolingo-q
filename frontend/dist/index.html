@@ -1794,6 +1794,10 @@
                       <option v-for="(vid, vlabel) in voiceCatalogs.doubao_female" :key="vid" :value="vid">{{ vlabel }}</option>
                     </select>
                   </div>
+                  <div class="flex flex-col gap-1">
+                    <label class="text-slate-500 font-medium">🎙️ 全局语气稳态指令 (context_texts)</label>
+                    <input type="text" v-model="cfg.doubao_tts.style_prompt" placeholder="请用自然平稳、吐字清晰、语速均匀连贯的科普解说语气播讲，保持声线与情绪稳定克制。" class="studio-input px-2.5 py-1.5 rounded-md text-xs" />
+                  </div>
                 </div>
               </div>
             </div>
@@ -2054,6 +2058,7 @@
             'doubao_tts.access_token': cfg.doubao_tts?.access_token || '',
             'doubao_tts.male_voice': cfg.doubao_tts?.male_voice || '',
             'doubao_tts.female_voice': cfg.doubao_tts?.female_voice || '',
+            'doubao_tts.style_prompt': cfg.doubao_tts?.style_prompt ?? '',
           };
           const res = await fetch('/api/config', {
             method: 'POST',

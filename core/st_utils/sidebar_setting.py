@@ -498,6 +498,7 @@ def page_setting():
             if select_tts == "doubao_tts":
                 config_input("Volcengine AppID", "doubao_tts.appid")
                 config_input("Volcengine Access Token", "doubao_tts.access_token")
+                config_input("全局语气稳态指令 (context_texts)", "doubao_tts.style_prompt")
                 
                 doubao_male_voices = DOUBAO_MALE_VOICES
                 doubao_female_voices = DOUBAO_FEMALE_VOICES

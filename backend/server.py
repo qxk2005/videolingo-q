@@ -1581,6 +1581,7 @@ def start_dubbing_pipeline(force_continue: bool = False):
                     bool(sync_res.get("updated_task_rows", 0) > 0)
                     or "cut_off" not in df_existing.columns
                     or "gap" not in df_existing.columns
+                    or "para_id" not in df_existing.columns
                     or (len(df_existing) > 0 and float(df_existing["gap"].iloc[-1]) <= 0)
                 )
                 if not has_lines:
@@ -1770,12 +1771,23 @@ def save_speaker_overrides(payload: SaveSpeakerReviewPayload):
 @app.delete("/api/pipeline/dubbing")
 def delete_dubbing_files():
     STATE.speaker_review_confirmed = False
-    for f in [DUB_VIDEO, "output/dub.mp3", "output/audio/dub.mp3", "output/dub.srt", _8_1_AUDIO_TASK]:
+    for f in [
+        DUB_VIDEO,
+        "output/dub.wav",
+        "output/dub.mp3",
+        "output/audio/dub.mp3",
+        "output/dub.srt",
+        "output/audio/video_segments_map.json",
+        "output/audio/retimed_background.wav",
+        "output/audio/.paragraph_manifest.json",
+        "output/audio/dub_filter_complex.txt",
+        _8_1_AUDIO_TASK,
+    ]:
         if os.path.exists(f):
             os.remove(f)
-    segs_dir = "output/audio/segs"
-    if os.path.exists(segs_dir):
-        shutil.rmtree(segs_dir)
+    for d in ["output/audio/segs", "output/audio/tmp"]:
+        if os.path.exists(d):
+            shutil.rmtree(d)
     if "BATCH_MANAGER" in globals():
         BATCH_MANAGER.sync_from_studio_if_loaded(speaker_confirmed=False)
     return {"status": "ok"}
@@ -2496,6 +2508,7 @@ class BatchQueueManager:
             "doubao_tts.male_voice",
             "doubao_tts.female_voice",
             "doubao_tts.voice",
+            "doubao_tts.style_prompt",
             "edge_tts.male_voice",
             "edge_tts.female_voice",
             "edge_tts.voice",
@@ -2529,6 +2542,9 @@ class BatchQueueManager:
             else:
                 update_key("doubao_tts.female_voice", t["female_voice"])
                 update_key("doubao_tts.voice", t["female_voice"])
+
+        if t.get("style_prompt") is not None and str(t.get("style_prompt")).strip():
+            update_key("doubao_tts.style_prompt", str(t["style_prompt"]).strip())
 
         return snapshot
 
@@ -2738,6 +2754,7 @@ class BatchQueueManager:
                     sync_res.get("updated_task_rows", 0) > 0
                     or "cut_off" not in df_existing.columns
                     or "gap" not in df_existing.columns
+                    or "para_id" not in df_existing.columns
                 ):
                     df_existing = _8_2_dub_chunks.analyze_subtitle_timing_and_speed(df_existing)
                     df_existing = _8_2_dub_chunks.process_cutoffs(df_existing)
@@ -3469,6 +3486,7 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
                     sync_res.get("updated_task_rows", 0) > 0
                     or "cut_off" not in df_existing.columns
                     or "gap" not in df_existing.columns
+                    or "para_id" not in df_existing.columns
                 ):
                     df_existing = _8_2_dub_chunks.analyze_subtitle_timing_and_speed(df_existing)
                     df_existing = _8_2_dub_chunks.process_cutoffs(df_existing)
