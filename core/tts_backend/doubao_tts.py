@@ -82,6 +82,7 @@ def _doubao_v3_stream_call(
     resource_id: str = "seed-tts-2.0",
     section_id: str = None,
     context_texts: list = None,
+    single_request: bool = False,
 ):
     """Execute Volcengine V3 unidirectional streaming TTS call with optional context & word timestamps."""
     url = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
@@ -120,9 +121,8 @@ def _doubao_v3_stream_call(
         },
     }
 
-    resp = _post_with_direct_fallback(
-        url, headers=headers, json=payload, stream=True, timeout=(15, 120)
-    )
+    post = requests.post if single_request else _post_with_direct_fallback
+    resp = post(url, headers=headers, json=payload, stream=True, timeout=(15, 120))
     try:
         if resp.status_code != 200:
             body_preview = resp.text[:400]
@@ -368,3 +368,24 @@ def doubao_tts_with_timestamps(
 
 if __name__ == "__main__":
     pass
+
+
+def original_narration_tts(text, save_path, voice_type="zh_female_vv_uranus_bigtts"):
+    """Native additive service entry: one V3 request; no resource/proxy/voice fallback or retry.
+
+    Authentication remains in this existing configured provider, never in task input,
+    output, a client script or a new credential store. Legacy dubbing is unchanged.
+    """
+    if voice_type != "zh_female_vv_uranus_bigtts":
+        raise ValueError("This reviewed original-narration task permits VV only")
+    if not isinstance(text, str) or not 1 <= len(text) <= 1000 or text != text.strip():
+        raise ValueError("Invalid narration text")
+    appid = str(load_key("doubao_tts.appid") or "").strip()
+    access_token = str(load_key("doubao_tts.access_token") or "").strip()
+    if not appid or not access_token:
+        raise ValueError("Existing Doubao connection unavailable")
+    return _doubao_v3_stream_call(
+        appid=appid, access_token=access_token, text=text, save_path=save_path,
+        voice_type=voice_type, resource_id="seed-tts-2.0", single_request=True,
+        context_texts=[get_doubao_style_prompt()] if get_doubao_style_prompt() else None,
+    )

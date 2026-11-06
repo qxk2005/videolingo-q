@@ -3824,6 +3824,12 @@ def update_terminology_content(payload: TerminologyUpdatePayload):
 # =====================================================================
 # Serve Vue 3 SPA Frontend & Mount MCP Endpoints
 # =====================================================================
+from backend.original_narration_api import register_original_narration_routes
+
+register_original_narration_routes(
+    app, is_busy=lambda: STATE.running or BATCH_MANAGER.running
+)
+
 from backend.mcp_server import register_mcp_routes
 
 register_mcp_routes(app)

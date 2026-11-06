@@ -772,6 +772,16 @@ MCP_TOOLS: List[Dict[str, Any]] = [
             "required": ["action"],
         },
     },
+    {
+        "name": "videolingo_original_narration",
+        "description": "本机新增：本次A原创稿音频先行任务。固定11段已审稿、VV普通音色、1.00x、独立目录；不翻译、不缩写、不读取原片时间轴。start仅合成S01供验收；continue复用S01并合成其余10段。两者会调用已有豆包并可能计费；status只读。失败不自动重试。",
+        "inputSchema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"action": {"type": "string", "enum": ["start", "continue", "status"]}},
+            "required": ["action"]
+        }
+    },
+
 ]
 
 
@@ -779,7 +789,14 @@ def execute_mcp_tool(name: str, arguments: Optional[Dict[str, Any]] = None) -> D
     """Dispatch and execute an MCP tool by name and return structured data."""
     args = arguments or {}
 
-    if name == "videolingo_one_shot_process":
+    if name == "videolingo_original_narration":
+        if set(args) != {"action"} or args.get("action") not in {"start", "continue", "status"}:
+            raise ValueError("Only action=start/continue/status is supported")
+        if args["action"] == "status":
+            return _api_request("GET", "/api/original-narration/status")
+        return _api_request("POST", "/api/original-narration/" + args["action"], payload={}, timeout=10.0)
+
+    elif name == "videolingo_one_shot_process":
         wait_sec = float(args.pop("wait_seconds", 5) or 0)
         res = _api_request("POST", "/api/pipeline/one-shot", payload=args, timeout=60.0)
         status_summary = _wait_and_summarize_status(wait_seconds=wait_sec)
