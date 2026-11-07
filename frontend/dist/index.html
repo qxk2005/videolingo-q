@@ -818,9 +818,10 @@
         <div v-if="showBatchAdvForm" class="studio-subtle rounded-xl p-3.5 grid grid-cols-1 md:grid-cols-5 gap-3 text-xs border border-blue-500/20">
           <div class="flex flex-col gap-1">
             <label class="font-semibold text-slate-500">🔊 独立指定 TTS 引擎</label>
-            <select v-model="batchForm.tts_method" class="studio-input px-2.5 py-1.5 rounded-lg">
+            <select v-model="batchForm.tts_method" @change="batchForm.male_voice = ''; batchForm.female_voice = ''" class="studio-input px-2.5 py-1.5 rounded-lg">
               <option value="">跟随全局 ({{ cfg.tts_method || 'doubao_tts' }})</option>
               <option value="doubao_tts">🌋 火山豆包 TTS 2.0</option>
+              <option value="elevenlabs_tts">🌐 ElevenLabs 中文配音</option>
               <option value="edge_tts">🎙️ 微软 Edge TTS</option>
               <option value="sf_cosyvoice2">🧬 SiliconFlow CosyVoice2</option>
               <option value="gpt_sovits">🎭 GPT-SoVITS</option>
@@ -832,7 +833,7 @@
             <select v-model="batchForm.male_voice" class="studio-input px-2.5 py-1.5 rounded-lg">
               <option value="">跟随全局默认男声</option>
               <option
-                v-for="(vid, vlabel) in ((batchForm.tts_method || cfg.tts_method) === 'edge_tts' ? voiceCatalogs.edge_male : voiceCatalogs.doubao_male)"
+                v-for="(vid, vlabel) in getVoiceCatalogForMethod(batchForm.tts_method, 'male')"
                 :key="vid"
                 :value="vid"
               >{{ vlabel }}</option>
@@ -844,7 +845,7 @@
             <select v-model="batchForm.female_voice" class="studio-input px-2.5 py-1.5 rounded-lg">
               <option value="">跟随全局默认女声</option>
               <option
-                v-for="(vid, vlabel) in ((batchForm.tts_method || cfg.tts_method) === 'edge_tts' ? voiceCatalogs.edge_female : voiceCatalogs.doubao_female)"
+                v-for="(vid, vlabel) in getVoiceCatalogForMethod(batchForm.tts_method, 'female')"
                 :key="vid"
                 :value="vid"
               >{{ vlabel }}</option>
@@ -1249,9 +1250,10 @@
             <div v-if="expandedTaskConfigId === t.id" class="studio-card rounded-xl p-3 grid grid-cols-1 md:grid-cols-5 gap-2.5 text-xs border border-blue-500/30">
               <div class="flex flex-col gap-1">
                 <label class="text-slate-400 font-medium">🔊 独立 TTS 引擎</label>
-                <select v-model="t.tts_method" @change="saveTaskInline(t)" class="studio-input px-2 py-1 rounded">
+                <select v-model="t.tts_method" @change="t.male_voice = ''; t.female_voice = ''; saveTaskInline(t)" class="studio-input px-2 py-1 rounded">
                   <option value="">跟随全局 ({{ cfg.tts_method || 'doubao_tts' }})</option>
                   <option value="doubao_tts">🌋 火山豆包 TTS 2.0</option>
+                  <option value="elevenlabs_tts">🌐 ElevenLabs 中文配音</option>
                   <option value="edge_tts">🎙️ 微软 Edge TTS</option>
                   <option value="sf_cosyvoice2">🧬 CosyVoice2</option>
                   <option value="gpt_sovits">🎭 GPT-SoVITS</option>
@@ -1263,7 +1265,7 @@
                 <select v-model="t.male_voice" @change="saveTaskInline(t)" class="studio-input px-2 py-1 rounded">
                   <option value="">跟随全局男声</option>
                   <option
-                    v-for="(vid, vlabel) in ((t.tts_method || cfg.tts_method) === 'edge_tts' ? voiceCatalogs.edge_male : voiceCatalogs.doubao_male)"
+                    v-for="(vid, vlabel) in getVoiceCatalogForMethod(t.tts_method, 'male')"
                     :key="vid"
                     :value="vid"
                   >{{ vlabel }}</option>
@@ -1275,7 +1277,7 @@
                 <select v-model="t.female_voice" @change="saveTaskInline(t)" class="studio-input px-2 py-1 rounded">
                   <option value="">跟随全局女声</option>
                   <option
-                    v-for="(vid, vlabel) in ((t.tts_method || cfg.tts_method) === 'edge_tts' ? voiceCatalogs.edge_female : voiceCatalogs.doubao_female)"
+                    v-for="(vid, vlabel) in getVoiceCatalogForMethod(t.tts_method, 'female')"
                     :key="vid"
                     :value="vid"
                   >{{ vlabel }}</option>
@@ -1727,6 +1729,7 @@
                   <label class="font-medium text-slate-500">TTS 语音合成引擎</label>
                   <select v-model="cfg.tts_method" class="studio-input px-3 py-1.5 rounded-lg font-semibold">
                     <option value="doubao_tts">🌋 火山引擎豆包 TTS 2.0</option>
+                    <option value="elevenlabs_tts">🌐 ElevenLabs 中文配音</option>
                     <option value="edge_tts">🎙️ 微软 Edge TTS</option>
                     <option value="sf_cosyvoice2">🧬 SiliconFlow CosyVoice2</option>
                     <option value="gpt_sovits">🎭 GPT-SoVITS</option>
@@ -1755,7 +1758,7 @@
                 </label>
               </div>
 
-              <div class="grid grid-cols-2 gap-3">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div class="studio-subtle p-3 rounded-xl flex flex-col gap-2" v-if="cfg.pyannote">
                   <div class="flex items-center justify-between">
                     <span class="font-bold">🎙️ Pyannote 说话人声纹分离</span>
@@ -1775,21 +1778,31 @@
                   </div>
                 </div>
 
-                <!-- Doubao Default Voices -->
-                <div class="studio-subtle p-3 rounded-xl flex flex-col gap-2" v-if="cfg.doubao_tts">
-                  <div class="font-bold">🎭 默认男女主音色配置</div>
+                <!-- 1. 火山豆包 TTS 配置 -->
+                <div class="studio-subtle p-3 rounded-xl flex flex-col gap-2" v-if="cfg.tts_method === 'doubao_tts' && cfg.doubao_tts">
+                  <div class="font-bold">🌋 豆包 TTS 默认男女主音色配置</div>
                   <div class="grid grid-cols-2 gap-2">
                     <input type="text" v-model="cfg.doubao_tts.appid" placeholder="AppID" class="studio-input px-2.5 py-1 rounded font-mono" />
                     <input type="password" v-model="cfg.doubao_tts.access_token" placeholder="Access Token" class="studio-input px-2.5 py-1 rounded font-mono" />
                   </div>
                   <div class="flex flex-col gap-1">
-                    <label class="text-slate-500 font-medium">👨 默认男声音色</label>
+                    <div class="flex items-center justify-between">
+                      <label class="text-slate-500 font-medium">👨 默认男声音色</label>
+                      <button type="button" @click="previewTtsVoice('doubao_tts', cfg.doubao_tts.male_voice)" class="text-blue-500 hover:underline text-xs font-semibold">
+                        {{ previewingVoiceId === cfg.doubao_tts.male_voice ? '⏳ 合成中...' : '🔊 试听' }}
+                      </button>
+                    </div>
                     <select v-model="cfg.doubao_tts.male_voice" class="studio-input px-2 py-1.5 rounded-md">
                       <option v-for="(vid, vlabel) in voiceCatalogs.doubao_male" :key="vid" :value="vid">{{ vlabel }}</option>
                     </select>
                   </div>
                   <div class="flex flex-col gap-1">
-                    <label class="text-slate-500 font-medium">👩 默认女声音色</label>
+                    <div class="flex items-center justify-between">
+                      <label class="text-slate-500 font-medium">👩 默认女声音色</label>
+                      <button type="button" @click="previewTtsVoice('doubao_tts', cfg.doubao_tts.female_voice)" class="text-blue-500 hover:underline text-xs font-semibold">
+                        {{ previewingVoiceId === cfg.doubao_tts.female_voice ? '⏳ 合成中...' : '🔊 试听' }}
+                      </button>
+                    </div>
                     <select v-model="cfg.doubao_tts.female_voice" class="studio-input px-2 py-1.5 rounded-md">
                       <option v-for="(vid, vlabel) in voiceCatalogs.doubao_female" :key="vid" :value="vid">{{ vlabel }}</option>
                     </select>
@@ -1797,6 +1810,251 @@
                   <div class="flex flex-col gap-1">
                     <label class="text-slate-500 font-medium">🎙️ 全局语气稳态指令 (context_texts)</label>
                     <input type="text" v-model="cfg.doubao_tts.style_prompt" placeholder="请用自然平稳、吐字清晰、语速均匀连贯的科普解说语气播讲，保持声线与情绪稳定克制。" class="studio-input px-2.5 py-1.5 rounded-md text-xs" />
+                  </div>
+                </div>
+
+                <!-- 2. ElevenLabs 中文配音配置 -->
+                <div class="studio-subtle p-3 rounded-xl flex flex-col gap-2 border border-indigo-500/30" v-else-if="cfg.tts_method === 'elevenlabs_tts' && cfg.elevenlabs_tts">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="font-bold">🌐 ElevenLabs 中文配音配置</span>
+                    <div class="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        @click="syncElevenLabsMyVoices"
+                        :disabled="elSyncingVoices"
+                        class="px-2 py-0.5 rounded bg-blue-600/15 text-blue-600 dark:text-blue-400 hover:bg-blue-600/25 font-semibold text-xs transition"
+                      >
+                        {{ elSyncingVoices ? '⏳ 同步中...' : '🔄 拉取我的音色' }}
+                      </button>
+                      <button
+                        type="button"
+                        @click="toggleSharedVoiceBrowser"
+                        class="px-2 py-0.5 rounded bg-emerald-600/15 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600/25 font-semibold text-xs transition"
+                      >
+                        🇨🇳 {{ showElSharedBrowser ? '收起共享库' : '中文共享音色库' }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <input
+                    type="password"
+                    v-model="cfg.elevenlabs_tts.api_key"
+                    placeholder="ElevenLabs 配音独立 API Key (xi-api-key)"
+                    class="studio-input px-2.5 py-1.5 rounded font-mono"
+                  />
+
+                  <div class="flex flex-col gap-1">
+                    <label class="text-slate-500 font-medium">🤖 合成模型</label>
+                    <select v-model="cfg.elevenlabs_tts.model_id" class="studio-input px-2 py-1.5 rounded-md">
+                      <option v-for="(mlabel, mid) in voiceCatalogs.elevenlabs_models" :key="mid" :value="mid">{{ mlabel }}</option>
+                    </select>
+                  </div>
+
+                  <div class="flex flex-col gap-1">
+                    <div class="flex items-center justify-between">
+                      <label class="text-slate-500 font-medium">👨 默认男声 (下拉或直接粘贴 Voice ID)</label>
+                      <button type="button" @click="previewTtsVoice('elevenlabs_tts', cfg.elevenlabs_tts.male_voice)" class="text-blue-500 hover:underline text-xs font-semibold">
+                        {{ previewingVoiceId === cfg.elevenlabs_tts.male_voice ? '⏳ 合成中...' : '🔊 试听男声' }}
+                      </button>
+                    </div>
+                    <div class="grid grid-cols-5 gap-1.5">
+                      <select v-model="cfg.elevenlabs_tts.male_voice" class="col-span-3 studio-input px-2 py-1.5 rounded-md">
+                        <option v-for="(vid, vlabel) in voiceCatalogs.elevenlabs_male" :key="vid" :value="vid">{{ vlabel }}</option>
+                      </select>
+                      <input type="text" v-model="cfg.elevenlabs_tts.male_voice" placeholder="自定义男声 Voice ID" class="col-span-2 studio-input px-2 py-1.5 rounded-md font-mono text-[11px]" />
+                    </div>
+                  </div>
+
+                  <div class="flex flex-col gap-1">
+                    <div class="flex items-center justify-between">
+                      <label class="text-slate-500 font-medium">👩 默认女声 (下拉或直接粘贴 Voice ID)</label>
+                      <button type="button" @click="previewTtsVoice('elevenlabs_tts', cfg.elevenlabs_tts.female_voice)" class="text-blue-500 hover:underline text-xs font-semibold">
+                        {{ previewingVoiceId === cfg.elevenlabs_tts.female_voice ? '⏳ 合成中...' : '🔊 试听女声' }}
+                      </button>
+                    </div>
+                    <div class="grid grid-cols-5 gap-1.5">
+                      <select v-model="cfg.elevenlabs_tts.female_voice" class="col-span-3 studio-input px-2 py-1.5 rounded-md">
+                        <option v-for="(vid, vlabel) in voiceCatalogs.elevenlabs_female" :key="vid" :value="vid">{{ vlabel }}</option>
+                      </select>
+                      <input type="text" v-model="cfg.elevenlabs_tts.female_voice" placeholder="自定义女声 Voice ID" class="col-span-2 studio-input px-2 py-1.5 rounded-md font-mono text-[11px]" />
+                    </div>
+                  </div>
+
+                  <!-- 紧凑可折叠高级参数 -->
+                  <div class="border-t border-slate-200 dark:border-slate-700/60 pt-1.5 mt-0.5">
+                    <button
+                      type="button"
+                      @click="showElAdvParams = !showElAdvParams"
+                      class="w-full flex items-center justify-between text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium text-xs"
+                    >
+                      <span>⚙️ 高级语音参数 (Stability / Similarity / Style)</span>
+                      <span>{{ showElAdvParams ? '▲ 收起' : '▼ 展开' }}</span>
+                    </button>
+                    <div v-if="showElAdvParams" class="mt-2 flex flex-col gap-2 text-xs">
+                      <div v-if="cfg.elevenlabs_tts.model_id === 'eleven_v3'" class="text-[11px] text-amber-500">
+                        ℹ️ Eleven v3 模型自动将稳定性吸附为 0.0 / 0.5 / 1.0 三档；原速固定 1.0 交由后置双向弹性对齐。
+                      </div>
+                      <div class="grid grid-cols-3 gap-2">
+                        <div>
+                          <div class="flex justify-between mb-0.5">
+                            <span class="text-slate-400">稳定性</span>
+                            <span class="font-mono font-bold">{{ Number(cfg.elevenlabs_tts.stability ?? 0.55).toFixed(2) }}</span>
+                          </div>
+                          <input type="range" min="0" max="1" step="0.05" v-model.number="cfg.elevenlabs_tts.stability" class="w-full accent-blue-600" />
+                        </div>
+                        <div>
+                          <div class="flex justify-between mb-0.5">
+                            <span class="text-slate-400">相似度</span>
+                            <span class="font-mono font-bold">{{ Number(cfg.elevenlabs_tts.similarity_boost ?? 0.75).toFixed(2) }}</span>
+                          </div>
+                          <input type="range" min="0" max="1" step="0.05" v-model.number="cfg.elevenlabs_tts.similarity_boost" class="w-full accent-blue-600" />
+                        </div>
+                        <div>
+                          <div class="flex justify-between mb-0.5">
+                            <span class="text-slate-400">表现力</span>
+                            <span class="font-mono font-bold">{{ Number(cfg.elevenlabs_tts.style ?? 0.0).toFixed(2) }}</span>
+                          </div>
+                          <input type="range" min="0" max="1" step="0.05" v-model.number="cfg.elevenlabs_tts.style" class="w-full accent-blue-600" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 3. 微软 Edge TTS 配置 -->
+                <div class="studio-subtle p-3 rounded-xl flex flex-col gap-2" v-else-if="cfg.edge_tts">
+                  <div class="font-bold">🎙️ Edge TTS 默认男女主音色配置</div>
+                  <div class="flex flex-col gap-1">
+                    <div class="flex items-center justify-between">
+                      <label class="text-slate-500 font-medium">👨 默认男声音色</label>
+                      <button type="button" @click="previewTtsVoice('edge_tts', cfg.edge_tts.male_voice)" class="text-blue-500 hover:underline text-xs font-semibold">
+                        {{ previewingVoiceId === cfg.edge_tts.male_voice ? '⏳ 合成中...' : '🔊 试听' }}
+                      </button>
+                    </div>
+                    <select v-model="cfg.edge_tts.male_voice" class="studio-input px-2 py-1.5 rounded-md">
+                      <option v-for="(vid, vlabel) in voiceCatalogs.edge_male" :key="vid" :value="vid">{{ vlabel }}</option>
+                    </select>
+                  </div>
+                  <div class="flex flex-col gap-1">
+                    <div class="flex items-center justify-between">
+                      <label class="text-slate-500 font-medium">👩 默认女声音色</label>
+                      <button type="button" @click="previewTtsVoice('edge_tts', cfg.edge_tts.female_voice)" class="text-blue-500 hover:underline text-xs font-semibold">
+                        {{ previewingVoiceId === cfg.edge_tts.female_voice ? '⏳ 合成中...' : '🔊 试听' }}
+                      </button>
+                    </div>
+                    <select v-model="cfg.edge_tts.female_voice" class="studio-input px-2 py-1.5 rounded-md">
+                      <option v-for="(vid, vlabel) in voiceCatalogs.edge_female" :key="vid" :value="vid">{{ vlabel }}</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 🇨🇳 ElevenLabs 官方中文共享音色库在线浏览与一键选用面板 -->
+              <div
+                v-if="cfg.tts_method === 'elevenlabs_tts' && showElSharedBrowser"
+                class="studio-card p-3.5 rounded-xl border border-emerald-500/40 flex flex-col gap-3"
+              >
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div class="font-bold text-sm flex items-center gap-1.5">
+                      <span>🇨🇳 ElevenLabs 官方中文共享音色库 (Shared Voices)</span>
+                      <span class="text-xs font-normal text-slate-400">后端代理免翻墙试听 · 点击选用自动同步至您的 ElevenLabs 账号</span>
+                    </div>
+                  </div>
+                  <button type="button" @click="showElSharedBrowser = false" class="text-slate-400 hover:text-slate-600 text-xs">✕ 关闭面板</button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-2 text-xs">
+                  <input
+                    type="text"
+                    v-model="elSharedFilter.search"
+                    @keyup.enter="searchElevenLabsSharedVoices"
+                    placeholder="搜索关键词（如：播音、解说、纪录片、温柔、磁性...）"
+                    class="md:col-span-5 studio-input px-2.5 py-1.5 rounded-lg"
+                  />
+                  <select v-model="elSharedFilter.accent" @change="searchElevenLabsSharedVoices" class="md:col-span-3 studio-input px-2 py-1.5 rounded-lg">
+                    <option value="">🌏 全部中文口音</option>
+                    <option value="mainland">🇨🇳 大陆普通话</option>
+                    <option value="taiwan">🌿 台湾国语</option>
+                    <option value="cantonese">🇭🇰 粤语 (广东/香港)</option>
+                  </select>
+                  <select v-model="elSharedFilter.gender" @change="searchElevenLabsSharedVoices" class="md:col-span-2 studio-input px-2 py-1.5 rounded-lg">
+                    <option value="">👥 全部性别</option>
+                    <option value="male">👨 男声</option>
+                    <option value="female">👩 女声</option>
+                  </select>
+                  <button
+                    type="button"
+                    @click="searchElevenLabsSharedVoices"
+                    :disabled="elSharedLoading"
+                    class="md:col-span-2 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition"
+                  >
+                    {{ elSharedLoading ? '⏳ 检索中...' : '🔍 搜索音色' }}
+                  </button>
+                </div>
+
+                <div v-if="elSharedVoices.length === 0 && !elSharedLoading" class="text-center py-4 text-slate-400 text-xs">
+                  点击「🔍 搜索音色」即可浏览社区高人气中文母语声线（需先填写上方 ElevenLabs API Key）
+                </div>
+
+                <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
+                  <div
+                    v-for="sv in elSharedVoices"
+                    :key="sv.voice_id"
+                    class="studio-subtle p-2.5 rounded-lg flex flex-col justify-between gap-2 text-xs border border-slate-200/60 dark:border-slate-700/60"
+                  >
+                    <div class="flex items-start justify-between gap-2">
+                      <div class="min-w-0">
+                        <div class="font-bold truncate flex items-center gap-1">
+                          <span>{{ sv.gender === 'male' ? '👨' : (sv.gender === 'female' ? '👩' : '🎙️') }}</span>
+                          <span class="truncate">{{ sv.name }}</span>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-1 mt-1 text-[10px]">
+                          <span class="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold">{{ sv.region_label }}</span>
+                          <span v-if="sv.use_case" class="px-1.5 py-0.5 rounded bg-slate-500/15 text-slate-500">{{ sv.use_case }}</span>
+                          <span v-if="sv.in_my_voices" class="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-500">已在音色库</span>
+                        </div>
+                      </div>
+                      <button
+                        v-if="sv.preview_url"
+                        type="button"
+                        @click="playSharedVoicePreview(sv)"
+                        class="shrink-0 px-2 py-1 rounded bg-blue-600/15 text-blue-600 dark:text-blue-400 hover:bg-blue-600/25 font-semibold"
+                      >
+                        {{ playingSharedPreviewId === sv.voice_id ? '⏹️ 停止' : '🎧 试听' }}
+                      </button>
+                    </div>
+
+                    <div v-if="sv.description" class="text-[11px] text-slate-400 line-clamp-2">
+                      {{ sv.description }}
+                    </div>
+
+                    <div class="flex items-center justify-end gap-1.5 pt-1 border-t border-slate-200/50 dark:border-slate-700/50">
+                      <button
+                        type="button"
+                        :disabled="elAddingVoiceId === sv.voice_id"
+                        @click="applySharedVoice(sv, 'male')"
+                        class="px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold text-[11px] transition"
+                      >
+                        👨 设为男声
+                      </button>
+                      <button
+                        type="button"
+                        :disabled="elAddingVoiceId === sv.voice_id"
+                        @click="applySharedVoice(sv, 'female')"
+                        class="px-2 py-1 rounded bg-pink-600 hover:bg-pink-500 text-white font-semibold text-[11px] transition"
+                      >
+                        👩 设为女声
+                      </button>
+                      <button
+                        type="button"
+                        :disabled="elAddingVoiceId === sv.voice_id"
+                        @click="applySharedVoice(sv, '')"
+                        class="px-2 py-1 rounded studio-card hover:border-blue-500 font-medium text-[11px] transition"
+                      >
+                        {{ elAddingVoiceId === sv.voice_id ? '⏳ 同步中' : '➕ 仅入库' }}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1859,7 +2117,218 @@
         const selectedProfile = ref('');
         const newProfileName = ref('');
         const customTermsText = ref('');
-        const voiceCatalogs = reactive({ doubao_male: {}, doubao_female: {}, edge_male: {}, edge_female: {} });
+        const voiceCatalogs = reactive({
+          doubao_male: {},
+          doubao_female: {},
+          edge_male: {},
+          edge_female: {},
+          elevenlabs_male: {},
+          elevenlabs_female: {},
+          elevenlabs_models: {},
+        });
+
+        const showElAdvParams = ref(false);
+        const showElSharedBrowser = ref(false);
+        const elSyncingVoices = ref(false);
+        const elSharedLoading = ref(false);
+        const elAddingVoiceId = ref('');
+        const previewingVoiceId = ref('');
+        const playingSharedPreviewId = ref('');
+        const elSharedVoices = ref([]);
+        const elSharedFilter = reactive({
+          search: '',
+          accent: '',
+          gender: '',
+        });
+        let _activePreviewAudio = null;
+
+        function _stopActivePreviewAudio() {
+          if (_activePreviewAudio) {
+            try {
+              _activePreviewAudio.pause();
+              _activePreviewAudio.src = '';
+            } catch (_) {}
+            _activePreviewAudio = null;
+          }
+          playingSharedPreviewId.value = '';
+        }
+
+        function getVoiceCatalogForMethod(method, gender) {
+          const m = method || cfg.tts_method || 'doubao_tts';
+          if (m === 'edge_tts') {
+            return gender === 'male' ? voiceCatalogs.edge_male : voiceCatalogs.edge_female;
+          }
+          if (m === 'elevenlabs_tts') {
+            return gender === 'male' ? voiceCatalogs.elevenlabs_male : voiceCatalogs.elevenlabs_female;
+          }
+          return gender === 'male' ? voiceCatalogs.doubao_male : voiceCatalogs.doubao_female;
+        }
+
+        async function previewTtsVoice(method, voiceId) {
+          if (!voiceId) {
+            showToast('⚠️ 请先选择或输入有效的音色 ID');
+            return;
+          }
+          _stopActivePreviewAudio();
+          previewingVoiceId.value = voiceId;
+          try {
+            const bodyPayload = { tts_method: method, voice_id: voiceId };
+            if (method === 'elevenlabs_tts') {
+              bodyPayload.api_key = cfg.elevenlabs_tts?.api_key || '';
+              bodyPayload.model_id = cfg.elevenlabs_tts?.model_id || 'eleven_multilingual_v2';
+            }
+            const res = await fetch('/api/tts/preview', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(bodyPayload),
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              showToast(`❌ 试听失败: ${err.detail || res.statusText}`);
+              return;
+            }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            _activePreviewAudio = audio;
+            audio.onended = () => { URL.revokeObjectURL(url); };
+            await audio.play();
+          } catch (e) {
+            showToast(`❌ 试听请求异常: ${e.message || e}`);
+          } finally {
+            previewingVoiceId.value = '';
+          }
+        }
+
+        async function syncElevenLabsMyVoices() {
+          elSyncingVoices.value = true;
+          try {
+            const res = await fetch('/api/elevenlabs/voices/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ api_key: cfg.elevenlabs_tts?.api_key || '' }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              showToast(`❌ 同步失败: ${data.detail || '请检查 API Key 或网络代理'}`);
+              return;
+            }
+            if (data.voice_catalogs) {
+              Object.assign(voiceCatalogs, data.voice_catalogs);
+            }
+            showToast(`✅ 已同步 ${data.total} 个账号音色（含 ${data.chinese_count} 个中文声线）`);
+          } catch (e) {
+            showToast(`❌ 同步请求异常: ${e.message || e}`);
+          } finally {
+            elSyncingVoices.value = false;
+          }
+        }
+
+        function toggleSharedVoiceBrowser() {
+          showElSharedBrowser.value = !showElSharedBrowser.value;
+          if (showElSharedBrowser.value && elSharedVoices.value.length === 0 && cfg.elevenlabs_tts?.api_key) {
+            searchElevenLabsSharedVoices();
+          }
+        }
+
+        async function searchElevenLabsSharedVoices() {
+          elSharedLoading.value = true;
+          try {
+            const qs = new URLSearchParams({
+              search: elSharedFilter.search || '',
+              gender: elSharedFilter.gender || '',
+              accent: elSharedFilter.accent || '',
+              page_size: '24',
+              api_key: cfg.elevenlabs_tts?.api_key || '',
+            });
+            const res = await fetch(`/api/elevenlabs/shared-voices?${qs.toString()}`);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              showToast(`❌ 检索失败: ${data.detail || '请检查 API Key 与订阅权限'}`);
+              return;
+            }
+            elSharedVoices.value = data.voices || [];
+            if (elSharedVoices.value.length === 0) {
+              showToast('ℹ️ 未找到匹配的中文共享音色，请尝试调整筛选条件');
+            }
+          } catch (e) {
+            showToast(`❌ 检索请求异常: ${e.message || e}`);
+          } finally {
+            elSharedLoading.value = false;
+          }
+        }
+
+        async function playSharedVoicePreview(sv) {
+          if (!sv?.preview_url) return;
+          if (playingSharedPreviewId.value === sv.voice_id) {
+            _stopActivePreviewAudio();
+            return;
+          }
+          _stopActivePreviewAudio();
+          playingSharedPreviewId.value = sv.voice_id;
+          try {
+            const proxyUrl = `/api/elevenlabs/shared-voices/preview?url=${encodeURIComponent(sv.preview_url)}`;
+            const audio = new Audio(proxyUrl);
+            _activePreviewAudio = audio;
+            audio.onended = () => {
+              if (playingSharedPreviewId.value === sv.voice_id) {
+                playingSharedPreviewId.value = '';
+              }
+            };
+            audio.onerror = () => {
+              playingSharedPreviewId.value = '';
+              showToast('⚠️ 试听音频加载失败，请检查全局代理设置');
+            };
+            await audio.play();
+          } catch (e) {
+            playingSharedPreviewId.value = '';
+            showToast(`⚠️ 无法播放试听: ${e.message || e}`);
+          }
+        }
+
+        async function applySharedVoice(sv, setAs) {
+          elAddingVoiceId.value = sv.voice_id;
+          try {
+            const res = await fetch('/api/elevenlabs/shared-voices/add', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                public_owner_id: sv.public_owner_id || '',
+                voice_id: sv.voice_id,
+                name: sv.name,
+                gender: sv.gender || '',
+                accent: sv.accent || '',
+                preview_url: sv.preview_url || '',
+                set_as: setAs || '',
+                api_key: cfg.elevenlabs_tts?.api_key || '',
+              }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              showToast(`❌ 添加失败: ${data.detail || '请检查账号音色槽位或权限'}`);
+              return;
+            }
+            if (data.voice_catalogs) {
+              Object.assign(voiceCatalogs, data.voice_catalogs);
+            }
+            if (!cfg.elevenlabs_tts) cfg.elevenlabs_tts = {};
+            if (setAs === 'male') {
+              cfg.elevenlabs_tts.male_voice = data.voice_id;
+              showToast(`✅ 已同步至账号并设为默认男声: ${data.name}`);
+            } else if (setAs === 'female') {
+              cfg.elevenlabs_tts.female_voice = data.voice_id;
+              cfg.elevenlabs_tts.voice = data.voice_id;
+              showToast(`✅ 已同步至账号并设为默认女声: ${data.name}`);
+            } else {
+              showToast(`✅ 已同步至您的音色库: ${data.name}`);
+            }
+            sv.in_my_voices = true;
+          } catch (e) {
+            showToast(`❌ 添加请求异常: ${e.message || e}`);
+          } finally {
+            elAddingVoiceId.value = '';
+          }
+        }
         const cookiesStatus = reactive({
           effective_mode: 'none',
           file_exists: false,
@@ -1979,6 +2448,21 @@
           const res = await fetch('/api/config');
           const data = await res.json();
           Object.assign(cfg, data.config || {});
+          cfg.elevenlabs_tts = Object.assign(
+            {
+              api_key: '',
+              base_url: 'https://api.elevenlabs.io',
+              model_id: 'eleven_multilingual_v2',
+              male_voice: 'nPczCjzI2devNBz1zQrb',
+              female_voice: 'pFZP5JQG7iQjIQuC4Bku',
+              voice: 'pFZP5JQG7iQjIQuC4Bku',
+              stability: 0.55,
+              similarity_boost: 0.75,
+              style: 0.0,
+              use_speaker_boost: true,
+            },
+            cfg.elevenlabs_tts || {}
+          );
           llmProfiles.value = data.profiles || {};
           customTermsText.value = data.custom_terms || '';
           Object.assign(voiceCatalogs, data.voice_catalogs || {});
@@ -2059,6 +2543,17 @@
             'doubao_tts.male_voice': cfg.doubao_tts?.male_voice || '',
             'doubao_tts.female_voice': cfg.doubao_tts?.female_voice || '',
             'doubao_tts.style_prompt': cfg.doubao_tts?.style_prompt ?? '',
+            'edge_tts.male_voice': cfg.edge_tts?.male_voice || 'zh-CN-YunxiNeural',
+            'edge_tts.female_voice': cfg.edge_tts?.female_voice || 'zh-CN-XiaoxiaoNeural',
+            'edge_tts.voice': cfg.edge_tts?.female_voice || 'zh-CN-XiaoxiaoNeural',
+            'elevenlabs_tts.api_key': cfg.elevenlabs_tts?.api_key || '',
+            'elevenlabs_tts.model_id': cfg.elevenlabs_tts?.model_id || 'eleven_multilingual_v2',
+            'elevenlabs_tts.male_voice': cfg.elevenlabs_tts?.male_voice || 'nPczCjzI2devNBz1zQrb',
+            'elevenlabs_tts.female_voice': cfg.elevenlabs_tts?.female_voice || 'pFZP5JQG7iQjIQuC4Bku',
+            'elevenlabs_tts.voice': cfg.elevenlabs_tts?.female_voice || 'pFZP5JQG7iQjIQuC4Bku',
+            'elevenlabs_tts.stability': Number(cfg.elevenlabs_tts?.stability ?? 0.55),
+            'elevenlabs_tts.similarity_boost': Number(cfg.elevenlabs_tts?.similarity_boost ?? 0.75),
+            'elevenlabs_tts.style': Number(cfg.elevenlabs_tts?.style ?? 0.0),
           };
           const res = await fetch('/api/config', {
             method: 'POST',
@@ -2066,6 +2561,9 @@
             body: JSON.stringify({ updates, custom_terms: customTermsText.value }),
           });
           const resData = await res.json().catch(() => ({}));
+          if (resData.voice_catalogs) {
+            Object.assign(voiceCatalogs, resData.voice_catalogs);
+          }
           if (resData.cookies_status) {
             Object.assign(cookiesStatus, resData.cookies_status);
           }
@@ -2722,6 +3220,12 @@
           runSingleBatchTask, startBatchQueue, toggleBatchPauseAfterCurrent,
           stopBatchQueue, clearBatchTasks, loadBatchTaskToStudio, syncStudioToBatch,
           restoreSingleStash, openBatchPreviewModal,
+          showElAdvParams, showElSharedBrowser, elSyncingVoices, elSharedLoading,
+          elAddingVoiceId, previewingVoiceId, playingSharedPreviewId,
+          elSharedVoices, elSharedFilter,
+          getVoiceCatalogForMethod, previewTtsVoice, syncElevenLabsMyVoices,
+          toggleSharedVoiceBrowser, searchElevenLabsSharedVoices,
+          playSharedVoicePreview, applySharedVoice,
         };
       }
     }).mount('#app');

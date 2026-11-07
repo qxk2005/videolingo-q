@@ -27,6 +27,11 @@ from core.tts_backend.doubao_tts import (
     get_doubao_style_prompt,
     resolve_doubao_voice,
 )
+from core.tts_backend.elevenlabs_tts import (
+    get_elevenlabs_model_id,
+    get_elevenlabs_voice_settings,
+    resolve_elevenlabs_voice,
+)
 from core.tts_backend.tts_main import (
     clean_text_for_tts,
     copy_segment_text_hash,
@@ -49,13 +54,22 @@ PARAGRAPH_MANIFEST_FILE = "output/audio/.paragraph_manifest.json"
 VIDEO_SEGMENTS_MAP_FILE = "output/audio/video_segments_map.json"
 RETIMED_BG_AUDIO_FILE = "output/audio/retimed_background.wav"
 
-# Bidirectional elastic alignment parameters for Doubao V3
+# Bidirectional elastic alignment parameters for paragraph-capable engines
+PARAGRAPH_TTS_METHODS = ("doubao_tts", "elevenlabs_tts")
 MAX_AUDIO_SPEED_DOUBAO = 1.08
 MIN_AUDIO_SPEED_DOUBAO = 0.96
 MIN_VIDEO_SPEED_FLOOR = 0.85
 EMERGENCY_VIDEO_SPEED_FLOOR = 0.72
 EMERGENCY_AUDIO_SPEED_CAP = 1.12
 MAX_TAIL_BORROW_SEC = 0.35
+
+
+def _resolve_paragraph_speaker_voice(row, tts_method: str) -> str:
+    gen = str(row.get("gender", "") or "") if pd.notna(row.get("gender", "")) else ""
+    raw_v = row.get("voice") if pd.notna(row.get("voice")) else None
+    if tts_method == "elevenlabs_tts":
+        return resolve_elevenlabs_voice(voice_type=raw_v, gender=gen or None)
+    return resolve_doubao_voice(voice_type=raw_v, gender=gen or None)
 
 
 def _parse_lines_cell(val) -> List[str]:
@@ -90,6 +104,14 @@ def get_tts_fingerprint():
             settings["female_voice"] = load_key("doubao_tts.female_voice")
             settings["style_prompt"] = get_doubao_style_prompt()
             settings["pipeline_ver"] = "v3_para_elastic_24k"
+        elif tts_method == "elevenlabs_tts":
+            el_model = get_elevenlabs_model_id()
+            settings["model_id"] = el_model
+            settings["voice"] = load_key("elevenlabs_tts.voice")
+            settings["male_voice"] = load_key("elevenlabs_tts.male_voice")
+            settings["female_voice"] = load_key("elevenlabs_tts.female_voice")
+            settings["voice_settings"] = get_elevenlabs_voice_settings(model_id=el_model)
+            settings["pipeline_ver"] = "el_para_elastic_24k"
         elif tts_method == "openai_tts":
             settings["voice"] = load_key("openai_tts.voice")
         elif tts_method == "azure_tts":
@@ -273,7 +295,7 @@ def expand_numbers_to_paragraphs(numbers: list) -> List[int]:
     expanded = set(target_set)
 
     tts_method = load_key("tts_method")
-    if tts_method == "doubao_tts" and not single_attempt_active():
+    if tts_method in PARAGRAPH_TTS_METHODS and not single_attempt_active():
         # 1. Include siblings from previously synthesized paragraph manifest
         old_paras = _load_paragraph_manifest()
         for _, member_nums in old_paras.items():
@@ -831,7 +853,8 @@ def generate_doubao_paragraphs(tasks_df: pd.DataFrame) -> Tuple[pd.DataFrame, Di
     _save_paragraph_manifest(tasks_df)
     tasks_df["real_dur"] = 0.0
 
-    style_prompt = get_doubao_style_prompt()
+    tts_method = str(load_key("tts_method") or "doubao_tts")
+    style_prompt = get_doubao_style_prompt() if tts_method == "doubao_tts" else ""
     context_texts = [style_prompt] if style_prompt else None
 
     # Persistent `section_id` per unique speaker identity across the entire video
@@ -840,10 +863,7 @@ def generate_doubao_paragraphs(tasks_df: pd.DataFrame) -> Tuple[pd.DataFrame, Di
     def _speaker_key(row) -> str:
         spk = str(row.get("speaker_id", "") or "") if pd.notna(row.get("speaker_id", "")) else ""
         gen = str(row.get("gender", "") or "") if pd.notna(row.get("gender", "")) else ""
-        voc = resolve_doubao_voice(
-            voice_type=row.get("voice") if pd.notna(row.get("voice")) else None,
-            gender=gen or None,
-        )
+        voc = _resolve_paragraph_speaker_voice(row, tts_method)
         return f"{spk}|{gen}|{voc}"
 
     para_groups = list(tasks_df.groupby("para_id", sort=False))
@@ -852,7 +872,8 @@ def generate_doubao_paragraphs(tasks_df: pd.DataFrame) -> Tuple[pd.DataFrame, Di
     if is_internal:
         progress.start()
 
-    task_desc = "🎙️ 正在按自然语流段连续合成豆包 V3 配音..."
+    engine_label = "ElevenLabs" if tts_method == "elevenlabs_tts" else "豆包 V3"
+    task_desc = f"🎙️ 正在按自然语流段连续合成 {engine_label} 配音..."
     task = progress.add_task(task_desc, total=len(tasks_df))
     completed_rows = 0
 
@@ -1065,16 +1086,14 @@ def align_paragraphs_bidirectionally(
     tol_cfg = float(load_key("tolerance") if load_key("tolerance") is not None else MAX_TAIL_BORROW_SEC)
     max_borrow_cap = min(MAX_TAIL_BORROW_SEC, max(0.0, tol_cfg))
 
-    style_prompt = get_doubao_style_prompt()
+    tts_method = str(load_key("tts_method") or "doubao_tts")
+    style_prompt = get_doubao_style_prompt() if tts_method == "doubao_tts" else ""
     context_texts = [style_prompt] if style_prompt else None
 
     def _speaker_key(row) -> str:
         spk = str(row.get("speaker_id", "") or "") if pd.notna(row.get("speaker_id", "")) else ""
         gen = str(row.get("gender", "") or "") if pd.notna(row.get("gender", "")) else ""
-        voc = resolve_doubao_voice(
-            voice_type=row.get("voice") if pd.notna(row.get("voice")) else None,
-            gender=gen or None,
-        )
+        voc = _resolve_paragraph_speaker_voice(row, tts_method)
         return f"{spk}|{gen}|{voc}"
 
     para_indices_list = [grp.index.tolist() for _, grp in tasks_df.groupby("para_id", sort=False)]
@@ -1545,7 +1564,7 @@ def gen_audio() -> None:
     rprint("[green]📊 Loaded task file successfully[/green]")
 
     tts_method = load_key("tts_method")
-    if tts_method == "doubao_tts" and not single_attempt_active():
+    if tts_method in PARAGRAPH_TTS_METHODS and not single_attempt_active():
         tasks_df, speaker_sessions = generate_doubao_paragraphs(tasks_df)
         tasks_df = align_paragraphs_bidirectionally(tasks_df, speaker_sessions)
     else:

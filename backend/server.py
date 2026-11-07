@@ -87,6 +87,16 @@ from core.st_utils.sidebar_setting import (
     EDGE_FEMALE_VOICES,
     get_available_tts_voices,
 )
+from core.tts_backend.elevenlabs_tts import (
+    ELEVENLABS_MODELS,
+    add_elevenlabs_shared_voice,
+    elevenlabs_tts as gen_elevenlabs_tts,
+    fetch_elevenlabs_my_voices,
+    fetch_elevenlabs_preview_audio,
+    get_elevenlabs_default_config,
+    get_elevenlabs_voice_catalogs,
+    search_elevenlabs_shared_voices,
+)
 from core.utils.audio_gender import extract_speaker_sample_clips
 
 SUB_VIDEO = "output/output_sub.mp4"
@@ -386,7 +396,29 @@ def _read_full_config() -> Dict[str, Any]:
     with config_lock:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             data = ruamel_yaml.load(f)
-    return json.loads(json.dumps(dict(data), default=str))
+    res = json.loads(json.dumps(dict(data), default=str))
+    el_defaults = get_elevenlabs_default_config()
+    if not isinstance(res.get("elevenlabs_tts"), dict):
+        res["elevenlabs_tts"] = dict(el_defaults)
+    else:
+        for dk, dv in el_defaults.items():
+            if dk not in res["elevenlabs_tts"] or res["elevenlabs_tts"][dk] is None:
+                res["elevenlabs_tts"][dk] = dv
+    return res
+
+
+def _build_voice_catalogs_payload() -> Dict[str, Any]:
+    el_male, el_female = get_elevenlabs_voice_catalogs()
+    return {
+        "doubao_male": DOUBAO_MALE_VOICES,
+        "doubao_female": DOUBAO_FEMALE_VOICES,
+        "edge_male": EDGE_MALE_VOICES,
+        "edge_female": EDGE_FEMALE_VOICES,
+        "elevenlabs_male": el_male,
+        "elevenlabs_female": el_female,
+        "elevenlabs_models": ELEVENLABS_MODELS,
+        "current_available": get_available_tts_voices(),
+    }
 
 
 def _get_video_info(file_path: str) -> Optional[Dict[str, str]]:
@@ -799,13 +831,7 @@ def get_config():
         "custom_terms": custom_terms,
         "cookies_exists": cookies_status["file_exists"],
         "cookies_status": cookies_status,
-        "voice_catalogs": {
-            "doubao_male": DOUBAO_MALE_VOICES,
-            "doubao_female": DOUBAO_FEMALE_VOICES,
-            "edge_male": EDGE_MALE_VOICES,
-            "edge_female": EDGE_FEMALE_VOICES,
-            "current_available": get_available_tts_voices(),
-        },
+        "voice_catalogs": _build_voice_catalogs_payload(),
     }
 
 
@@ -830,6 +856,7 @@ def update_config(payload: ConfigUpdatePayload):
     return {
         "status": "ok",
         "config": _read_full_config(),
+        "voice_catalogs": _build_voice_catalogs_payload(),
         "cookies_exists": cookies_status["file_exists"],
         "cookies_status": cookies_status,
     }
@@ -994,6 +1021,8 @@ def check_llm_connectivity(payload: Optional[LlmCheckPayload] = None):
 class VoicePreviewPayload(BaseModel):
     tts_method: str
     voice_id: str
+    api_key: Optional[str] = None
+    model_id: Optional[str] = None
 
 
 @app.post("/api/tts/preview")
@@ -1006,6 +1035,12 @@ def preview_tts_voice(payload: VoicePreviewPayload):
         if payload.tts_method == "doubao_tts":
             from core.tts_backend.doubao_tts import doubao_tts as gen_doubao_tts
             gen_doubao_tts(preview_text, tmp_path, voice_type=payload.voice_id)
+        elif payload.tts_method == "elevenlabs_tts":
+            if payload.api_key and payload.api_key.strip():
+                update_key("elevenlabs_tts.api_key", payload.api_key.strip())
+            if payload.model_id and payload.model_id.strip():
+                update_key("elevenlabs_tts.model_id", payload.model_id.strip())
+            gen_elevenlabs_tts(preview_text, tmp_path, voice_type=payload.voice_id)
         else:
             from core.tts_backend.edge_tts import edge_tts
             edge_tts(preview_text, tmp_path, voice=payload.voice_id)
@@ -1020,6 +1055,101 @@ def preview_tts_voice(payload: VoicePreviewPayload):
                 os.remove(tmp_path)
             except Exception:
                 pass
+
+
+class ElevenLabsSyncPayload(BaseModel):
+    api_key: Optional[str] = None
+
+
+@app.post("/api/elevenlabs/voices/sync")
+def sync_elevenlabs_voices_api(payload: ElevenLabsSyncPayload):
+    try:
+        override_k = payload.api_key.strip() if payload.api_key and payload.api_key.strip() else None
+        if override_k:
+            update_key("elevenlabs_tts.api_key", override_k)
+        sync_res = fetch_elevenlabs_my_voices(api_key=override_k)
+        return {
+            "status": "ok",
+            "total": sync_res["total"],
+            "chinese_count": sync_res["chinese_count"],
+            "voice_catalogs": _build_voice_catalogs_payload(),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/elevenlabs/shared-voices")
+def list_elevenlabs_shared_voices_api(
+    search: str = "",
+    gender: str = "",
+    accent: str = "",
+    page_size: int = 24,
+    page: int = 0,
+    api_key: str = "",
+):
+    try:
+        override_k = api_key.strip() if api_key and api_key.strip() else None
+        if override_k:
+            update_key("elevenlabs_tts.api_key", override_k)
+        res = search_elevenlabs_shared_voices(
+            search=search,
+            gender=gender,
+            accent=accent,
+            page_size=page_size,
+            page=page,
+            api_key=override_k,
+        )
+        return {"status": "ok", **res}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/elevenlabs/shared-voices/preview")
+def preview_elevenlabs_shared_voice_api(url: str):
+    try:
+        audio_bytes, content_type = fetch_elevenlabs_preview_audio(url)
+        return StreamingResponse(io.BytesIO(audio_bytes), media_type=content_type)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class ElevenLabsAddSharedVoicePayload(BaseModel):
+    public_owner_id: str = ""
+    voice_id: str
+    name: str
+    gender: str = ""
+    accent: str = ""
+    preview_url: str = ""
+    set_as: str = ""  # "male" | "female" | ""
+    api_key: Optional[str] = None
+
+
+@app.post("/api/elevenlabs/shared-voices/add")
+def add_elevenlabs_shared_voice_api(payload: ElevenLabsAddSharedVoicePayload):
+    try:
+        override_k = payload.api_key.strip() if payload.api_key and payload.api_key.strip() else None
+        if override_k:
+            update_key("elevenlabs_tts.api_key", override_k)
+        res = add_elevenlabs_shared_voice(
+            public_owner_id=payload.public_owner_id,
+            voice_id=payload.voice_id,
+            name=payload.name,
+            gender=payload.gender,
+            accent=payload.accent,
+            preview_url=payload.preview_url,
+            set_as=payload.set_as,
+            api_key=override_k,
+        )
+        return {
+            "status": "ok",
+            "voice_id": res["voice_id"],
+            "name": res["name"],
+            "set_as": res["set_as"],
+            "config": _read_full_config(),
+            "voice_catalogs": _build_voice_catalogs_payload(),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 class CookiesPastePayload(BaseModel):
@@ -2512,6 +2642,9 @@ class BatchQueueManager:
             "edge_tts.male_voice",
             "edge_tts.female_voice",
             "edge_tts.voice",
+            "elevenlabs_tts.male_voice",
+            "elevenlabs_tts.female_voice",
+            "elevenlabs_tts.voice",
         ]
         snapshot = {}
         for k in keys_to_save:
@@ -2532,6 +2665,8 @@ class BatchQueueManager:
         if t.get("male_voice"):
             if tts_m == "edge_tts":
                 update_key("edge_tts.male_voice", t["male_voice"])
+            elif tts_m == "elevenlabs_tts":
+                update_key("elevenlabs_tts.male_voice", t["male_voice"])
             else:
                 update_key("doubao_tts.male_voice", t["male_voice"])
 
@@ -2539,6 +2674,9 @@ class BatchQueueManager:
             if tts_m == "edge_tts":
                 update_key("edge_tts.female_voice", t["female_voice"])
                 update_key("edge_tts.voice", t["female_voice"])
+            elif tts_m == "elevenlabs_tts":
+                update_key("elevenlabs_tts.female_voice", t["female_voice"])
+                update_key("elevenlabs_tts.voice", t["female_voice"])
             else:
                 update_key("doubao_tts.female_voice", t["female_voice"])
                 update_key("doubao_tts.voice", t["female_voice"])
@@ -3345,6 +3483,8 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
                 mv = payload.male_voice.strip()
                 if tts_m == "edge_tts":
                     update_key("edge_tts.male_voice", mv)
+                elif tts_m == "elevenlabs_tts":
+                    update_key("elevenlabs_tts.male_voice", mv)
                 else:
                     update_key("doubao_tts.male_voice", mv)
             if payload.female_voice:
@@ -3352,6 +3492,9 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
                 if tts_m == "edge_tts":
                     update_key("edge_tts.female_voice", fv)
                     update_key("edge_tts.voice", fv)
+                elif tts_m == "elevenlabs_tts":
+                    update_key("elevenlabs_tts.female_voice", fv)
+                    update_key("elevenlabs_tts.voice", fv)
                 else:
                     update_key("doubao_tts.female_voice", fv)
                     update_key("doubao_tts.voice", fv)

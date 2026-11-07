@@ -111,7 +111,7 @@ pyannote:
   max_speakers: 10
 
 ## ======================== Dubbing Settings ======================== ##
-# TTS selection [edge_tts, doubao_tts]
+# TTS selection [edge_tts, doubao_tts, elevenlabs_tts]
 tts_method: 'edge_tts'
 
 # Number of concurrent TTS tasks
@@ -137,6 +137,19 @@ doubao_tts:
   female_voice: 'zh_female_vv_uranus_bigtts'
   voice: 'zh_female_vv_uranus_bigtts'
   style_prompt: '请用自然平稳、吐字清晰、语速均匀连贯的科普解说语气播讲，保持声线与情绪稳定克制。'
+
+# ElevenLabs TTS configuration (independent API key)
+elevenlabs_tts:
+  api_key: 'YOUR_ELEVENLABS_API_KEY'
+  base_url: 'https://api.elevenlabs.io'
+  model_id: 'eleven_multilingual_v2'
+  male_voice: 'nPczCjzI2devNBz1zQrb'
+  female_voice: 'pFZP5JQG7iQjIQuC4Bku'
+  voice: 'pFZP5JQG7iQjIQuC4Bku'
+  stability: 0.55
+  similarity_boost: 0.75
+  style: 0.0
+  use_speaker_boost: true
 
 # *Audio speed range
 speed_factor:

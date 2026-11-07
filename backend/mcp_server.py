@@ -264,7 +264,7 @@ MCP_TOOLS: List[Dict[str, Any]] = [
                 },
                 "tts_method": {
                     "type": "string",
-                    "description": "配音 TTS 引擎（如 'doubao_tts' 或 'edge_tts'，留空则使用当前配置）",
+                    "description": "配音 TTS 引擎（如 'doubao_tts'、'elevenlabs_tts' 或 'edge_tts'，留空则使用当前配置）",
                 },
                 "male_voice": {
                     "type": "string",
@@ -328,7 +328,7 @@ MCP_TOOLS: List[Dict[str, Any]] = [
         "name": "videolingo_get_config",
         "description": (
             "【读取系统配置与音色列表】获取 VideoLingo 的完整配置信息（config.yaml）、YouTube 会员 Cookies 状态（cookies_status）、"
-            "已保存的 LLM 预设列表、自定义领域术语表（custom_terms）以及所有可用的 TTS 男女声音色目录（豆包 TTS / Edge TTS）。"
+            "已保存的 LLM 预设列表、自定义领域术语表（custom_terms）以及所有可用的 TTS 男女声音色目录（豆包 TTS / ElevenLabs TTS / Edge TTS）。"
         ),
         "inputSchema": {
             "type": "object",
@@ -341,9 +341,10 @@ MCP_TOOLS: List[Dict[str, Any]] = [
             "【修改系统配置】更新 VideoLingo 的配置项、自定义专业术语或 YouTube Cookies。"
             "常用配置键包括：'target_language'（目标语言，如 '简体中文'）、'whisper.language'（源语言，如 'en'）、"
             "'burn_subtitles'（是否烧录字幕，bool）、'auto_burn_subtitles'（翻译完自动压制视频，bool）、"
-            "'tts_method'（'doubao_tts' 或 'edge_tts'）、'pause_before_dub'（配音前暂停确认说话人，bool）、"
+            "'tts_method'（'doubao_tts'、'elevenlabs_tts' 或 'edge_tts'）、'pause_before_dub'（配音前暂停确认说话人，bool）、"
             "'youtube.cookies_from_browser'（浏览器自动提取 Cookie，如 'chrome'/'edge'/'safari'/'firefox'/''）、"
-            "'doubao_tts.male_voice'、'doubao_tts.female_voice'、'edge_tts.male_voice'、'edge_tts.female_voice'、"
+            "'doubao_tts.male_voice'、'doubao_tts.female_voice'、'elevenlabs_tts.api_key'、'elevenlabs_tts.model_id'、"
+            "'elevenlabs_tts.male_voice'、'elevenlabs_tts.female_voice'、'edge_tts.male_voice'、'edge_tts.female_voice'、"
             "'max_workers'（并发数）等。"
         ),
         "inputSchema": {

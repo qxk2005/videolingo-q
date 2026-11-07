@@ -5,6 +5,18 @@ from time import sleep
 from translations.translations import translate as t
 from translations.translations import DISPLAY_LANGUAGES
 from core.utils import *
+from core.tts_backend.elevenlabs_tts import (
+    DEFAULT_ELEVENLABS_FEMALE_VOICE,
+    DEFAULT_ELEVENLABS_MALE_VOICE,
+    DEFAULT_ELEVENLABS_MODEL,
+    ELEVENLABS_MODELS,
+    add_elevenlabs_shared_voice,
+    elevenlabs_tts as gen_elevenlabs_tts,
+    fetch_elevenlabs_my_voices,
+    fetch_elevenlabs_preview_audio,
+    get_elevenlabs_voice_catalogs,
+    search_elevenlabs_shared_voices,
+)
 
 # ── Shared TTS Voice Catalogs ────────────────────────────────────────────────
 DOUBAO_MALE_VOICES = {
@@ -71,6 +83,17 @@ def get_available_tts_voices(tts_method: str = None) -> dict:
             options[f"👨 {k}"] = v
         for k, v in DOUBAO_FEMALE_VOICES.items():
             options[f"👩 {k}"] = v
+    elif tts_method == "elevenlabs_tts":
+        el_male, el_female = get_elevenlabs_voice_catalogs()
+        seen_ids = set()
+        for k, v in el_male.items():
+            if v not in seen_ids:
+                options[f"👨 {k}"] = v
+                seen_ids.add(v)
+        for k, v in el_female.items():
+            if v not in seen_ids:
+                options[f"👩 {k}"] = v
+                seen_ids.add(v)
     else:
         for k, v in EDGE_MALE_VOICES.items():
             options[f"👨 {k}"] = v
@@ -410,7 +433,7 @@ def page_setting():
                         st.error(f"保存失败: {e}")
 
         with tab_dub:
-            tts_methods = ["edge_tts", "doubao_tts"]
+            tts_methods = ["edge_tts", "doubao_tts", "elevenlabs_tts"]
             current_tts = load_key("tts_method")
             if current_tts not in tts_methods:
                 current_tts = "edge_tts"
@@ -636,6 +659,223 @@ def page_setting():
                             if os.path.exists(tmp_path):
                                 try: os.remove(tmp_path)
                                 except: pass
+
+            elif select_tts == "elevenlabs_tts":
+                el_api_key = st.text_input(
+                    "ElevenLabs 配音 API Key (独立)",
+                    value=load_key("elevenlabs_tts.api_key") or "",
+                    type="password",
+                    help="专用于 ElevenLabs 中文配音的独立 API Key，不与语音识别配置互通。",
+                    key="elevenlabs_tts_api_key_input",
+                )
+                if el_api_key != (load_key("elevenlabs_tts.api_key") or ""):
+                    update_key("elevenlabs_tts.api_key", el_api_key.strip())
+
+                model_keys = list(ELEVENLABS_MODELS.keys())
+                cur_el_model = str(load_key("elevenlabs_tts.model_id") or DEFAULT_ELEVENLABS_MODEL)
+                if cur_el_model not in model_keys:
+                    cur_el_model = DEFAULT_ELEVENLABS_MODEL
+                sel_el_model = st.selectbox(
+                    "🤖 ElevenLabs 模型",
+                    options=model_keys,
+                    index=model_keys.index(cur_el_model),
+                    format_func=lambda m: ELEVENLABS_MODELS.get(m, m),
+                    key="select_elevenlabs_model",
+                )
+                if sel_el_model != load_key("elevenlabs_tts.model_id"):
+                    update_key("elevenlabs_tts.model_id", sel_el_model)
+
+                if st.button("🔄 拉取我的账号音色 (My Voices)", key="sync_el_my_voices_btn", use_container_width=True):
+                    with st.spinner("正在从 ElevenLabs 同步账号音色..."):
+                        try:
+                            sync_info = fetch_elevenlabs_my_voices()
+                            st.success(f"✅ 已同步 {sync_info['total']} 个账号音色（含 {sync_info['chinese_count']} 个中文标签音色）")
+                            sleep(0.5)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"同步失败: {e}")
+
+                el_male_voices, el_female_voices = get_elevenlabs_voice_catalogs()
+
+                # 👨 Male Voice Selection + Custom ID
+                cur_el_male = str(load_key("elevenlabs_tts.male_voice") or DEFAULT_ELEVENLABS_MALE_VOICE).strip()
+                cur_el_male_disp = next(
+                    (k for k, v in el_male_voices.items() if v == cur_el_male),
+                    list(el_male_voices.keys())[0],
+                )
+                sel_el_male_disp = st.selectbox(
+                    "👨 ElevenLabs 默认男声",
+                    options=list(el_male_voices.keys()),
+                    index=list(el_male_voices.keys()).index(cur_el_male_disp),
+                    key="select_el_male_voice",
+                )
+                sel_el_male_id = el_male_voices[sel_el_male_disp]
+                if sel_el_male_id != cur_el_male:
+                    update_key("elevenlabs_tts.male_voice", sel_el_male_id)
+                    cur_el_male = sel_el_male_id
+
+                custom_male_id = st.text_input(
+                    "自定义男声 Voice ID (可直接粘贴)",
+                    value=cur_el_male,
+                    key="custom_el_male_voice_id",
+                ).strip()
+                if custom_male_id and custom_male_id != cur_el_male:
+                    update_key("elevenlabs_tts.male_voice", custom_male_id)
+                    cur_el_male = custom_male_id
+
+                if st.button("🔊 试听 ElevenLabs 男声", key="preview_el_male_tts", use_container_width=True):
+                    import tempfile
+                    with st.spinner("正在生成中文试听..."):
+                        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
+                            tmp_path = tmp_file.name
+                        try:
+                            gen_elevenlabs_tts("这是您的 ElevenLabs 中文男声配音预览，字正腔圆，自然流畅。", tmp_path, voice_type=cur_el_male)
+                            with open(tmp_path, "rb") as f:
+                                st.audio(f.read(), format="audio/mp3")
+                        except Exception as e:
+                            st.error(f"试听失败: {e}")
+                        finally:
+                            if os.path.exists(tmp_path):
+                                try:
+                                    os.remove(tmp_path)
+                                except Exception:
+                                    pass
+
+                # 👩 Female Voice Selection + Custom ID
+                cur_el_female = str(
+                    load_key("elevenlabs_tts.female_voice")
+                    or load_key("elevenlabs_tts.voice")
+                    or DEFAULT_ELEVENLABS_FEMALE_VOICE
+                ).strip()
+                cur_el_female_disp = next(
+                    (k for k, v in el_female_voices.items() if v == cur_el_female),
+                    list(el_female_voices.keys())[0],
+                )
+                sel_el_female_disp = st.selectbox(
+                    "👩 ElevenLabs 默认女声",
+                    options=list(el_female_voices.keys()),
+                    index=list(el_female_voices.keys()).index(cur_el_female_disp),
+                    key="select_el_female_voice",
+                )
+                sel_el_female_id = el_female_voices[sel_el_female_disp]
+                if sel_el_female_id != cur_el_female:
+                    update_key("elevenlabs_tts.female_voice", sel_el_female_id)
+                    update_key("elevenlabs_tts.voice", sel_el_female_id)
+                    cur_el_female = sel_el_female_id
+
+                custom_female_id = st.text_input(
+                    "自定义女声 Voice ID (可直接粘贴)",
+                    value=cur_el_female,
+                    key="custom_el_female_voice_id",
+                ).strip()
+                if custom_female_id and custom_female_id != cur_el_female:
+                    update_key("elevenlabs_tts.female_voice", custom_female_id)
+                    update_key("elevenlabs_tts.voice", custom_female_id)
+                    cur_el_female = custom_female_id
+
+                if st.button("🔊 试听 ElevenLabs 女声", key="preview_el_female_tts", use_container_width=True):
+                    import tempfile
+                    with st.spinner("正在生成中文试听..."):
+                        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
+                            tmp_path = tmp_file.name
+                        try:
+                            gen_elevenlabs_tts("这是您的 ElevenLabs 中文女声配音预览，清亮自然，娓娓道来。", tmp_path, voice_type=cur_el_female)
+                            with open(tmp_path, "rb") as f:
+                                st.audio(f.read(), format="audio/mp3")
+                        except Exception as e:
+                            st.error(f"试听失败: {e}")
+                        finally:
+                            if os.path.exists(tmp_path):
+                                try:
+                                    os.remove(tmp_path)
+                                except Exception:
+                                    pass
+
+                # ⚙️ Compact Advanced Voice Settings
+                with st.expander("⚙️ 高级语音参数 (Voice Settings)", expanded=False):
+                    if sel_el_model == "eleven_v3":
+                        st.caption("ℹ️ Eleven v3 模型自动将稳定性吸附为 0.0 / 0.5 / 1.0 三档，且原速固定 1.0 交由后置弹性对齐。")
+                    else:
+                        st.caption("ℹ️ 中文科普解说建议稳定性 0.55~0.65、风格夸张度 0.0；原速固定 1.0 交由后置双向弹性对齐。")
+                    cur_stab = float(load_key("elevenlabs_tts.stability") if load_key("elevenlabs_tts.stability") is not None else 0.55)
+                    new_stab = st.slider("稳定性 (Stability)", 0.0, 1.0, value=cur_stab, step=0.05, key="el_stability_slider")
+                    if round(new_stab, 2) != round(cur_stab, 2):
+                        update_key("elevenlabs_tts.stability", round(new_stab, 2))
+
+                    cur_sim = float(load_key("elevenlabs_tts.similarity_boost") if load_key("elevenlabs_tts.similarity_boost") is not None else 0.75)
+                    new_sim = st.slider("相似度增强 (Similarity Boost)", 0.0, 1.0, value=cur_sim, step=0.05, key="el_similarity_slider")
+                    if round(new_sim, 2) != round(cur_sim, 2):
+                        update_key("elevenlabs_tts.similarity_boost", round(new_sim, 2))
+
+                    cur_style = float(load_key("elevenlabs_tts.style") if load_key("elevenlabs_tts.style") is not None else 0.0)
+                    new_style = st.slider("风格表现力 (Style)", 0.0, 1.0, value=cur_style, step=0.05, key="el_style_slider")
+                    if round(new_style, 2) != round(cur_style, 2):
+                        update_key("elevenlabs_tts.style", round(new_style, 2))
+
+                # 🇨🇳 Shared Chinese Voice Library Browser
+                with st.expander("🇨🇳 中文共享音色库 (Shared Voices)", expanded=False):
+                    st.caption("在线检索 ElevenLabs 社区中文声线，免翻墙试听并一键同步至您的账号。")
+                    sh_q = st.text_input("关键词搜索", value="", placeholder="如：播音 / 解说 / 温柔 / 纪录片", key="el_sh_search")
+                    accent_opts = {"": "全部中文口音", "mainland": "大陆普通话", "taiwan": "台湾国语", "cantonese": "粤语"}
+                    sh_accent = st.selectbox("口音筛选", options=list(accent_opts.keys()), format_func=lambda k: accent_opts[k], key="el_sh_accent")
+                    gender_opts = {"": "全部性别", "male": "男声 (Male)", "female": "女声 (Female)"}
+                    sh_gender = st.selectbox("性别筛选", options=list(gender_opts.keys()), format_func=lambda k: gender_opts[k], key="el_sh_gender")
+
+                    if st.button("🔍 搜索中文共享音色", key="el_sh_search_btn", use_container_width=True):
+                        with st.spinner("正在检索 ElevenLabs 中文共享音色库..."):
+                            try:
+                                res_sh = search_elevenlabs_shared_voices(
+                                    search=sh_q,
+                                    gender=sh_gender,
+                                    accent=sh_accent,
+                                    page_size=20,
+                                )
+                                st.session_state["el_shared_voices_list"] = res_sh.get("voices", [])
+                                if not st.session_state["el_shared_voices_list"]:
+                                    st.info("未找到匹配的共享音色，请尝试放宽筛选条件。")
+                            except Exception as e:
+                                st.error(f"搜索失败: {e}")
+
+                    shared_items = st.session_state.get("el_shared_voices_list", [])
+                    for sv in shared_items:
+                        sv_id = sv["voice_id"]
+                        with st.container(border=True):
+                            g_icon = "👨" if sv.get("gender") == "male" else ("👩" if sv.get("gender") == "female" else "🎙️")
+                            st.markdown(f"**{g_icon} {sv['name']}** · `{sv.get('region_label', '中文')}`")
+                            if sv.get("description"):
+                                st.caption(sv["description"][:90])
+                            if sv.get("preview_url"):
+                                if st.button("🎧 免费试听", key=f"el_sh_prev_{sv_id}", use_container_width=True):
+                                    try:
+                                        audio_b, ctype = fetch_elevenlabs_preview_audio(sv["preview_url"])
+                                        st.audio(audio_b, format=ctype)
+                                    except Exception as e:
+                                        st.error(f"试听拉取失败: {e}")
+                            act_mode = st.selectbox(
+                                "选用操作",
+                                options=["male", "female", "library"],
+                                format_func=lambda m: {"male": "设为默认男声", "female": "设为默认女声", "library": "仅加入我的音色库"}[m],
+                                index=0 if sv.get("gender") == "male" else 1,
+                                key=f"el_sh_target_{sv_id}",
+                                label_visibility="collapsed",
+                            )
+                            if st.button("✅ 同步至账号并应用", key=f"el_sh_add_{sv_id}", use_container_width=True):
+                                with st.spinner(f"正在将 {sv['name']} 添加至账号..."):
+                                    try:
+                                        add_res = add_elevenlabs_shared_voice(
+                                            public_owner_id=sv.get("public_owner_id", ""),
+                                            voice_id=sv_id,
+                                            name=sv["name"],
+                                            gender=sv.get("gender", ""),
+                                            accent=sv.get("accent", ""),
+                                            preview_url=sv.get("preview_url", ""),
+                                            set_as="" if act_mode == "library" else act_mode,
+                                        )
+                                        st.success(f"✅ 已同步: {add_res['name']} ({add_res['voice_id'][:8]}...)")
+                                        sleep(0.5)
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"添加失败: {e}")
 
     _render_sidebar()
         

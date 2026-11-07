@@ -14,6 +14,7 @@ from core.asr_backend.audio_preprocess import get_audio_duration
 from core.utils import rprint
 from core.tts_backend.doubao_tts import doubao_tts
 from core.tts_backend.edge_tts import edge_tts
+from core.tts_backend.elevenlabs_tts import elevenlabs_tts
 from core.prompts import get_correct_text_prompt
 from core.utils import *
 
@@ -315,6 +316,29 @@ def tts_main(
                         context_texts=context_texts,
                         return_words=return_words,
                     )
+            elif TTS_METHOD == 'elevenlabs_tts':
+                if scoped_once:
+                    tts_result = single_attempt_call(
+                        elevenlabs_tts.__wrapped__,
+                        text,
+                        save_as,
+                        number=number,
+                        voice_type=voice,
+                        gender=gender,
+                        section_id=section_id,
+                        context_texts=context_texts,
+                        return_words=return_words,
+                    )
+                else:
+                    tts_result = elevenlabs_tts(
+                        text,
+                        save_as,
+                        voice_type=voice,
+                        gender=gender,
+                        section_id=section_id,
+                        context_texts=context_texts,
+                        return_words=return_words,
+                    )
             else:
                 raise ValueError(f"Unsupported TTS method: {TTS_METHOD}")
                 
@@ -347,7 +371,20 @@ def tts_main(
             if attempt == max_retries - 1:
                 raise Exception(f"Failed to generate audio after {max_retries} attempts: {err_msg}")
             # Detect network errors and apply backoff; skip GPT text correction on next retry
-            last_error_is_network = any(kw in err_msg for kw in ('ConnectionReset', 'ClientConnector', 'Cannot connect', 'TimeoutError', 'aiohttp'))
+            last_error_is_network = any(
+                kw in err_msg
+                for kw in (
+                    'ConnectionReset',
+                    'ConnectionError',
+                    'ClientConnector',
+                    'Cannot connect',
+                    'TimeoutError',
+                    'ReadTimeout',
+                    'ConnectTimeout',
+                    'ProxyError',
+                    'aiohttp',
+                )
+            )
             wait = 3 * (attempt + 1)
             print(f"Attempt {attempt + 1} failed ({'network error, retrying' if last_error_is_network else err_msg}), retrying in {wait}s...")
             sleep_cancellable(wait)

@@ -179,6 +179,7 @@ installer_files/
 # config files containing keys
 config.yaml
 llm_profiles.json
+elevenlabs_voices.json
 *.pen
 
 # build artifacts
