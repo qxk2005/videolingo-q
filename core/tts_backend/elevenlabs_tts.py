@@ -60,6 +60,86 @@ _SPEAKER_REQ_HISTORY: Dict[str, deque] = {}
 _PCM_24K_FORBIDDEN_KEYS = set()
 
 
+class ElevenLabsAPIError(RuntimeError):
+    """Structured upstream error from ElevenLabs API (never contains API keys)."""
+
+    def __init__(self, message: str, http_status: int = 400, error_code: str = ""):
+        super().__init__(message)
+        self.http_status = int(http_status or 400)
+        self.error_code = str(error_code or "")
+
+
+_PERMISSION_LABEL_MAP = {
+    "voices_read": "Voices -> Read (读取音色库 voices_read)",
+    "voices_write": "Voices -> Write (写入/添加音色 voices_write)",
+    "text_to_speech": "Text to Speech -> Access (语音合成 text_to_speech)",
+    "models_read": "Models -> Read (读取模型列表 models_read)",
+    "user_read": "User -> Read (读取账号信息 user_read)",
+}
+
+
+def _raise_elevenlabs_http_error(resp: requests.Response, action_desc: str) -> None:
+    status_code = int(resp.status_code or 500)
+    err_status = ""
+    err_msg = ""
+    try:
+        payload = resp.json()
+        detail = payload.get("detail") if isinstance(payload, dict) else None
+        if isinstance(detail, dict):
+            err_status = str(detail.get("status") or detail.get("code") or "").strip()
+            err_msg = str(detail.get("message") or "").strip()
+        elif isinstance(detail, str):
+            err_msg = detail.strip()
+    except Exception:
+        pass
+    if not err_msg:
+        err_msg = (resp.text or "").strip()[:260]
+
+    lower_msg = err_msg.lower()
+    lower_status = err_status.lower()
+
+    if lower_status == "missing_permissions" or "missing the permission" in lower_msg:
+        m = re.search(r"missing the permission\s+([a-z0-9_]+)", lower_msg)
+        perm_key = m.group(1) if m else ""
+        perm_label = _PERMISSION_LABEL_MAP.get(perm_key, perm_key or "所需接口权限")
+        raise ElevenLabsAPIError(
+            f"{action_desc}被拒：当前 ElevenLabs 受限密钥 (Scoped API Key) 缺少「{perm_label}」权限。"
+            f"请前往 ElevenLabs 控制台 -> Developers -> API Keys 编辑该密钥，开启 Text to Speech 以及 Voices (Read & Write) 权限，或改用 Unrestricted 密钥。",
+            http_status=403,
+            error_code="missing_permissions",
+        )
+
+    if lower_status in ("invalid_api_key", "unauthorized") and ("invalid" in lower_msg or "incorrect" in lower_msg):
+        raise ElevenLabsAPIError(
+            f"{action_desc}失败：ElevenLabs API Key 无效或已过期，请检查密钥是否填写正确。",
+            http_status=401,
+            error_code="invalid_api_key",
+        )
+
+    if lower_status == "quota_exceeded" or "quota" in lower_msg:
+        raise ElevenLabsAPIError(
+            f"{action_desc}失败：ElevenLabs 账号字符额度不足 (quota_exceeded)，请检查订阅配额。",
+            http_status=402,
+            error_code="quota_exceeded",
+        )
+
+    if status_code in (401, 403) and any(
+        k in lower_msg for k in ("free", "subscription", "starter", "creator", "paid", "slot", "limit")
+    ):
+        raise ElevenLabsAPIError(
+            f"{action_desc}受限 (HTTP {status_code})：账号订阅等级或自定义音色槽位受限（{err_msg}）。",
+            http_status=403,
+            error_code=err_status or "plan_restricted",
+        )
+
+    mapped_http = status_code if status_code in (400, 401, 403, 404, 409, 422, 429) else 502
+    raise ElevenLabsAPIError(
+        f"{action_desc}失败 (ElevenLabs HTTP {status_code}): {err_msg}",
+        http_status=mapped_http,
+        error_code=err_status or f"http_{status_code}",
+    )
+
+
 def get_elevenlabs_default_config() -> Dict[str, Any]:
     return {
         "api_key": "",
@@ -335,7 +415,7 @@ def fetch_elevenlabs_my_voices(api_key: Optional[str] = None) -> Dict[str, Any]:
         timeout=25,
     )
     if resp.status_code != 200:
-        raise RuntimeError(f"获取 ElevenLabs 账号音色失败 (HTTP {resp.status_code}): {resp.text[:300]}")
+        _raise_elevenlabs_http_error(resp, "获取 ElevenLabs 账号音色库")
 
     payload = resp.json()
     raw_voices = payload.get("voices") or []
@@ -422,6 +502,7 @@ def search_elevenlabs_shared_voices(
             "language": lang_code,
             "page_size": min(max(int(page_size) * 2 if clean_accent else int(page_size), 20), 100),
             "page": max(0, int(page)),
+            "sort": "usage_character_count_1y",
         }
         merged_q = " ".join(x for x in [clean_search, extra_search] if x).strip()
         if merged_q:
@@ -436,12 +517,7 @@ def search_elevenlabs_shared_voices(
             timeout=25,
         )
         if r.status_code != 200:
-            detail = r.text[:300]
-            if r.status_code in (401, 403):
-                raise RuntimeError(
-                    f"访问 ElevenLabs 共享音色库受限 (HTTP {r.status_code})：请确认 API Key 有效且账号具备付费订阅权限。详情: {detail}"
-                )
-            raise RuntimeError(f"查询 ElevenLabs 中文共享音色库失败 (HTTP {r.status_code}): {detail}")
+            _raise_elevenlabs_http_error(r, "检索 ElevenLabs 中文共享音色库")
         body = r.json()
         return body.get("voices") or [], bool(body.get("has_more", False))
 
@@ -452,6 +528,9 @@ def search_elevenlabs_shared_voices(
             yue_items, yue_more = _query_once("yue")
             raw_items.extend(yue_items)
             has_more = has_more or yue_more
+        except ElevenLabsAPIError as auth_err:
+            if auth_err.http_status in (401, 402, 403):
+                raise
         except Exception:
             pass
         zh_items, zh_more = _query_once("zh", extra_search="" if clean_search else "cantonese")
@@ -572,11 +651,9 @@ def add_elevenlabs_shared_voice(
                 if matched:
                     final_voice_id = matched["voice_id"]
                 else:
-                    raise RuntimeError(f"添加共享音色失败 (HTTP {resp.status_code}): {body_txt}")
+                    _raise_elevenlabs_http_error(resp, "添加共享音色至 ElevenLabs 账号")
             else:
-                raise RuntimeError(
-                    f"添加共享音色至 ElevenLabs 账号失败 (HTTP {resp.status_code})，请检查账号音色槽位是否已满或订阅权限: {body_txt}"
-                )
+                _raise_elevenlabs_http_error(resp, "添加共享音色至 ElevenLabs 账号")
 
     # Upsert into local cache
     cached = load_cached_elevenlabs_voices()
@@ -786,7 +863,7 @@ def _elevenlabs_http_synthesize(
             }
             resp = requests.post(url, headers=headers, json=fallback_payload, proxies=proxies, timeout=(15, 90))
         if resp.status_code != 200:
-            raise RuntimeError(f"ElevenLabs TTS HTTP {resp.status_code}: {resp.text[:350]}")
+            _raise_elevenlabs_http_error(resp, "ElevenLabs 语音合成")
         parent = os.path.dirname(os.path.abspath(save_path))
         if parent:
             os.makedirs(parent, exist_ok=True)
@@ -827,7 +904,7 @@ def _elevenlabs_http_synthesize(
         resp = _call_with_timestamps(output_fmt, minimal_payload)
 
     if resp.status_code != 200:
-        raise RuntimeError(f"ElevenLabs TTS HTTP {resp.status_code}: {resp.text[:350]}")
+        _raise_elevenlabs_http_error(resp, "ElevenLabs 语音合成")
 
     req_id = resp.headers.get("request-id") or resp.headers.get("x-request-id")
     _record_request_id(section_id=section_id, voice_id=voice_id, model_id=model_id, request_id=req_id)

@@ -30,6 +30,29 @@ from pydantic import BaseModel
 logging.getLogger("streamlit").setLevel(logging.ERROR)
 logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
 
+_SENSITIVE_QUERY_RE = re.compile(r"(?i)((?:^|[?&])(?:api_key|xi-api-key|access_token|hf_token|token|secret)=)([^&\s\"']+)")
+
+
+class _SensitiveQueryMaskFilter(logging.Filter):
+    """Defense-in-depth filter ensuring Uvicorn access logs never output plaintext tokens/keys in URLs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            if isinstance(record.args, tuple) and len(record.args) >= 3:
+                args_list = list(record.args)
+                for idx, val in enumerate(args_list):
+                    if isinstance(val, str) and ("=" in val):
+                        args_list[idx] = _SENSITIVE_QUERY_RE.sub(r"\1***", val)
+                record.args = tuple(args_list)
+            elif isinstance(record.msg, str) and ("=" in record.msg):
+                record.msg = _SENSITIVE_QUERY_RE.sub(r"\1***", record.msg)
+        except Exception:
+            pass
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_SensitiveQueryMaskFilter())
+
 from core.utils import load_key, update_key, get_ffmpeg_video_encoder
 from core.utils.config_utils import CONFIG_PATH, yaml as ruamel_yaml, lock as config_lock
 from core.utils.onekeycleanup import cleanup
@@ -89,6 +112,7 @@ from core.st_utils.sidebar_setting import (
 )
 from core.tts_backend.elevenlabs_tts import (
     ELEVENLABS_MODELS,
+    ElevenLabsAPIError,
     add_elevenlabs_shared_voice,
     elevenlabs_tts as gen_elevenlabs_tts,
     fetch_elevenlabs_my_voices,
@@ -1048,13 +1072,22 @@ def preview_tts_voice(payload: VoicePreviewPayload):
             audio_bytes = f.read()
         return StreamingResponse(io.BytesIO(audio_bytes), media_type="audio/mpeg")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _raise_elevenlabs_route_http_exception(e)
     finally:
         if os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
             except Exception:
                 pass
+
+
+def _raise_elevenlabs_route_http_exception(err: Exception) -> None:
+    if isinstance(err, HTTPException):
+        raise err
+    status_code = err.http_status if isinstance(err, ElevenLabsAPIError) else 400
+    safe_msg = _SENSITIVE_QUERY_RE.sub(r"\1***", str(err))
+    print(f"⚠️ [ElevenLabs] {safe_msg}")
+    raise HTTPException(status_code=status_code, detail=safe_msg)
 
 
 class ElevenLabsSyncPayload(BaseModel):
@@ -1075,20 +1108,49 @@ def sync_elevenlabs_voices_api(payload: ElevenLabsSyncPayload):
             "voice_catalogs": _build_voice_catalogs_payload(),
         }
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _raise_elevenlabs_route_http_exception(e)
+
+
+class ElevenLabsSharedVoicesSearchPayload(BaseModel):
+    search: str = ""
+    gender: str = ""
+    accent: str = ""
+    page_size: int = 24
+    page: int = 0
+    api_key: Optional[str] = None
+
+
+@app.post("/api/elevenlabs/shared-voices")
+def search_elevenlabs_shared_voices_post_api(payload: ElevenLabsSharedVoicesSearchPayload):
+    try:
+        override_k = payload.api_key.strip() if payload.api_key and payload.api_key.strip() else None
+        if override_k:
+            update_key("elevenlabs_tts.api_key", override_k)
+        res = search_elevenlabs_shared_voices(
+            search=payload.search,
+            gender=payload.gender,
+            accent=payload.accent,
+            page_size=payload.page_size,
+            page=payload.page,
+            api_key=override_k,
+        )
+        return {"status": "ok", **res}
+    except Exception as e:
+        _raise_elevenlabs_route_http_exception(e)
 
 
 @app.get("/api/elevenlabs/shared-voices")
 def list_elevenlabs_shared_voices_api(
+    request: Request,
     search: str = "",
     gender: str = "",
     accent: str = "",
     page_size: int = 24,
     page: int = 0,
-    api_key: str = "",
 ):
     try:
-        override_k = api_key.strip() if api_key and api_key.strip() else None
+        header_key = (request.headers.get("x-elevenlabs-api-key") or "").strip()
+        override_k = header_key or None
         if override_k:
             update_key("elevenlabs_tts.api_key", override_k)
         res = search_elevenlabs_shared_voices(
@@ -1101,7 +1163,7 @@ def list_elevenlabs_shared_voices_api(
         )
         return {"status": "ok", **res}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _raise_elevenlabs_route_http_exception(e)
 
 
 @app.get("/api/elevenlabs/shared-voices/preview")
@@ -1110,7 +1172,7 @@ def preview_elevenlabs_shared_voice_api(url: str):
         audio_bytes, content_type = fetch_elevenlabs_preview_audio(url)
         return StreamingResponse(io.BytesIO(audio_bytes), media_type=content_type)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _raise_elevenlabs_route_http_exception(e)
 
 
 class ElevenLabsAddSharedVoicePayload(BaseModel):
@@ -1149,7 +1211,7 @@ def add_elevenlabs_shared_voice_api(payload: ElevenLabsAddSharedVoicePayload):
             "voice_catalogs": _build_voice_catalogs_payload(),
         }
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _raise_elevenlabs_route_http_exception(e)
 
 
 class CookiesPastePayload(BaseModel):
@@ -3983,7 +4045,10 @@ def serve_vue_studio():
     dist_index = os.path.join(ROOT_DIR, "frontend", "dist", "index.html")
     if os.path.exists(dist_index):
         with open(dist_index, "r", encoding="utf-8") as f:
-            return HTMLResponse(f.read())
+            return HTMLResponse(
+                f.read(),
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            )
     raise HTTPException(status_code=404, detail="Frontend dist/index.html not found")
 
 

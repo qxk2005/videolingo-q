@@ -1833,11 +1833,18 @@
                   </button>
                 </div>
 
-                <div v-if="elSharedVoices.length === 0 && !elSharedLoading" class="text-center py-4 text-slate-400 text-xs">
+                <div
+                  v-if="elSharedError"
+                  class="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs leading-relaxed"
+                >
+                  ⚠️ {{ elSharedError }}
+                </div>
+
+                <div v-if="elSharedVoices.length === 0 && !elSharedLoading && !elSharedError" class="text-center py-4 text-slate-400 text-xs">
                   点击「🔍 搜索音色」即可浏览社区高人气中文母语声线（需先填写上方 ElevenLabs API Key）
                 </div>
 
-                <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
+                <div v-else-if="elSharedVoices.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
                   <div
                     v-for="sv in elSharedVoices"
                     :key="sv.voice_id"
@@ -1973,6 +1980,7 @@ const elAddingVoiceId = ref('')
 const previewingVoiceId = ref('')
 const playingSharedPreviewId = ref('')
 const elSharedVoices = ref([])
+const elSharedError = ref('')
 const elSharedFilter = reactive({
   search: '',
   accent: '',
@@ -2071,18 +2079,24 @@ function toggleSharedVoiceBrowser() {
 
 async function searchElevenLabsSharedVoices() {
   elSharedLoading.value = true
+  elSharedError.value = ''
   try {
-    const qs = new URLSearchParams({
-      search: elSharedFilter.search || '',
-      gender: elSharedFilter.gender || '',
-      accent: elSharedFilter.accent || '',
-      page_size: '24',
-      api_key: cfg.elevenlabs_tts?.api_key || '',
+    const res = await fetch('/api/elevenlabs/shared-voices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        search: elSharedFilter.search || '',
+        gender: elSharedFilter.gender || '',
+        accent: elSharedFilter.accent || '',
+        page_size: 24,
+        api_key: cfg.elevenlabs_tts?.api_key || '',
+      }),
     })
-    const res = await fetch(`/api/elevenlabs/shared-voices?${qs.toString()}`)
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
-      showToast(`❌ 检索失败: ${data.detail || '请检查 API Key 与订阅权限'}`)
+      const msg = data.detail || '请检查 API Key 权限与订阅设置'
+      elSharedError.value = msg
+      showToast(`❌ 检索失败: ${msg}`)
       return
     }
     elSharedVoices.value = data.voices || []
@@ -2090,7 +2104,9 @@ async function searchElevenLabsSharedVoices() {
       showToast('ℹ️ 未找到匹配的中文共享音色，请尝试调整筛选条件')
     }
   } catch (e) {
-    showToast(`❌ 检索请求异常: ${e.message || e}`)
+    const msg = e.message || String(e)
+    elSharedError.value = msg
+    showToast(`❌ 检索请求异常: ${msg}`)
   } finally {
     elSharedLoading.value = false
   }
