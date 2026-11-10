@@ -1688,6 +1688,9 @@
                     <select v-model="cfg.elevenlabs_tts.model_id" class="studio-input px-2 py-1.5 rounded-md">
                       <option v-for="(mlabel, mid) in voiceCatalogs.elevenlabs_models" :key="mid" :value="mid">{{ mlabel }}</option>
                     </select>
+                    <div v-if="['eleven_multilingual_v2', 'eleven_turbo_v2_5', 'eleven_flash_v2_5'].includes(cfg.elevenlabs_tts.model_id)" class="text-[11px] text-amber-500">
+                      ⚠️ 旧版 v2/v2.5 中文音素易产生英语口音与多音字误读，建议切换为 Eleven v4 或 v4 Turbo。
+                    </div>
                   </div>
 
                   <div class="flex flex-col gap-1">
@@ -1745,7 +1748,7 @@
                         <div>
                           <div class="flex justify-between mb-0.5">
                             <span class="text-slate-400">相似度</span>
-                            <span class="font-mono font-bold">{{ Number(cfg.elevenlabs_tts.similarity_boost ?? 0.75).toFixed(2) }}</span>
+                            <span class="font-mono font-bold">{{ Number(cfg.elevenlabs_tts.similarity_boost ?? 0.80).toFixed(2) }}</span>
                           </div>
                           <input type="range" min="0" max="1" step="0.05" v-model.number="cfg.elevenlabs_tts.similarity_boost" class="w-full accent-blue-600" />
                         </div>
@@ -2021,7 +2024,7 @@ async function previewTtsVoice(method, voiceId) {
     const bodyPayload = { tts_method: method, voice_id: voiceId }
     if (method === 'elevenlabs_tts') {
       bodyPayload.api_key = cfg.elevenlabs_tts?.api_key || ''
-      bodyPayload.model_id = cfg.elevenlabs_tts?.model_id || 'eleven_multilingual_v2'
+      bodyPayload.model_id = cfg.elevenlabs_tts?.model_id || 'eleven_v4'
     }
     const res = await fetch('/api/tts/preview', {
       method: 'POST',
@@ -2169,10 +2172,12 @@ async function applySharedVoice(sv, setAs) {
     if (setAs === 'male') {
       cfg.elevenlabs_tts.male_voice = data.voice_id
       showToast(`✅ 已同步至账号并设为默认男声: ${data.name}`)
+      fetchWorkspaceState(true)
     } else if (setAs === 'female') {
       cfg.elevenlabs_tts.female_voice = data.voice_id
       cfg.elevenlabs_tts.voice = data.voice_id
       showToast(`✅ 已同步至账号并设为默认女声: ${data.name}`)
+      fetchWorkspaceState(true)
     } else {
       showToast(`✅ 已同步至您的音色库: ${data.name}`)
     }
@@ -2295,12 +2300,12 @@ async function fetchConfig() {
     {
       api_key: '',
       base_url: 'https://api.elevenlabs.io',
-      model_id: 'eleven_multilingual_v2',
+      model_id: 'eleven_v4',
       male_voice: 'nPczCjzI2devNBz1zQrb',
       female_voice: 'pFZP5JQG7iQjIQuC4Bku',
       voice: 'pFZP5JQG7iQjIQuC4Bku',
       stability: 0.55,
-      similarity_boost: 0.75,
+      similarity_boost: 0.80,
       style: 0.0,
       use_speaker_boost: true,
     },
@@ -2390,12 +2395,12 @@ async function saveAllConfig() {
     'edge_tts.female_voice': cfg.edge_tts?.female_voice || 'zh-CN-XiaoxiaoNeural',
     'edge_tts.voice': cfg.edge_tts?.female_voice || 'zh-CN-XiaoxiaoNeural',
     'elevenlabs_tts.api_key': cfg.elevenlabs_tts?.api_key || '',
-    'elevenlabs_tts.model_id': cfg.elevenlabs_tts?.model_id || 'eleven_multilingual_v2',
+    'elevenlabs_tts.model_id': cfg.elevenlabs_tts?.model_id || 'eleven_v4',
     'elevenlabs_tts.male_voice': cfg.elevenlabs_tts?.male_voice || 'nPczCjzI2devNBz1zQrb',
     'elevenlabs_tts.female_voice': cfg.elevenlabs_tts?.female_voice || 'pFZP5JQG7iQjIQuC4Bku',
     'elevenlabs_tts.voice': cfg.elevenlabs_tts?.female_voice || 'pFZP5JQG7iQjIQuC4Bku',
     'elevenlabs_tts.stability': Number(cfg.elevenlabs_tts?.stability ?? 0.55),
-    'elevenlabs_tts.similarity_boost': Number(cfg.elevenlabs_tts?.similarity_boost ?? 0.75),
+    'elevenlabs_tts.similarity_boost': Number(cfg.elevenlabs_tts?.similarity_boost ?? 0.80),
     'elevenlabs_tts.style': Number(cfg.elevenlabs_tts?.style ?? 0.0),
   }
   const res = await fetch('/api/config', {

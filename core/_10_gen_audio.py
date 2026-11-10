@@ -122,6 +122,19 @@ def get_tts_fingerprint():
             settings["voice"] = load_key("sf_fish_tts.voice")
         elif tts_method == "gpt_sovits":
             settings["character"] = load_key("gpt_sovits.character")
+        if os.path.exists(_8_1_AUDIO_TASK):
+            df_fp = pd.read_excel(_8_1_AUDIO_TASK)
+            if not df_fp.empty and "voice" in df_fp.columns:
+                spk_col = df_fp["speaker_id"].fillna("SPEAKER_00").astype(str) if "speaker_id" in df_fp.columns else pd.Series(["SPEAKER_00"] * len(df_fp))
+                gen_col = df_fp["gender"].fillna("female").astype(str) if "gender" in df_fp.columns else pd.Series(["female"] * len(df_fp))
+                voi_col = df_fp["voice"].fillna("").astype(str)
+                bindings = sorted({
+                    f"{s.strip()}:{g.strip().lower()}:{v.strip()}"
+                    for s, g, v in zip(spk_col, gen_col, voi_col)
+                    if v.strip()
+                })
+                if bindings:
+                    settings["speaker_voice_bindings"] = bindings
     except Exception:
         pass
     return json.dumps(settings, sort_keys=True, ensure_ascii=False)
@@ -365,6 +378,73 @@ def invalidate_audio_cache_for_numbers(numbers: list) -> int:
             except Exception:
                 pass
     return deleted
+
+
+def sync_audio_task_voices_on_default_change(
+    old_male_voices: set = None,
+    old_female_voices: set = None,
+    new_male: str = "",
+    new_female: str = "",
+) -> int:
+    """Smart-sync `output/audio/tts_tasks.xlsx` when global default male/female voice changes:
+    - Updates rows whose `voice` matched the previous default voice (or single-speaker same-gender rows),
+      while preserving secondary speakers explicitly bound to a distinct custom voice.
+    - Invalidates affected segment & paragraph caches so the next dubbing run uses the new voice cleanly.
+    """
+    if not os.path.exists(_8_1_AUDIO_TASK):
+        return 0
+    try:
+        df = pd.read_excel(_8_1_AUDIO_TASK)
+    except Exception:
+        return 0
+    if df.empty or "number" not in df.columns:
+        return 0
+
+    for col, default in [("gender", "female"), ("speaker_id", "SPEAKER_00"), ("voice", "")]:
+        if col not in df.columns:
+            df[col] = default
+    df["gender"] = df["gender"].fillna("female").astype(str)
+    df["speaker_id"] = df["speaker_id"].fillna("SPEAKER_00").astype(str)
+    df["voice"] = df["voice"].fillna("").astype(str)
+
+    old_m = {str(v).strip() for v in (old_male_voices or set()) if str(v or "").strip()}
+    old_f = {str(v).strip() for v in (old_female_voices or set()) if str(v or "").strip()}
+    nm = str(new_male or "").strip()
+    nf = str(new_female or "").strip()
+
+    male_speakers = set(df[df["gender"].str.lower() == "male"]["speaker_id"].tolist())
+    female_speakers = set(df[df["gender"].str.lower() == "female"]["speaker_id"].tolist())
+
+    changed_df = False
+    affected_nums = set()
+
+    for idx, row in df.iterrows():
+        gen = str(row["gender"]).strip().lower()
+        cur_v = str(row["voice"]).strip()
+        num = int(row["number"])
+
+        if gen == "male" and nm:
+            if cur_v == "":
+                if not old_m or nm not in old_m:
+                    affected_nums.add(num)
+            elif cur_v != nm and (cur_v in old_m or len(male_speakers) == 1):
+                df.at[idx, "voice"] = nm
+                changed_df = True
+                affected_nums.add(num)
+        elif gen == "female" and nf:
+            if cur_v == "":
+                if not old_f or nf not in old_f:
+                    affected_nums.add(num)
+            elif cur_v != nf and (cur_v in old_f or len(female_speakers) == 1):
+                df.at[idx, "voice"] = nf
+                changed_df = True
+                affected_nums.add(num)
+
+    if changed_df:
+        df.to_excel(_8_1_AUDIO_TASK, index=False)
+    if affected_nums:
+        invalidate_audio_cache_for_numbers(list(affected_nums))
+    return len(affected_nums)
 
 
 # ==============================================================================

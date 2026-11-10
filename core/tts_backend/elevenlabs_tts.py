@@ -16,35 +16,37 @@ from core.utils.config_utils import APP_ROOT
 
 ELEVENLABS_SAMPLE_RATE = 24000
 DEFAULT_ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
-DEFAULT_ELEVENLABS_MODEL = "eleven_multilingual_v2"
+DEFAULT_ELEVENLABS_MODEL = "eleven_v4"
 DEFAULT_ELEVENLABS_MALE_VOICE = "nPczCjzI2devNBz1zQrb"    # Brian
 DEFAULT_ELEVENLABS_FEMALE_VOICE = "pFZP5JQG7iQjIQuC4Bku"  # Lily
 
 ELEVENLABS_VOICES_CACHE_PATH = os.path.join(APP_ROOT, "elevenlabs_voices.json")
 
 ELEVENLABS_MODELS: Dict[str, str] = {
-    "eleven_multilingual_v2": "Multilingual v2 (推荐·长视频中文最稳·支持跨段缝合)",
-    "eleven_v3": "Eleven v3 (旗舰高表现力·支持普通话/粤语)",
-    "eleven_flash_v2_5": "Flash v2.5 (极速低延迟·0.5倍积分消耗)",
-    "eleven_turbo_v2_5": "Turbo v2.5 (均衡自然·0.5倍积分消耗)",
+    "eleven_v4": "Eleven v4 (推荐·纯正中文母语·支持跨段缝合与低消耗)",
+    "eleven_v4_turbo": "Eleven v4 Turbo (极速低延迟·纯正中文母语)",
+    "eleven_v3": "Eleven v3 (高表现力·纯正普通话/粤语·无跨段缝合)",
+    "eleven_multilingual_v2": "Multilingual v2 (旧版·中文易带洋腔与误读)",
+    "eleven_turbo_v2_5": "Turbo v2.5 (旧版·中文易带洋腔)",
+    "eleven_flash_v2_5": "Flash v2.5 (旧版·中文易带洋腔)",
 }
 
 ELEVENLABS_DEFAULT_MALE_VOICES: Dict[str, str] = {
-    "Brian (官方深沉解说·多语言男声)": "nPczCjzI2devNBz1zQrb",
-    "George (官方温润叙事·多语言男声)": "JBFqnCBsd6RMkjVDRZzb",
-    "Daniel (官方播音主持·多语言男声)": "onwK4e9ZLuTAKqWW03F9",
-    "Liam (官方青年活力·多语言男声)": "TX3LPaxmHKxFdv7VOQHJ",
-    "Chris (官方自然随和·多语言男声)": "iP95p4xoKVk53GoZ742B",
-    "Roger (官方成熟自信·多语言男声)": "CwhRBWXzGAHq8TQ4Fs17",
+    "Brian (英语预置·中文请从共享库选用母语音色)": "nPczCjzI2devNBz1zQrb",
+    "George (英语预置·温润叙事男声)": "JBFqnCBsd6RMkjVDRZzb",
+    "Daniel (英语预置·播音主持男声)": "onwK4e9ZLuTAKqWW03F9",
+    "Liam (英语预置·青年活力男声)": "TX3LPaxmHKxFdv7VOQHJ",
+    "Chris (英语预置·自然随和男声)": "iP95p4xoKVk53GoZ742B",
+    "Roger (英语预置·成熟自信男声)": "CwhRBWXzGAHq8TQ4Fs17",
 }
 
 ELEVENLABS_DEFAULT_FEMALE_VOICES: Dict[str, str] = {
-    "Lily (官方清亮知性·多语言女声)": "pFZP5JQG7iQjIQuC4Bku",
-    "Sarah (官方自然柔和·多语言女声)": "EXAVITQu4vr4xnSDxMaL",
-    "Aria (官方生动表现·多语言女声)": "9BWtsMINqrJLrRacOk9x",
-    "Charlotte (官方优雅叙事·多语言女声)": "XB0fDUnXU5powFXDhCwa",
-    "Alice (官方清晰科教·多语言女声)": "Xb7hH8MSUJpSbSDYk0k2",
-    "Jessica (官方轻快亲切·多语言女声)": "cgSgspJ2msm6clMCkdW9",
+    "Lily (英语预置·中文请从共享库选用母语音色)": "pFZP5JQG7iQjIQuC4Bku",
+    "Sarah (英语预置·自然柔和女声)": "EXAVITQu4vr4xnSDxMaL",
+    "Aria (英语预置·生动表现女声)": "9BWtsMINqrJLrRacOk9x",
+    "Charlotte (英语预置·优雅叙事女声)": "XB0fDUnXU5powFXDhCwa",
+    "Alice (英语预置·清晰科教女声)": "Xb7hH8MSUJpSbSDYk0k2",
+    "Jessica (英语预置·轻快亲切女声)": "cgSgspJ2msm6clMCkdW9",
 }
 
 _PREVIEW_ALLOWED_HOST_SUFFIXES = (
@@ -149,9 +151,10 @@ def get_elevenlabs_default_config() -> Dict[str, Any]:
         "female_voice": DEFAULT_ELEVENLABS_FEMALE_VOICE,
         "voice": DEFAULT_ELEVENLABS_FEMALE_VOICE,
         "stability": 0.55,
-        "similarity_boost": 0.75,
+        "similarity_boost": 0.80,
         "style": 0.0,
         "use_speaker_boost": True,
+        "v4_default_migrated": True,
     }
 
 
@@ -184,9 +187,34 @@ def _get_requests_proxies() -> Optional[Dict[str, str]]:
     return None
 
 
-def get_elevenlabs_model_id() -> str:
-    raw = str(load_key("elevenlabs_tts.model_id") or "").strip()
+def ensure_elevenlabs_v4_model_migrated() -> str:
+    """One-time smooth migration from legacy default `eleven_multilingual_v2` -> `eleven_v4`
+    to eliminate foreign Mandarin accents, while respecting any subsequent manual choice."""
+    try:
+        migrated = bool(load_key("elevenlabs_tts.v4_default_migrated"))
+    except Exception:
+        migrated = False
+    try:
+        raw = str(load_key("elevenlabs_tts.model_id") or "").strip()
+    except Exception:
+        raw = ""
+
+    if not migrated:
+        if not raw or raw == "eleven_multilingual_v2":
+            raw = DEFAULT_ELEVENLABS_MODEL
+            try:
+                update_key("elevenlabs_tts.model_id", raw)
+            except Exception:
+                pass
+        try:
+            update_key("elevenlabs_tts.v4_default_migrated", True)
+        except Exception:
+            pass
     return raw or DEFAULT_ELEVENLABS_MODEL
+
+
+def get_elevenlabs_model_id() -> str:
+    return ensure_elevenlabs_v4_model_migrated()
 
 
 def get_elevenlabs_voice_settings(model_id: Optional[str] = None) -> Dict[str, Any]:
@@ -229,10 +257,14 @@ def get_elevenlabs_voice_settings(model_id: Optional[str] = None) -> Dict[str, A
 
 
 def resolve_elevenlabs_language_code(model_id: str, text: str = "") -> Optional[str]:
-    """Map `target_language` (or text script) to ISO language code for accurate Mandarin text normalization."""
+    """Map `target_language` (or text script) to ISO language code for accurate Mandarin text normalization.
+    Note: `eleven_multilingual_v2` does not support `language_code` per ElevenLabs API spec."""
+    mid = str(model_id or "").strip()
+    if mid == "eleven_multilingual_v2":
+        return None
     target = str(load_key("target_language") or "").strip().lower()
     if any(k in target for k in ("粤", "广东话", "cantonese", "yue")):
-        return "yue" if model_id == "eleven_v3" else "zh"
+        return "yue" if mid in ("eleven_v3", "eleven_v4", "eleven_v4_turbo") else "zh"
     if any(k in target for k in ("中", "汉", "国语", "普通话", "chinese", "mandarin", "zh")):
         return "zh"
     if any(k in target for k in ("日", "japanese", "ja")):
@@ -820,6 +852,33 @@ def _record_request_id(section_id: Optional[str], voice_id: str, model_id: str, 
             _SPEAKER_REQ_HISTORY[bucket_key].append(req_id)
 
 
+def _post_with_stepwise_fallback(
+    call_fn,
+    initial_body: Dict[str, Any],
+    first_resp: Optional[requests.Response] = None,
+) -> requests.Response:
+    """Stepwise fallback preserving `language_code` (critical for Mandarin pronunciation)
+    whenever an optional parameter such as an expired `previous_request_ids` or `yue` code fails."""
+    r = first_resp if first_resp is not None else call_fn(initial_body)
+    if r.status_code not in (400, 422):
+        return r
+    cur_body = dict(initial_body)
+    if cur_body.get("language_code") == "yue":
+        cur_body["language_code"] = "zh"
+        r = call_fn(cur_body)
+        if r.status_code not in (400, 422):
+            return r
+    if "previous_request_ids" in cur_body:
+        cur_body.pop("previous_request_ids", None)
+        r = call_fn(cur_body)
+        if r.status_code not in (400, 422):
+            return r
+    if "language_code" in cur_body:
+        cur_body.pop("language_code", None)
+        r = call_fn(cur_body)
+    return r
+
+
 def _elevenlabs_http_synthesize(
     api_key: str,
     base_url: str,
@@ -854,14 +913,10 @@ def _elevenlabs_http_synthesize(
     # Fast binary path when previewing `.mp3` without timestamps
     if want_mp3 and not return_words:
         url = f"{base_url}/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
-        resp = requests.post(url, headers=headers, json=payload, proxies=proxies, timeout=(15, 90))
-        if resp.status_code in (400, 422) and ("language_code" in payload or "previous_request_ids" in payload):
-            fallback_payload = {
-                "text": text.strip(),
-                "model_id": model_id,
-                "voice_settings": get_elevenlabs_voice_settings(model_id=model_id),
-            }
-            resp = requests.post(url, headers=headers, json=fallback_payload, proxies=proxies, timeout=(15, 90))
+        resp = _post_with_stepwise_fallback(
+            lambda b: requests.post(url, headers=headers, json=b, proxies=proxies, timeout=(15, 90)),
+            payload,
+        )
         if resp.status_code != 200:
             _raise_elevenlabs_http_error(resp, "ElevenLabs 语音合成")
         parent = os.path.dirname(os.path.abspath(save_path))
@@ -894,14 +949,12 @@ def _elevenlabs_http_synthesize(
         output_fmt = "mp3_44100_128"
         resp = _call_with_timestamps(output_fmt, payload)
 
-    # Automatic payload fallback if optional stitching or language_code rejected by model/gateway
-    if resp.status_code in (400, 422) and ("previous_request_ids" in payload or "language_code" in payload):
-        minimal_payload = {
-            "text": text.strip(),
-            "model_id": model_id,
-            "voice_settings": get_elevenlabs_voice_settings(model_id=model_id),
-        }
-        resp = _call_with_timestamps(output_fmt, minimal_payload)
+    if resp.status_code in (400, 422):
+        resp = _post_with_stepwise_fallback(
+            lambda b: _call_with_timestamps(output_fmt, b),
+            payload,
+            first_resp=resp,
+        )
 
     if resp.status_code != 200:
         _raise_elevenlabs_http_error(resp, "ElevenLabs 语音合成")

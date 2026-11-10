@@ -12,11 +12,25 @@ from core.tts_backend.elevenlabs_tts import (
     ELEVENLABS_MODELS,
     add_elevenlabs_shared_voice,
     elevenlabs_tts as gen_elevenlabs_tts,
+    ensure_elevenlabs_v4_model_migrated,
     fetch_elevenlabs_my_voices,
     fetch_elevenlabs_preview_audio,
     get_elevenlabs_voice_catalogs,
     search_elevenlabs_shared_voices,
 )
+
+
+def _sync_task_voices_safe(old_male: str = "", old_female: str = "", new_male: str = "", new_female: str = ""):
+    try:
+        from core._10_gen_audio import sync_audio_task_voices_on_default_change
+        sync_audio_task_voices_on_default_change(
+            old_male_voices={old_male} if old_male else set(),
+            old_female_voices={old_female} if old_female else set(),
+            new_male=new_male,
+            new_female=new_female,
+        )
+    except Exception:
+        pass
 
 # ── Shared TTS Voice Catalogs ────────────────────────────────────────────────
 DOUBAO_MALE_VOICES = {
@@ -672,7 +686,7 @@ def page_setting():
                     update_key("elevenlabs_tts.api_key", el_api_key.strip())
 
                 model_keys = list(ELEVENLABS_MODELS.keys())
-                cur_el_model = str(load_key("elevenlabs_tts.model_id") or DEFAULT_ELEVENLABS_MODEL)
+                cur_el_model = ensure_elevenlabs_v4_model_migrated()
                 if cur_el_model not in model_keys:
                     cur_el_model = DEFAULT_ELEVENLABS_MODEL
                 sel_el_model = st.selectbox(
@@ -684,6 +698,8 @@ def page_setting():
                 )
                 if sel_el_model != load_key("elevenlabs_tts.model_id"):
                     update_key("elevenlabs_tts.model_id", sel_el_model)
+                if sel_el_model in ("eleven_multilingual_v2", "eleven_turbo_v2_5", "eleven_flash_v2_5"):
+                    st.warning("⚠️ 旧版 v2/v2.5 中文音素易产生英语口音与多音字误读，建议切换为 Eleven v4 或 v4 Turbo。")
 
                 if st.button("🔄 拉取我的账号音色 (My Voices)", key="sync_el_my_voices_btn", use_container_width=True):
                     with st.spinner("正在从 ElevenLabs 同步账号音色..."):
@@ -711,7 +727,9 @@ def page_setting():
                 )
                 sel_el_male_id = el_male_voices[sel_el_male_disp]
                 if sel_el_male_id != cur_el_male:
+                    old_m = cur_el_male
                     update_key("elevenlabs_tts.male_voice", sel_el_male_id)
+                    _sync_task_voices_safe(old_male=old_m, new_male=sel_el_male_id)
                     cur_el_male = sel_el_male_id
 
                 custom_male_id = st.text_input(
@@ -720,7 +738,9 @@ def page_setting():
                     key="custom_el_male_voice_id",
                 ).strip()
                 if custom_male_id and custom_male_id != cur_el_male:
+                    old_m = cur_el_male
                     update_key("elevenlabs_tts.male_voice", custom_male_id)
+                    _sync_task_voices_safe(old_male=old_m, new_male=custom_male_id)
                     cur_el_male = custom_male_id
 
                 if st.button("🔊 试听 ElevenLabs 男声", key="preview_el_male_tts", use_container_width=True):
@@ -759,8 +779,10 @@ def page_setting():
                 )
                 sel_el_female_id = el_female_voices[sel_el_female_disp]
                 if sel_el_female_id != cur_el_female:
+                    old_f = cur_el_female
                     update_key("elevenlabs_tts.female_voice", sel_el_female_id)
                     update_key("elevenlabs_tts.voice", sel_el_female_id)
+                    _sync_task_voices_safe(old_female=old_f, new_female=sel_el_female_id)
                     cur_el_female = sel_el_female_id
 
                 custom_female_id = st.text_input(
@@ -769,8 +791,10 @@ def page_setting():
                     key="custom_el_female_voice_id",
                 ).strip()
                 if custom_female_id and custom_female_id != cur_el_female:
+                    old_f = cur_el_female
                     update_key("elevenlabs_tts.female_voice", custom_female_id)
                     update_key("elevenlabs_tts.voice", custom_female_id)
+                    _sync_task_voices_safe(old_female=old_f, new_female=custom_female_id)
                     cur_el_female = custom_female_id
 
                 if st.button("🔊 试听 ElevenLabs 女声", key="preview_el_female_tts", use_container_width=True):
@@ -796,13 +820,13 @@ def page_setting():
                     if sel_el_model == "eleven_v3":
                         st.caption("ℹ️ Eleven v3 模型自动将稳定性吸附为 0.0 / 0.5 / 1.0 三档，且原速固定 1.0 交由后置弹性对齐。")
                     else:
-                        st.caption("ℹ️ 中文科普解说建议稳定性 0.55~0.65、风格夸张度 0.0；原速固定 1.0 交由后置双向弹性对齐。")
+                        st.caption("ℹ️ 中文科普解说建议稳定性 0.55~0.65、相似度 0.80、风格夸张度 0.0；原速固定 1.0 交由后置双向弹性对齐。")
                     cur_stab = float(load_key("elevenlabs_tts.stability") if load_key("elevenlabs_tts.stability") is not None else 0.55)
                     new_stab = st.slider("稳定性 (Stability)", 0.0, 1.0, value=cur_stab, step=0.05, key="el_stability_slider")
                     if round(new_stab, 2) != round(cur_stab, 2):
                         update_key("elevenlabs_tts.stability", round(new_stab, 2))
 
-                    cur_sim = float(load_key("elevenlabs_tts.similarity_boost") if load_key("elevenlabs_tts.similarity_boost") is not None else 0.75)
+                    cur_sim = float(load_key("elevenlabs_tts.similarity_boost") if load_key("elevenlabs_tts.similarity_boost") is not None else 0.80)
                     new_sim = st.slider("相似度增强 (Similarity Boost)", 0.0, 1.0, value=cur_sim, step=0.05, key="el_similarity_slider")
                     if round(new_sim, 2) != round(cur_sim, 2):
                         update_key("elevenlabs_tts.similarity_boost", round(new_sim, 2))
@@ -862,6 +886,8 @@ def page_setting():
                             if st.button("✅ 同步至账号并应用", key=f"el_sh_add_{sv_id}", use_container_width=True):
                                 with st.spinner(f"正在将 {sv['name']} 添加至账号..."):
                                     try:
+                                        old_m = str(load_key("elevenlabs_tts.male_voice") or "").strip()
+                                        old_f = str(load_key("elevenlabs_tts.female_voice") or "").strip()
                                         add_res = add_elevenlabs_shared_voice(
                                             public_owner_id=sv.get("public_owner_id", ""),
                                             voice_id=sv_id,
@@ -871,6 +897,10 @@ def page_setting():
                                             preview_url=sv.get("preview_url", ""),
                                             set_as="" if act_mode == "library" else act_mode,
                                         )
+                                        if act_mode == "male":
+                                            _sync_task_voices_safe(old_male=old_m, new_male=add_res["voice_id"])
+                                        elif act_mode == "female":
+                                            _sync_task_voices_safe(old_female=old_f, new_female=add_res["voice_id"])
                                         st.success(f"✅ 已同步: {add_res['name']} ({add_res['voice_id'][:8]}...)")
                                         sleep(0.5)
                                         st.rerun()

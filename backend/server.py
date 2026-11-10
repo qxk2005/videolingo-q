@@ -115,6 +115,7 @@ from core.tts_backend.elevenlabs_tts import (
     ElevenLabsAPIError,
     add_elevenlabs_shared_voice,
     elevenlabs_tts as gen_elevenlabs_tts,
+    ensure_elevenlabs_v4_model_migrated,
     fetch_elevenlabs_my_voices,
     fetch_elevenlabs_preview_audio,
     get_elevenlabs_default_config,
@@ -417,6 +418,7 @@ app.add_middleware(
 # Helper Functions
 # =====================================================================
 def _read_full_config() -> Dict[str, Any]:
+    ensure_elevenlabs_v4_model_migrated()
     with config_lock:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             data = ruamel_yaml.load(f)
@@ -429,6 +431,37 @@ def _read_full_config() -> Dict[str, Any]:
             if dk not in res["elevenlabs_tts"] or res["elevenlabs_tts"][dk] is None:
                 res["elevenlabs_tts"][dk] = dv
     return res
+
+
+def _get_engine_default_voices(tts_method: str) -> tuple:
+    m = str(tts_method or "").strip()
+    male_v = ""
+    female_v = ""
+    try:
+        if m == "elevenlabs_tts":
+            male_v = str(load_key("elevenlabs_tts.male_voice") or "").strip()
+            female_v = str(load_key("elevenlabs_tts.female_voice") or load_key("elevenlabs_tts.voice") or "").strip()
+        elif m == "doubao_tts":
+            male_v = str(load_key("doubao_tts.male_voice") or "").strip()
+            female_v = str(load_key("doubao_tts.female_voice") or load_key("doubao_tts.voice") or "").strip()
+        elif m == "edge_tts":
+            male_v = str(load_key("edge_tts.male_voice") or "").strip()
+            female_v = str(load_key("edge_tts.female_voice") or load_key("edge_tts.voice") or "").strip()
+    except Exception:
+        pass
+    return male_v, female_v
+
+
+def _get_engine_catalog_voice_ids(tts_method: str) -> tuple:
+    m = str(tts_method or "").strip()
+    if m == "elevenlabs_tts":
+        el_m, el_f = get_elevenlabs_voice_catalogs()
+        return set(el_m.values()), set(el_f.values())
+    if m == "doubao_tts":
+        return set(DOUBAO_MALE_VOICES.values()), set(DOUBAO_FEMALE_VOICES.values())
+    if m == "edge_tts":
+        return set(EDGE_MALE_VOICES.values()), set(EDGE_FEMALE_VOICES.values())
+    return set(), set()
 
 
 def _build_voice_catalogs_payload() -> Dict[str, Any]:
@@ -867,6 +900,9 @@ class ConfigUpdatePayload(BaseModel):
 
 @app.post("/api/config")
 def update_config(payload: ConfigUpdatePayload):
+    old_tts_method = str(load_key("tts_method") or "").strip()
+    old_male_v, old_female_v = _get_engine_default_voices(old_tts_method)
+
     for k, v in payload.updates.items():
         update_key(k, v)
     if payload.custom_terms is not None:
@@ -876,6 +912,26 @@ def update_config(payload: ConfigUpdatePayload):
             _save_normalized_cookies(payload.cookies_content)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+
+    if not STATE.running:
+        new_tts_method = str(load_key("tts_method") or "").strip()
+        new_male_v, new_female_v = _get_engine_default_voices(new_tts_method)
+        old_males = {old_male_v} if old_male_v else set()
+        old_females = {old_female_v} if old_female_v else set()
+        if old_tts_method and new_tts_method and old_tts_method != new_tts_method:
+            cat_m, cat_f = _get_engine_catalog_voice_ids(old_tts_method)
+            old_males |= cat_m
+            old_females |= cat_f
+        if (old_tts_method != new_tts_method) or (new_male_v and new_male_v != old_male_v) or (new_female_v and new_female_v != old_female_v):
+            synced_n = _10_gen_audio.sync_audio_task_voices_on_default_change(
+                old_male_voices=old_males,
+                old_female_voices=old_females,
+                new_male=new_male_v if (old_tts_method != new_tts_method or new_male_v != old_male_v) else "",
+                new_female=new_female_v if (old_tts_method != new_tts_method or new_female_v != old_female_v) else "",
+            )
+            if synced_n > 0 and "BATCH_MANAGER" in globals():
+                BATCH_MANAGER.sync_from_studio_if_loaded(speaker_confirmed=STATE.speaker_review_confirmed)
+
     cookies_status = _get_cookies_status()
     return {
         "status": "ok",
@@ -1189,6 +1245,7 @@ class ElevenLabsAddSharedVoicePayload(BaseModel):
 @app.post("/api/elevenlabs/shared-voices/add")
 def add_elevenlabs_shared_voice_api(payload: ElevenLabsAddSharedVoicePayload):
     try:
+        old_el_male, old_el_female = _get_engine_default_voices("elevenlabs_tts")
         override_k = payload.api_key.strip() if payload.api_key and payload.api_key.strip() else None
         if override_k:
             update_key("elevenlabs_tts.api_key", override_k)
@@ -1202,6 +1259,17 @@ def add_elevenlabs_shared_voice_api(payload: ElevenLabsAddSharedVoicePayload):
             set_as=payload.set_as,
             api_key=override_k,
         )
+        if not STATE.running and res["set_as"] in ("male", "female"):
+            cur_method = str(load_key("tts_method") or "").strip()
+            if cur_method == "elevenlabs_tts":
+                synced_n = _10_gen_audio.sync_audio_task_voices_on_default_change(
+                    old_male_voices={old_el_male} if old_el_male else set(),
+                    old_female_voices={old_el_female} if old_el_female else set(),
+                    new_male=res["voice_id"] if res["set_as"] == "male" else "",
+                    new_female=res["voice_id"] if res["set_as"] == "female" else "",
+                )
+                if synced_n > 0 and "BATCH_MANAGER" in globals():
+                    BATCH_MANAGER.sync_from_studio_if_loaded(speaker_confirmed=STATE.speaker_review_confirmed)
         return {
             "status": "ok",
             "voice_id": res["voice_id"],

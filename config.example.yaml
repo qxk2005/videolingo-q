@@ -142,12 +142,12 @@ doubao_tts:
 elevenlabs_tts:
   api_key: 'YOUR_ELEVENLABS_API_KEY'
   base_url: 'https://api.elevenlabs.io'
-  model_id: 'eleven_multilingual_v2'
+  model_id: 'eleven_v4'
   male_voice: 'nPczCjzI2devNBz1zQrb'
   female_voice: 'pFZP5JQG7iQjIQuC4Bku'
   voice: 'pFZP5JQG7iQjIQuC4Bku'
   stability: 0.55
-  similarity_boost: 0.75
+  similarity_boost: 0.80
   style: 0.0
   use_speaker_boost: true
 
