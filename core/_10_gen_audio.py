@@ -1,3 +1,4 @@
+from core.tts_backend.elevenlabs_budget_guard import active as budget_guard_active, preflight as budget_preflight, stop_if_active, task_scope as budget_task_scope, cached_synthesis
 from core.tts_backend.single_attempt_scope import single_attempt_active, single_attempt_call
 from core.utils.cancel_utils import check_task_cancelled, sleep_cancellable
 import ast
@@ -147,6 +148,7 @@ def check_and_clear_audio_cache():
         with open(TTS_SETTINGS_FILE, "r", encoding="utf-8") as f:
             stored = f.read().strip()
         if stored != current:
+            stop_if_active("Audio cache configuration changed; retained without clearing")
             rprint(f"[yellow]⚠️ TTS settings changed ({stored} → {current}), clearing audio cache...[/yellow]")
             for d in [_AUDIO_TMP_DIR, _AUDIO_SEGS_DIR]:
                 if os.path.exists(d):
@@ -798,6 +800,8 @@ def _synthesize_single_doubao_paragraph(
             if os.path.exists(tf) and os.path.getsize(tf) > 0 and is_audio_valid(tf, spec["raw_text"]):
                 row_durs[spec["number"]] = row_durs.get(spec["number"], 0.0) + get_audio_duration(tf)
             else:
+                if os.path.exists(tf):
+                    stop_if_active("Invalid paragraph audio cache; retained for review")
                 all_cached = False
                 break
         if all_cached and sum(row_durs.values()) > 0:
@@ -846,22 +850,30 @@ def _synthesize_single_doubao_paragraph(
 
     # Multi-line natural speech paragraph -> single continuous V3 synthesis + word-timestamp slicing!
     combined_text = _build_paragraph_combined_text(speakable_specs)
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_f:
-        combined_wav_path = tmp_f.name
+    if budget_guard_active():
+        retained_dir = os.path.join(os.path.dirname(_AUDIO_TMP_DIR), "guard_raw")
+        os.makedirs(retained_dir, exist_ok=True)
+        combined_wav_path = os.path.join(retained_dir, f"para_{speakable_specs[0]['number']}.wav")
+    else:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_f:
+            combined_wav_path = tmp_f.name
 
     para_ok = False
     try:
-        res = tts_main(
-            combined_text,
-            combined_wav_path,
-            number=speakable_specs[0]["number"],
-            task_df=tasks_df,
-            gender=gender,
-            voice=voice,
-            section_id=section_id,
-            context_texts=context_texts,
-            return_words=True,
-        )
+        if budget_guard_active() and os.path.exists(combined_wav_path):
+            res = cached_synthesis(combined_wav_path, combined_text, speakable_specs[0]["number"])
+        else:
+            res = tts_main(
+                combined_text,
+                combined_wav_path,
+                number=speakable_specs[0]["number"],
+                task_df=tasks_df,
+                gender=gender,
+                voice=voice,
+                section_id=section_id,
+                context_texts=context_texts,
+                return_words=True,
+            )
         words_info = res.get("words", []) if isinstance(res, dict) else []
         slices = slice_paragraph_by_word_timestamps(
             combined_wav_path,
@@ -883,9 +895,10 @@ def _synthesize_single_doubao_paragraph(
                     f"({len(speakable_specs)} lines, words={len(words_info)}) sliced cleanly![/bold green]"
                 )
     except Exception as e:
+        stop_if_active("Paragraph decoding/slicing failed; raw audio retained without fallback")
         rprint(f"[yellow]⚠️ Paragraph synthesis fallback ({e}), using sequential context-linked V3...[/yellow]")
     finally:
-        if os.path.exists(combined_wav_path):
+        if os.path.exists(combined_wav_path) and not budget_guard_active():
             try:
                 os.remove(combined_wav_path)
             except Exception:
@@ -893,6 +906,7 @@ def _synthesize_single_doubao_paragraph(
 
     # Graceful fallback: sequential line-by-line V3 calls STILL preserving speaker's `section_id` & `context_texts`
     if not para_ok:
+        stop_if_active("Paragraph slices invalid; raw audio retained without line fallback")
         for sp in speakable_specs:
             if os.path.exists(sp["temp_file"]):
                 try:
@@ -1069,6 +1083,10 @@ def _condense_and_resynthesize_paragraph(
     and re-synthesize the entire paragraph cleanly with `section_id` (zero audio truncation)."""
     from core._8_2_dub_chunks import sync_lines_with_text
 
+    if budget_guard_active():
+        # Keep the complete reviewed narration; use the existing elastic video
+        # timeline rather than silently condensing and paying for new speech.
+        return tasks_df
     trim_items = []
     trim_row_indices = []
     for df_idx, row in para_df.iterrows():
@@ -1630,10 +1648,15 @@ def merge_chunks(tasks_df: pd.DataFrame) -> pd.DataFrame:
     return tasks_df
 
 
+@budget_task_scope
 def gen_audio() -> None:
     """Main function: Generate audio and process timeline."""
     rprint("[bold magenta]🚀 Starting audio generation process...[/bold magenta]")
 
+    if budget_guard_active():
+        if single_attempt_active() or load_key("tts_method") != "elevenlabs_tts":
+            stop_if_active("Legacy pipeline or different provider is not approved")
+        budget_preflight(get_tts_fingerprint(), pd.read_excel(_8_1_AUDIO_TASK))
     check_and_clear_audio_cache()
 
     os.makedirs(_AUDIO_TMP_DIR, exist_ok=True)

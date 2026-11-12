@@ -1,3 +1,4 @@
+from core.tts_backend.elevenlabs_budget_guard import guarded_post
 import base64
 from collections import deque
 import json
@@ -914,7 +915,7 @@ def _elevenlabs_http_synthesize(
     if want_mp3 and not return_words:
         url = f"{base_url}/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
         resp = _post_with_stepwise_fallback(
-            lambda b: requests.post(url, headers=headers, json=b, proxies=proxies, timeout=(15, 90)),
+            lambda b: guarded_post(requests.post, url, headers=headers, json=b, proxies=proxies, timeout=(15, 90)),
             payload,
         )
         if resp.status_code != 200:
@@ -939,7 +940,7 @@ def _elevenlabs_http_synthesize(
 
     def _call_with_timestamps(fmt: str, body: Dict[str, Any]) -> requests.Response:
         endpoint = f"{base_url}/v1/text-to-speech/{voice_id}/with-timestamps?output_format={fmt}"
-        return requests.post(endpoint, headers=headers, json=body, proxies=proxies, timeout=(15, 120))
+        return guarded_post(requests.post, endpoint, headers=headers, json=body, proxies=proxies, timeout=(15, 120))
 
     resp = _call_with_timestamps(output_fmt, payload)
 

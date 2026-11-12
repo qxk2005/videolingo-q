@@ -1,3 +1,4 @@
+from core.tts_backend.elevenlabs_budget_guard import active as budget_guard_active, guarded_tts, stop_if_active
 from core.tts_backend.single_attempt_scope import single_attempt_active, single_attempt_call
 from core.utils.cancel_utils import check_task_cancelled, is_task_cancelled, sleep_cancellable, TaskCancelledError
 import os
@@ -209,7 +210,12 @@ def is_audio_valid(file_path: str, text: str) -> bool:
     # Critical sanity check: if the text is long but the audio is extremely short, it is truncated/corrupted.
     # 28 Chinese characters in 0.4s is physically impossible.
     # As a safe threshold: if the cleaned text length is >= 3, duration must be > 0.5 seconds.
-    if len(cleaned_text) >= 3 and duration <= 0.5:
+    minimum_duration = 0.5
+    # This task's independently verified 3-character "你们看" is complete at
+    # 0.377s. Do not mistake valid short Mandarin phrases for truncated speech.
+    if budget_guard_active() and re.fullmatch(r"[\u4e00-\u9fff]{3,4}", cleaned_text):
+        minimum_duration = len(cleaned_text) * 0.10
+    if len(cleaned_text) >= 3 and duration <= minimum_duration:
         rprint(f"[yellow]⚠️ Audio sanity check failed: text length {len(cleaned_text)} is long but duration is only {duration:.2f}s for <{file_path}>[/yellow]")
         return False
         
@@ -270,6 +276,7 @@ def tts_main(
         if is_audio_valid(save_as, raw_input_text):
             return
         else:
+            stop_if_active("Invalid audio cache; retained for review")
             rprint(f"[yellow]⚠️ Detected invalid/corrupted audio cache <{save_as}> for text: '{text}'. Removing and regenerating...[/yellow]")
             try:
                 os.remove(save_as)
@@ -280,12 +287,12 @@ def tts_main(
     TTS_METHOD = load_key("tts_method")
     
     scoped_once = single_attempt_active()
-    max_retries = 1 if scoped_once else 3
+    max_retries = 1 if (scoped_once or budget_guard_active()) else 3
     last_error_is_network = False
     tts_result = None
     for attempt in range(max_retries):
         try:
-            if not scoped_once and attempt >= max_retries - 1 and not last_error_is_network:
+            if not scoped_once and not budget_guard_active() and attempt >= max_retries - 1 and not last_error_is_network:
                 print("Asking GPT to correct text...")
                 correct_text = ask_gpt(get_correct_text_prompt(text), resp_type="json", log_title='tts_correct_text')
                 text = correct_text['text']
@@ -317,7 +324,13 @@ def tts_main(
                         return_words=return_words,
                     )
             elif TTS_METHOD == 'elevenlabs_tts':
-                if scoped_once:
+                if budget_guard_active():
+                    tts_result = guarded_tts(
+                        elevenlabs_tts, text, save_as, number=number,
+                        voice_type=voice, gender=gender, section_id=section_id,
+                        context_texts=context_texts, return_words=return_words,
+                    )
+                elif scoped_once:
                     tts_result = single_attempt_call(
                         elevenlabs_tts.__wrapped__,
                         text,
@@ -350,6 +363,7 @@ def tts_main(
                     tts_result["duration"] = duration
                 break
             else:
+                stop_if_active("Generated audio duration is zero; retained without retry")
                 if scoped_once:
                     raise RuntimeError("Single-attempt TTS produced no audio; stopped without retry")
                 if os.path.exists(save_as):
@@ -363,6 +377,7 @@ def tts_main(
                     return {"ok": True, "words": [], "sample_rate": 24000, "duration": 0.1} if return_words else None
                 print(f"Attempt {attempt + 1} failed, retrying...")
         except Exception as e:
+            stop_if_active("Local TTS validation failed; retained without retry")
             if is_task_cancelled():
                 raise TaskCancelledError("任务已被手动停止") from e
             import subprocess as _sp

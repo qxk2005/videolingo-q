@@ -28,6 +28,8 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
+from core.original_narration_voices import DEFAULT_VOICE, VOICE_CHOICES, validate_voice
+
 STUDIO_BASE_URL = os.environ.get("VIDEOLINGO_API_URL", "http://127.0.0.1:8502").rstrip("/")
 MCP_PROTOCOL_VERSION = "2024-11-05"
 SERVER_INFO = {
@@ -218,6 +220,15 @@ def _wait_and_summarize_status(wait_seconds: float = 0.0, include_logs: int = 15
 # MCP Tool Definitions & Handlers
 # =====================================================================
 MCP_TOOLS: List[Dict[str, Any]] = [
+    {
+        "name": "videolingo_get_tts_quota",
+        "description": "【只读配音额度探查】查询 ElevenLabs 官方账号订阅已用/总量/剩余额度及重置时间。区分未知、权限不足和不可查询余额；豆包需另行授权账务凭据，Edge 无余额接口。不配音、不充值、不改权限、不启动后端。",
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": True},
+        "inputSchema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"provider": {"type": "string", "enum": ["all", "elevenlabs", "doubao", "edge"], "default": "all"}},
+        },
+    },
     {
         "name": "videolingo_one_shot_process",
         "description": (
@@ -775,10 +786,14 @@ MCP_TOOLS: List[Dict[str, Any]] = [
     },
     {
         "name": "videolingo_original_narration",
-        "description": "本机新增：本次A原创稿音频先行任务。固定11段已审稿、VV普通音色、1.00x、独立目录；不翻译、不缩写、不读取原片时间轴。start仅合成S01供验收；continue复用S01并合成其余10段。两者会调用已有豆包并可能计费；status只读。失败不自动重试。",
+        "description": "本机新增：本次A原创稿音频先行任务。固定11段已审稿、可选现有豆包音色（省略时兼容VV）、1.00x、按音色隔离目录；不翻译、不缩写、不读取原片时间轴。start仅合成S01供验收；continue只复用同音色S01并合成其余10段。两者会调用已有豆包并可能计费；status只读。失败不自动重试。",
         "inputSchema": {
             "type": "object", "additionalProperties": False,
-            "properties": {"action": {"type": "string", "enum": ["start", "continue", "status"]}},
+            "properties": {
+                "action": {"type": "string", "enum": ["start", "continue", "status"]},
+                "voice": {"type": "string", "enum": list(VOICE_CHOICES), "default": DEFAULT_VOICE,
+                          "description": "现有豆包音色ID；start、status、continue必须使用同一音色。省略保持旧VV任务。"}
+            },
             "required": ["action"]
         }
     },
@@ -790,12 +805,22 @@ def execute_mcp_tool(name: str, arguments: Optional[Dict[str, Any]] = None) -> D
     """Dispatch and execute an MCP tool by name and return structured data."""
     args = arguments or {}
 
+    if name == "videolingo_get_tts_quota":
+        if arguments is not None and (not isinstance(arguments, dict) or set(arguments) - {"provider"}):
+            raise ValueError("Only provider is supported")
+        from core.tts_backend.quota_probe import get_tts_quota
+        return get_tts_quota(args.get("provider", "all"))
+
     if name == "videolingo_original_narration":
-        if set(args) != {"action"} or args.get("action") not in {"start", "continue", "status"}:
-            raise ValueError("Only action=start/continue/status is supported")
+        if (not isinstance(args, dict) or set(args) - {"action", "voice"}
+                or args.get("action") not in {"start", "continue", "status"}):
+            raise ValueError("Only action=start/continue/status and an optional catalog voice are supported")
+        voice = validate_voice(args.get("voice", DEFAULT_VOICE))
         if args["action"] == "status":
-            return _api_request("GET", "/api/original-narration/status")
-        return _api_request("POST", "/api/original-narration/" + args["action"], payload={}, timeout=10.0)
+            query = urllib.parse.urlencode({"voice": voice})
+            return _api_request("GET", "/api/original-narration/status?" + query)
+        return _api_request("POST", "/api/original-narration/" + args["action"],
+                            payload={"voice": voice}, timeout=10.0)
 
     elif name == "videolingo_one_shot_process":
         wait_sec = float(args.pop("wait_seconds", 5) or 0)

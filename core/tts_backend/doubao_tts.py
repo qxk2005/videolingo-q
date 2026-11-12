@@ -376,8 +376,8 @@ def original_narration_tts(text, save_path, voice_type="zh_female_vv_uranus_bigt
     Authentication remains in this existing configured provider, never in task input,
     output, a client script or a new credential store. Legacy dubbing is unchanged.
     """
-    if voice_type != "zh_female_vv_uranus_bigtts":
-        raise ValueError("This reviewed original-narration task permits VV only")
+    from core.original_narration_voices import validate_voice
+    voice_type = validate_voice(voice_type)
     if not isinstance(text, str) or not 1 <= len(text) <= 1000 or text != text.strip():
         raise ValueError("Invalid narration text")
     appid = str(load_key("doubao_tts.appid") or "").strip()

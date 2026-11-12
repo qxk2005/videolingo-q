@@ -102,3 +102,31 @@ VideoLingo Q 2.0 现已原生支持 **MCP (Model Context Protocol)**，允许 **
   > “读取当前视频在 VideoLingo 里生成的术语表和双语字幕，看看有没有专业术语翻译不准确的地方，帮我修正并重新压制字幕视频。”
 - **调整说话人配音音色**：
   > “看看当前视频识别出了几个说话人？把 SPEAKER_00 设为男声，SPEAKER_01 设为女声，然后重新合成配音。”
+
+## 只读配音额度探查
+
+新增 `videolingo_get_tts_quota`，参数 `provider` 可为 `all`（默认）、`elevenlabs`、`doubao`、`edge`。
+
+MCP `tools/call` 示例：
+```json
+{"name":"videolingo_get_tts_quota","arguments":{"provider":"all"}}
+```
+
+- ElevenLabs：使用已有配音 API Key，请求官方 `GET /v1/user/subscription`，返回已用、总量、剩余、超额、重置 Unix 时间和当前超额额度上限。它是账号/工作区订阅额度，不是单个模型或密钥额度；不换算现金、字数倍率或音频时长。`balance=null` 表示该接口不提供现金余额，不能解读为余额为零。
+- 若现有 Key 无权限，返回 `permission_denied`，需要用户单独授权 User Read；本工具绝不自动扩权。认证失败、限流、异常和未配置均有独立状态，不自动重试。
+- 自定义 ElevenLabs Base URL 不会收到密钥，返回 `unsupported_endpoint`。只允许官方 HTTPS 地址，禁止跟随重定向。
+- 豆包：当前配音 AppID/Access Token 不等同于火山账务 OpenAPI 凭据。官方另有 `ResourcePacksStatus`（资源包余量）和 `QueryBalanceAcct`（账户余额），本版本明确返回 `requires_separate_billing_credentials`，尚未实现这两个适配器；不会寻找或读取额外 AK/SK，不会猜测余额。如需接入，须另行授权最小只读凭据和资源范围。
+- Edge：返回 `not_applicable`，没有账户余额接口，不意味着无限额度。
+- 每次实时查询，返回 UTC 查询时间；并发任务可能继续消耗额度。本工具不改配置、不调用合成、不启动后端、不写文件、不充值、不改变权限、不改变现有预算保护。网络超时为连接 5 秒、读取 12 秒。
+
+部署：现有运行中进程不会自动加载代码。不要为了这项功能重启正在执行视频任务的服务。独立新 stdio 进程可立即使用新增工具；既有 stdio 客户端在安全时机重新连接后刷新工具列表，HTTP/SSE 服务待视频任务结束后常规重启才能加载。未自动部署/重启。
+
+离线测试（不消耗配音额度）：
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -p 'test_tts_quota.py' -v
+```
+
+官方依据：
+- https://elevenlabs.io/docs/api-reference/user/subscription/get
+- https://api.volcengine.com/api-docs/view?action=ResourcePacksStatus&serviceCode=speech_saas_prod&version=2025-05-20
+- https://docs.volcengine.com/docs/billing-center/query-balance-acct-query-user-account-balance-information?lang=zh
