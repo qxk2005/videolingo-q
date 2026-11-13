@@ -220,6 +220,10 @@ def _wait_and_summarize_status(wait_seconds: float = 0.0, include_logs: int = 15
 # MCP Tool Definitions & Handlers
 # =====================================================================
 MCP_TOOLS: List[Dict[str, Any]] = [
+    {"name":"videolingo_animation_narration",
+     "description":"仅2026-11-13固定哈希原创动画稿、云舟音色。start合成S01，验收后continue其余十段；status只读，不自动重试、不接受任意路径。",
+     "inputSchema":{"type":"object","additionalProperties":False,"required":["action"],"properties":{"action":{"type":"string","enum":["status","start","continue"]}}}},
+
     {
         "name": "videolingo_get_tts_quota",
         "description": "【只读配音额度探查】查询 ElevenLabs 官方账号订阅已用/总量/剩余额度及重置时间。区分未知、权限不足和不可查询余额；豆包需另行授权账务凭据，Edge 无余额接口。不配音、不充值、不改权限、不启动后端。",
@@ -804,6 +808,15 @@ MCP_TOOLS: List[Dict[str, Any]] = [
 def execute_mcp_tool(name: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Dispatch and execute an MCP tool by name and return structured data."""
     args = arguments or {}
+
+    if name == "videolingo_animation_narration":
+        from backend.animation_narration_20261113 import execute
+        busy = False
+        if args.get("action") != "status":
+            state = _api_request("GET", "/api/workspace/state")
+            batch = _api_request("GET", "/api/batch/state")
+            busy = bool(state.get("task", {}).get("running") or batch.get("queue", {}).get("running"))
+        return execute(args, busy)
 
     if name == "videolingo_get_tts_quota":
         if arguments is not None and (not isinstance(arguments, dict) or set(arguments) - {"provider"}):
