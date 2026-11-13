@@ -5,7 +5,9 @@ import asyncio
 
 def edge_tts(text, save_path, voice=None, gender=None):
     # Load settings from config file
-    edge_set = load_key("edge_tts")
+    edge_set = load_key("edge_tts") or {}
+    if voice and ("-" not in str(voice) or "_" in str(voice)):
+        voice = None
     if not voice:
         if gender == "male":
             voice = edge_set.get("male_voice") or edge_set.get("voice", "zh-CN-YunxiNeural")

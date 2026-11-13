@@ -11,6 +11,7 @@ import threading
 import traceback
 import subprocess
 from collections import deque
+from contextlib import ExitStack
 from typing import Dict, Any, List, Optional
 
 # Ensure project root is on sys.path
@@ -53,7 +54,7 @@ class _SensitiveQueryMaskFilter(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(_SensitiveQueryMaskFilter())
 
-from core.utils import load_key, update_key, get_ffmpeg_video_encoder
+from core.utils import load_key, update_key, get_ffmpeg_video_encoder, runtime_config_overrides
 from core.utils.config_utils import CONFIG_PATH, yaml as ruamel_yaml, lock as config_lock
 from core.utils.onekeycleanup import cleanup
 from core.utils.cancel_utils import (
@@ -433,23 +434,87 @@ def _read_full_config() -> Dict[str, Any]:
     return res
 
 
-def _get_engine_default_voices(tts_method: str) -> tuple:
+def _get_engine_default_voices(tts_method: str, ignore_overrides: bool = False) -> tuple:
     m = str(tts_method or "").strip()
     male_v = ""
     female_v = ""
     try:
         if m == "elevenlabs_tts":
-            male_v = str(load_key("elevenlabs_tts.male_voice") or "").strip()
-            female_v = str(load_key("elevenlabs_tts.female_voice") or load_key("elevenlabs_tts.voice") or "").strip()
+            male_v = str(load_key("elevenlabs_tts.male_voice", ignore_overrides=ignore_overrides) or "").strip()
+            female_v = str(
+                load_key("elevenlabs_tts.female_voice", ignore_overrides=ignore_overrides)
+                or load_key("elevenlabs_tts.voice", ignore_overrides=ignore_overrides)
+                or ""
+            ).strip()
         elif m == "doubao_tts":
-            male_v = str(load_key("doubao_tts.male_voice") or "").strip()
-            female_v = str(load_key("doubao_tts.female_voice") or load_key("doubao_tts.voice") or "").strip()
+            male_v = str(load_key("doubao_tts.male_voice", ignore_overrides=ignore_overrides) or "").strip()
+            female_v = str(
+                load_key("doubao_tts.female_voice", ignore_overrides=ignore_overrides)
+                or load_key("doubao_tts.voice", ignore_overrides=ignore_overrides)
+                or ""
+            ).strip()
         elif m == "edge_tts":
-            male_v = str(load_key("edge_tts.male_voice") or "").strip()
-            female_v = str(load_key("edge_tts.female_voice") or load_key("edge_tts.voice") or "").strip()
+            male_v = str(load_key("edge_tts.male_voice", ignore_overrides=ignore_overrides) or "").strip()
+            female_v = str(
+                load_key("edge_tts.female_voice", ignore_overrides=ignore_overrides)
+                or load_key("edge_tts.voice", ignore_overrides=ignore_overrides)
+                or ""
+            ).strip()
     except Exception:
         pass
     return male_v, female_v
+
+
+def _build_runtime_config_overrides(
+    source_lang: Optional[str] = None,
+    target_lang: Optional[str] = None,
+    tts_method: Optional[str] = None,
+    male_voice: Optional[str] = None,
+    female_voice: Optional[str] = None,
+    style_prompt: Optional[str] = None,
+    pause_before_dub: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """Build in-memory runtime config overrides without modifying `config.yaml` on disk."""
+    overrides: Dict[str, Any] = {}
+    if source_lang and str(source_lang).strip():
+        overrides["whisper.language"] = str(source_lang).strip()
+    if target_lang and str(target_lang).strip():
+        overrides["target_language"] = str(target_lang).strip()
+
+    explicit_tts = str(tts_method or "").strip()
+    if explicit_tts:
+        overrides["tts_method"] = explicit_tts
+
+    tts_m = explicit_tts or str(load_key("tts_method", ignore_overrides=True) or "doubao_tts").strip()
+
+    mv = str(male_voice or "").strip()
+    if mv:
+        if tts_m == "edge_tts":
+            overrides["edge_tts.male_voice"] = mv
+        elif tts_m == "elevenlabs_tts":
+            overrides["elevenlabs_tts.male_voice"] = mv
+        elif tts_m == "doubao_tts":
+            overrides["doubao_tts.male_voice"] = mv
+
+    fv = str(female_voice or "").strip()
+    if fv:
+        if tts_m == "edge_tts":
+            overrides["edge_tts.female_voice"] = fv
+            overrides["edge_tts.voice"] = fv
+        elif tts_m == "elevenlabs_tts":
+            overrides["elevenlabs_tts.female_voice"] = fv
+            overrides["elevenlabs_tts.voice"] = fv
+        elif tts_m == "doubao_tts":
+            overrides["doubao_tts.female_voice"] = fv
+            overrides["doubao_tts.voice"] = fv
+
+    if style_prompt is not None and str(style_prompt).strip():
+        overrides["doubao_tts.style_prompt"] = str(style_prompt).strip()
+
+    if pause_before_dub is not None:
+        overrides["pause_before_dub"] = bool(pause_before_dub)
+
+    return overrides
 
 
 def _get_engine_catalog_voice_ids(tts_method: str) -> tuple:
@@ -622,7 +687,14 @@ def _build_speaker_review_payload() -> Dict[str, Any]:
     df["gender"] = df["gender"].fillna("female").astype(str)
 
     sample_clips = extract_speaker_sample_clips(df)
-    voice_catalog = get_available_tts_voices()
+    effective_tts_method = None
+    if "BATCH_MANAGER" in globals() and BATCH_MANAGER.studio_loaded_task_id:
+        loaded_t = BATCH_MANAGER.get_task(BATCH_MANAGER.studio_loaded_task_id)
+        if loaded_t and str(loaded_t.get("tts_method") or "").strip():
+            effective_tts_method = str(loaded_t["tts_method"]).strip()
+    if not effective_tts_method:
+        effective_tts_method = str(load_key("tts_method", ignore_overrides=True) or "").strip() or None
+    voice_catalog = get_available_tts_voices(effective_tts_method)
 
     unique_speakers = list(dict.fromkeys(df["speaker_id"].tolist()))
     speakers_list = []
@@ -900,8 +972,9 @@ class ConfigUpdatePayload(BaseModel):
 
 @app.post("/api/config")
 def update_config(payload: ConfigUpdatePayload):
-    old_tts_method = str(load_key("tts_method") or "").strip()
-    old_male_v, old_female_v = _get_engine_default_voices(old_tts_method)
+    old_tts_method = str(load_key("tts_method", ignore_overrides=True) or "").strip()
+    old_male_v, old_female_v = _get_engine_default_voices(old_tts_method, ignore_overrides=True)
+    explicit_tts_update = "tts_method" in (payload.updates or {})
 
     for k, v in payload.updates.items():
         update_key(k, v)
@@ -913,9 +986,16 @@ def update_config(payload: ConfigUpdatePayload):
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+    new_tts_method = str(load_key("tts_method", ignore_overrides=True) or "").strip()
+    if "BATCH_MANAGER" in globals() and (explicit_tts_update or old_tts_method != new_tts_method):
+        BATCH_MANAGER.sync_tasks_on_global_tts_change(
+            old_tts_method=old_tts_method,
+            new_tts_method=new_tts_method,
+            explicit_tts_update=explicit_tts_update,
+        )
+
     if not STATE.running:
-        new_tts_method = str(load_key("tts_method") or "").strip()
-        new_male_v, new_female_v = _get_engine_default_voices(new_tts_method)
+        new_male_v, new_female_v = _get_engine_default_voices(new_tts_method, ignore_overrides=True)
         old_males = {old_male_v} if old_male_v else set()
         old_females = {old_female_v} if old_female_v else set()
         if old_tts_method and new_tts_method and old_tts_method != new_tts_method:
@@ -929,7 +1009,7 @@ def update_config(payload: ConfigUpdatePayload):
                 new_male=new_male_v if (old_tts_method != new_tts_method or new_male_v != old_male_v) else "",
                 new_female=new_female_v if (old_tts_method != new_tts_method or new_female_v != old_female_v) else "",
             )
-            if synced_n > 0 and "BATCH_MANAGER" in globals():
+            if (synced_n > 0 or old_tts_method != new_tts_method) and "BATCH_MANAGER" in globals():
                 BATCH_MANAGER.sync_from_studio_if_loaded(speaker_confirmed=STATE.speaker_review_confirmed)
 
     cookies_status = _get_cookies_status()
@@ -1810,6 +1890,14 @@ def start_dubbing_pipeline(force_continue: bool = False):
                 step_name="1. 正在准备音频并执行说话人性别识别与配音分块...",
             )
 
+        dub_overrides: Dict[str, Any] = {}
+        if "BATCH_MANAGER" in globals() and BATCH_MANAGER.studio_loaded_task_id:
+            loaded_t = BATCH_MANAGER.get_task(BATCH_MANAGER.studio_loaded_task_id)
+            if loaded_t:
+                dub_overrides = BATCH_MANAGER._build_task_config_overrides(loaded_t)
+
+        cfg_stack = ExitStack()
+        cfg_stack.enter_context(runtime_config_overrides(dub_overrides))
         try:
             # Ensure output/audio/raw.mp3 exists (especially when Stage B used official subtitles and skipped WhisperX)
             if not os.path.exists(_RAW_AUDIO_FILE):
@@ -1903,6 +1991,7 @@ def start_dubbing_pipeline(force_continue: bool = False):
             traceback.print_exc()
             STATE.error = str(e)
         finally:
+            cfg_stack.close()
             if "BATCH_MANAGER" in globals():
                 BATCH_MANAGER.sync_from_studio_if_loaded(
                     speaker_confirmed=bool(STATE.speaker_review_confirmed or os.path.exists(DUB_VIDEO))
@@ -2307,6 +2396,9 @@ class BatchQueueManager:
                 "url": t.get("url"),
                 "status": t.get("status"),
                 "mode": t.get("mode"),
+                "tts_method": t.get("tts_method", ""),
+                "male_voice": t.get("male_voice", ""),
+                "female_voice": t.get("female_voice", ""),
             }
 
     def detach_studio_task(self):
@@ -2759,70 +2851,58 @@ class BatchQueueManager:
             self.tasks = kept
             self._save()
 
-    def _apply_task_config_overrides(self, t: Dict[str, Any]) -> Dict[str, Any]:
-        """Snapshot global config keys and apply per-task overrides."""
-        keys_to_save = [
-            "whisper.language",
-            "target_language",
-            "tts_method",
-            "doubao_tts.male_voice",
-            "doubao_tts.female_voice",
-            "doubao_tts.voice",
-            "doubao_tts.style_prompt",
-            "edge_tts.male_voice",
-            "edge_tts.female_voice",
-            "edge_tts.voice",
-            "elevenlabs_tts.male_voice",
-            "elevenlabs_tts.female_voice",
-            "elevenlabs_tts.voice",
-        ]
-        snapshot = {}
-        for k in keys_to_save:
-            try:
-                snapshot[k] = load_key(k)
-            except Exception:
-                snapshot[k] = None
+    def sync_tasks_on_global_tts_change(
+        self,
+        old_tts_method: str,
+        new_tts_method: str,
+        explicit_tts_update: bool = False,
+    ) -> int:
+        """Align unfinished batch tasks when user updates the global default TTS engine in Settings."""
+        old_m = str(old_tts_method or "").strip()
+        new_m = str(new_tts_method or "").strip()
+        if not new_m:
+            return 0
+        updated_count = 0
+        with self.lock:
+            for t in self.tasks:
+                if t.get("status") in ("running", "completed") or t.get("id") == self.active_task_id:
+                    continue
+                cur_t_method = str(t.get("tts_method") or "").strip()
+                if not cur_t_method:
+                    continue
+                is_studio_loaded = bool(self.studio_loaded_task_id and t.get("id") == self.studio_loaded_task_id)
+                engine_switched = bool(old_m and old_m != new_m)
+                should_follow_global = False
+                if is_studio_loaded and explicit_tts_update and cur_t_method != new_m:
+                    should_follow_global = True
+                elif engine_switched and cur_t_method in (old_m, new_m):
+                    should_follow_global = True
+                elif (
+                    cur_t_method == new_m
+                    and not str(t.get("male_voice") or "").strip()
+                    and not str(t.get("female_voice") or "").strip()
+                ):
+                    should_follow_global = True
+                if should_follow_global:
+                    t["tts_method"] = ""
+                    t["male_voice"] = ""
+                    t["female_voice"] = ""
+                    t["updated_at"] = self._now_str()
+                    updated_count += 1
+            if updated_count > 0:
+                self._save()
+        return updated_count
 
-        if t.get("source_lang"):
-            update_key("whisper.language", t["source_lang"])
-        if t.get("target_lang"):
-            update_key("target_language", t["target_lang"])
-
-        tts_m = t.get("tts_method") or snapshot.get("tts_method") or "doubao_tts"
-        if t.get("tts_method"):
-            update_key("tts_method", t["tts_method"])
-
-        if t.get("male_voice"):
-            if tts_m == "edge_tts":
-                update_key("edge_tts.male_voice", t["male_voice"])
-            elif tts_m == "elevenlabs_tts":
-                update_key("elevenlabs_tts.male_voice", t["male_voice"])
-            else:
-                update_key("doubao_tts.male_voice", t["male_voice"])
-
-        if t.get("female_voice"):
-            if tts_m == "edge_tts":
-                update_key("edge_tts.female_voice", t["female_voice"])
-                update_key("edge_tts.voice", t["female_voice"])
-            elif tts_m == "elevenlabs_tts":
-                update_key("elevenlabs_tts.female_voice", t["female_voice"])
-                update_key("elevenlabs_tts.voice", t["female_voice"])
-            else:
-                update_key("doubao_tts.female_voice", t["female_voice"])
-                update_key("doubao_tts.voice", t["female_voice"])
-
-        if t.get("style_prompt") is not None and str(t.get("style_prompt")).strip():
-            update_key("doubao_tts.style_prompt", str(t["style_prompt"]).strip())
-
-        return snapshot
-
-    def _restore_config_snapshot(self, snapshot: Dict[str, Any]):
-        for k, val in snapshot.items():
-            if val is not None:
-                try:
-                    update_key(k, val)
-                except Exception:
-                    pass
+    def _build_task_config_overrides(self, t: Dict[str, Any]) -> Dict[str, Any]:
+        """Build scoped in-memory runtime config overrides for a batch task without mutating `config.yaml`."""
+        return _build_runtime_config_overrides(
+            source_lang=t.get("source_lang"),
+            target_lang=t.get("target_lang"),
+            tts_method=t.get("tts_method"),
+            male_voice=t.get("male_voice"),
+            female_voice=t.get("female_voice"),
+            style_prompt=t.get("style_prompt"),
+        )
 
     def _update_running_task_progress(self, t: Dict[str, Any], step_idx: int, total_steps: int, step_title: str, sub_step: str, pct: float):
         with self.lock:
@@ -2856,7 +2936,9 @@ class BatchQueueManager:
 
         mode = t.get("mode", "dub_video")
         total_steps = 5 if mode == "sub_only" else (6 if mode == "sub_video" else 10)
-        cfg_snapshot = self._apply_task_config_overrides(t)
+        task_overrides = self._build_task_config_overrides(t)
+        cfg_stack = ExitStack()
+        cfg_stack.enter_context(runtime_config_overrides(task_overrides))
 
         try:
             url = t["url"].strip()
@@ -3104,7 +3186,7 @@ class BatchQueueManager:
                 t["updated_at"] = self._now_str()
                 self._save()
         finally:
-            self._restore_config_snapshot(cfg_snapshot)
+            cfg_stack.close()
             with self.lock:
                 if self.active_task_id == tid:
                     self.active_task_id = None
@@ -3269,9 +3351,19 @@ def load_batch_task_to_studio(task_id: str):
 
 
 @app.post("/api/batch/tasks/{task_id}/sync-from-studio")
-def sync_batch_task_from_studio(task_id: str, confirm_speaker: bool = False):
+def sync_batch_task_from_studio(
+    task_id: str,
+    confirm_speaker: bool = False,
+    clear_tts_override: bool = False,
+):
     with BATCH_MANAGER.lock:
         BATCH_MANAGER.studio_loaded_task_id = task_id
+        if clear_tts_override:
+            t = BATCH_MANAGER.get_task(task_id)
+            if t:
+                t["tts_method"] = ""
+                t["male_voice"] = ""
+                t["female_voice"] = ""
         BATCH_MANAGER.sync_from_studio_if_loaded(speaker_confirmed=True if confirm_speaker else None)
     return BATCH_MANAGER.get_state_payload()
 
@@ -3600,36 +3692,18 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
                 step_name="1. 正在初始化一键全流程处理任务...",
             )
 
-        try:
-            # Apply optional config overrides
-            if payload.source_lang:
-                update_key("whisper.language", payload.source_lang.strip())
-            if payload.target_lang:
-                update_key("target_language", payload.target_lang.strip())
-            if payload.tts_method:
-                update_key("tts_method", payload.tts_method.strip())
-            tts_m = (payload.tts_method or load_key("tts_method") or "doubao_tts").strip()
-            if payload.male_voice:
-                mv = payload.male_voice.strip()
-                if tts_m == "edge_tts":
-                    update_key("edge_tts.male_voice", mv)
-                elif tts_m == "elevenlabs_tts":
-                    update_key("elevenlabs_tts.male_voice", mv)
-                else:
-                    update_key("doubao_tts.male_voice", mv)
-            if payload.female_voice:
-                fv = payload.female_voice.strip()
-                if tts_m == "edge_tts":
-                    update_key("edge_tts.female_voice", fv)
-                    update_key("edge_tts.voice", fv)
-                elif tts_m == "elevenlabs_tts":
-                    update_key("elevenlabs_tts.female_voice", fv)
-                    update_key("elevenlabs_tts.voice", fv)
-                else:
-                    update_key("doubao_tts.female_voice", fv)
-                    update_key("doubao_tts.voice", fv)
-            update_key("pause_before_dub", bool(payload.pause_before_dub))
+        oneshot_overrides = _build_runtime_config_overrides(
+            source_lang=payload.source_lang,
+            target_lang=payload.target_lang,
+            tts_method=payload.tts_method,
+            male_voice=payload.male_voice,
+            female_voice=payload.female_voice,
+            pause_before_dub=bool(payload.pause_before_dub),
+        )
+        cfg_stack = ExitStack()
+        cfg_stack.enter_context(runtime_config_overrides(oneshot_overrides))
 
+        try:
             # Stage A: Media Acquisition
             if payload.local_file_path:
                 STATE.step_index = 1
@@ -3803,6 +3877,7 @@ def start_one_shot_pipeline(payload: OneShotProcessPayload):
             traceback.print_exc()
             STATE.error = str(e)
         finally:
+            cfg_stack.close()
             if "BATCH_MANAGER" in globals():
                 BATCH_MANAGER.sync_from_studio_if_loaded()
             STATE.finish_task()

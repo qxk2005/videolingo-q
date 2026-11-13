@@ -279,15 +279,15 @@ MCP_TOOLS: List[Dict[str, Any]] = [
                 },
                 "tts_method": {
                     "type": "string",
-                    "description": "配音 TTS 引擎（如 'doubao_tts'、'elevenlabs_tts' 或 'edge_tts'，留空则使用当前配置）",
+                    "description": "单次任务 TTS 引擎覆盖（如 'elevenlabs_tts'、'doubao_tts' 或 'edge_tts'；默认留空以遵循 config.yaml 全局默认配置，除非用户明确指定否则请务必留空）",
                 },
                 "male_voice": {
                     "type": "string",
-                    "description": "男声角色默认 TTS 音色 ID（留空则使用当前配置）",
+                    "description": "单次任务男声角色 TTS 音色 ID 覆盖（默认留空以遵循全局配置，除非用户明确指定否则请留空）",
                 },
                 "female_voice": {
                     "type": "string",
-                    "description": "女声角色默认 TTS 音色 ID（留空则使用当前配置）",
+                    "description": "单次任务女声角色 TTS 音色 ID 覆盖（默认留空以遵循全局配置，除非用户明确指定否则请留空）",
                 },
                 "pause_before_dub": {
                     "type": "boolean",
@@ -735,9 +735,21 @@ MCP_TOOLS: List[Dict[str, Any]] = [
                 "target_lang": {"type": "string", "default": "", "description": "目标语言（如 '简体中文'，留空遵循全局配置）"},
                 "resolution": {"type": "string", "default": "1080", "description": "下载分辨率（'1080', '720', '480', 'best'）"},
                 "prefer_official_sub": {"type": "boolean", "default": True},
-                "tts_method": {"type": "string", "default": ""},
-                "male_voice": {"type": "string", "default": ""},
-                "female_voice": {"type": "string", "default": ""},
+                "tts_method": {
+                    "type": "string",
+                    "default": "",
+                    "description": "单任务独立 TTS 引擎覆盖（如 'elevenlabs_tts'、'doubao_tts'、'edge_tts'；默认留空 '' 以自动遵循 config.yaml 中的全局默认配音引擎，除非用户明确要求覆盖否则切勿填写）",
+                },
+                "male_voice": {
+                    "type": "string",
+                    "default": "",
+                    "description": "单任务独立默认男声 ID（默认留空 '' 以遵循全局配置，除非用户明确要求覆盖否则切勿填写）",
+                },
+                "female_voice": {
+                    "type": "string",
+                    "default": "",
+                    "description": "单任务独立默认女声 ID（默认留空 '' 以遵循全局配置，除非用户明确要求覆盖否则切勿填写）",
+                },
                 "pause_before_dub": {"type": "boolean", "default": False},
                 "auto_start": {
                     "type": "boolean",

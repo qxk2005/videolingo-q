@@ -68,10 +68,21 @@
 
         <!-- 批量队列联动横幅 (当单视频工作台正载入某个批量任务时显示) -->
         <div v-if="wsState.studio_batch_task" class="studio-card rounded-xl p-3.5 border-l-4 border-indigo-500 bg-indigo-500/5 flex flex-wrap items-center justify-between gap-2">
-          <div class="flex items-center gap-2.5 text-xs">
+          <div class="flex flex-wrap items-center gap-2.5 text-xs">
             <span class="px-2 py-0.5 rounded bg-indigo-600 text-white font-bold">📦 批量任务联动中</span>
             <span class="font-bold">{{ wsState.studio_batch_task.title }}</span>
             <span class="text-slate-400">（当前工作区修改将自动同步至该批量任务目录）</span>
+            <span
+              v-if="wsState.studio_batch_task.tts_method && wsState.studio_batch_task.tts_method !== cfg.tts_method"
+              class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 font-semibold flex items-center gap-1.5"
+            >
+              <span>⚠️ 该任务独立指定了 TTS: {{ wsState.studio_batch_task.tts_method }}</span>
+              <button
+                type="button"
+                @click="clearStudioBatchTaskTtsOverride"
+                class="underline font-bold hover:text-amber-500"
+              >改回跟随全局 ({{ cfg.tts_method }})</button>
+            </span>
           </div>
           <div class="flex items-center gap-2 text-xs">
             <button @click="syncStudioToBatch(false)" class="studio-subtle px-3 py-1.5 rounded-lg font-semibold hover:border-indigo-500">
@@ -623,7 +634,18 @@
               <p class="text-xs text-slate-400">支持一次粘贴多个在线视频链接（每行一条），入队后自动异步嗅探标题、封面与时长</p>
             </div>
           </div>
-          <div class="flex items-center gap-2 text-xs">
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <span
+              v-if="!showBatchAdvForm && batchForm.tts_method"
+              class="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 font-semibold flex items-center gap-1.5"
+            >
+              <span>⚠️ 新任务独立 TTS: {{ batchForm.tts_method }}</span>
+              <button
+                type="button"
+                @click="batchForm.tts_method = ''; batchForm.male_voice = ''; batchForm.female_voice = ''"
+                class="underline font-bold hover:text-amber-500"
+              >重置跟随全局</button>
+            </span>
             <button @click="showBatchAdvForm = !showBatchAdvForm" class="studio-subtle px-3 py-1.5 rounded-lg font-semibold hover:border-blue-500 transition">
               {{ showBatchAdvForm ? '▲ 收起高级音色/字幕策略' : '⚙️ 展开高级独立参数 (TTS/音色/官方字幕/人工卡点)' }}
             </button>
@@ -2415,9 +2437,15 @@ async function saveAllConfig() {
   if (resData.cookies_status) {
     Object.assign(cookiesStatus, resData.cookies_status)
   }
+  if (batchForm.tts_method && batchForm.tts_method !== updates.tts_method) {
+    batchForm.tts_method = ''
+    batchForm.male_voice = ''
+    batchForm.female_voice = ''
+  }
   showSettingsModal.value = false
   showToast('💾 配置已保存并同步到 config.yaml')
   fetchWorkspaceState(true)
+  fetchBatchState()
 }
 
 async function uploadCookiesFile(e) {
@@ -2895,6 +2923,17 @@ async function loadBatchTaskToStudio(t, stage = 'b') {
   workspaceMode.value = 'single'
   activeStage.value = stage
   showToast(`🔧 已将《${t.title || t.id}》载入单视频工作台`)
+}
+
+async function clearStudioBatchTaskTtsOverride() {
+  const tid = wsState.studio_batch_task?.id
+  if (!tid) return
+  const res = await fetch(`/api/batch/tasks/${tid}/sync-from-studio?clear_tts_override=true`, { method: 'POST' })
+  if (res.ok) {
+    applyBatchPayload(await res.json())
+    await fetchWorkspaceState(true)
+    showToast(`✅ 已清除该任务的独立 TTS 覆盖，现已跟随全局 (${cfg.tts_method || 'elevenlabs_tts'})`)
+  }
 }
 
 async function syncStudioToBatch(confirmSpeaker = false) {

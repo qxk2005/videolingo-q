@@ -287,8 +287,17 @@ def resolve_elevenlabs_language_code(model_id: str, text: str = "") -> Optional[
     return None
 
 
+def _is_foreign_voice_for_elevenlabs(voice_id: str) -> bool:
+    v = str(voice_id or "").strip()
+    if not v:
+        return True
+    if "_" in v or "-" in v or v.endswith("Neural") or bool(re.match(r"^BV\d+$", v)):
+        return True
+    return False
+
+
 def resolve_elevenlabs_voice(voice_type: Optional[str] = None, gender: Optional[str] = None) -> str:
-    if voice_type and str(voice_type).strip():
+    if voice_type and str(voice_type).strip() and not _is_foreign_voice_for_elevenlabs(str(voice_type)):
         return str(voice_type).strip()
     if gender == "male":
         return (

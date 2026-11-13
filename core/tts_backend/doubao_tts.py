@@ -26,8 +26,19 @@ def get_doubao_style_prompt() -> str:
     return s
 
 
+def _is_foreign_voice_for_doubao(voice_id: str) -> bool:
+    v = str(voice_id or "").strip()
+    if not v:
+        return True
+    if "-" in v or v.endswith("Neural"):
+        return True
+    if "_" not in v and not v.startswith("BV"):
+        return True
+    return False
+
+
 def resolve_doubao_voice(voice_type=None, gender=None) -> str:
-    if voice_type and str(voice_type).strip():
+    if voice_type and str(voice_type).strip() and not _is_foreign_voice_for_doubao(str(voice_type)):
         return str(voice_type).strip()
     if gender == "male":
         return (

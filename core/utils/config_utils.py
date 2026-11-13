@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from ruamel.yaml import YAML
 import threading
 
@@ -60,10 +61,46 @@ setup_proxy()
 # load & update config
 # -----------------------
 
-def load_key(key):
+_runtime_override_stack = []
+
+
+@contextmanager
+def runtime_config_overrides(overrides: dict = None):
+    """Apply temporary in-memory config overrides without mutating `config.yaml` on disk."""
+    clean = {str(k): v for k, v in (overrides or {}).items() if k and v is not None}
+    if not clean:
+        yield
+        return
+    with lock:
+        _runtime_override_stack.append(clean)
+    try:
+        yield
+    finally:
+        with lock:
+            for idx in range(len(_runtime_override_stack) - 1, -1, -1):
+                if _runtime_override_stack[idx] is clean:
+                    _runtime_override_stack.pop(idx)
+                    break
+
+
+def load_key(key, ignore_overrides: bool = False):
     with lock:
         with open(CONFIG_PATH, 'r', encoding='utf-8') as file:
             data = yaml.load(file)
+        merged_overrides = {}
+        if _runtime_override_stack and not ignore_overrides:
+            for layer in _runtime_override_stack:
+                merged_overrides.update(layer)
+
+    if merged_overrides and isinstance(data, dict):
+        for ov_key, ov_val in merged_overrides.items():
+            ov_parts = ov_key.split('.')
+            cur = data
+            for part in ov_parts[:-1]:
+                if part not in cur or not isinstance(cur[part], dict):
+                    cur[part] = {}
+                cur = cur[part]
+            cur[ov_parts[-1]] = ov_val
 
     keys = key.split('.')
     value = data
