@@ -7,6 +7,7 @@ Supports both:
 2. FastAPI HTTP / Streamable HTTP (`/mcp`) & SSE (`/mcp/sse` + `/mcp/messages`) endpoints mounted directly on 127.0.0.1:8502.
 """
 
+import copy
 import os
 import io
 import sys
@@ -29,6 +30,11 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 from core.original_narration_voices import DEFAULT_VOICE, VOICE_CHOICES, validate_voice
+from core.utils.mcp_audit import (
+    _safe_read_persisted_tts,
+    query_mcp_audit_history,
+    record_mcp_audit_event,
+)
 
 STUDIO_BASE_URL = os.environ.get("VIDEOLINGO_API_URL", "http://127.0.0.1:8502").rstrip("/")
 MCP_PROTOCOL_VERSION = "2024-11-05"
@@ -813,6 +819,34 @@ MCP_TOOLS: List[Dict[str, Any]] = [
             "required": ["action"]
         }
     },
+    {
+        "name": "videolingo_get_mcp_history",
+        "description": "【只读 MCP 调用审计记录查询】追溯查询历史 MCP 调用明细（时间、传输通道 stdio/http/sse、客户端标识、工具名、脱敏参数、配音引擎溯源、执行结果与耗时）。支持仅筛选变更类操作（category='write'）快速定位配置修改或任务提交来源。",
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "limit": {"type": "integer", "default": 50, "description": "返回条数上限（1~500，默认 50，按时间倒序最新在前）"},
+                "offset": {"type": "integer", "default": 0, "description": "分页偏移量"},
+                "category": {
+                    "type": "string",
+                    "enum": ["all", "write", "read"],
+                    "default": "all",
+                    "description": "按操作性质过滤：'write'（仅变更/提交任务操作）、'read'（只读查询）、'all'（全部）",
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["all", "ok", "error"],
+                    "default": "all",
+                    "description": "按执行状态过滤：'all'、'ok'、'error'",
+                },
+                "tool_name": {"type": "string", "default": "", "description": "按精确工具名过滤（如 'videolingo_batch_add_tasks'）"},
+                "transport": {"type": "string", "default": "", "description": "按传输通道过滤（'stdio'、'http'、'sse'）"},
+                "query": {"type": "string", "default": "", "description": "全文关键词搜索（匹配参数、URL、音色、tts_method、客户端或错误信息）"},
+            },
+        },
+    },
 
 ]
 
@@ -835,6 +869,17 @@ def execute_mcp_tool(name: str, arguments: Optional[Dict[str, Any]] = None) -> D
             raise ValueError("Only provider is supported")
         from core.tts_backend.quota_probe import get_tts_quota
         return get_tts_quota(args.get("provider", "all"))
+
+    if name == "videolingo_get_mcp_history":
+        return query_mcp_audit_history(
+            limit=int(args.get("limit", 50) or 50),
+            offset=int(args.get("offset", 0) or 0),
+            category=str(args.get("category", "all") or "all"),
+            status=str(args.get("status", "all") or "all"),
+            tool_name=str(args.get("tool_name", "") or ""),
+            transport=str(args.get("transport", "") or ""),
+            query=str(args.get("query", "") or ""),
+        )
 
     if name == "videolingo_original_narration":
         if (not isinstance(args, dict) or set(args) - {"action", "voice"}
@@ -1113,6 +1158,12 @@ MCP_RESOURCES = [
         "description": "读取当前已生成的双语字幕前 200 条内容",
         "mimeType": "application/json",
     },
+    {
+        "uri": "videolingo://mcp/history",
+        "name": "MCP 调用审计与溯源历史记录",
+        "description": "查询持久化的 MCP 历史调用记录（含时间、客户端、通道、脱敏入参、配音引擎溯源与执行摘要）",
+        "mimeType": "application/json",
+    },
 ]
 
 MCP_PROMPTS = [
@@ -1141,6 +1192,8 @@ def read_mcp_resource(uri: str) -> Dict[str, Any]:
         data = _api_request("GET", "/api/content/terminology")
     elif uri == "videolingo://subtitles/bilingual":
         data = _api_request("GET", "/api/content/subtitles", query={"srt_type": "src_trans", "limit": 200})
+    elif uri == "videolingo://mcp/history":
+        data = query_mcp_audit_history(limit=100)
     else:
         raise ValueError(f"未知的 Resource URI: {uri}")
 
@@ -1187,7 +1240,10 @@ def get_mcp_prompt(name: str, arguments: Optional[Dict[str, Any]] = None) -> Dic
 # =====================================================================
 # JSON-RPC 2.0 Message Processor (Shared by Stdio, Streamable HTTP & SSE)
 # =====================================================================
-def handle_jsonrpc_message(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def handle_jsonrpc_message(
+    msg: Dict[str, Any],
+    context: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
     """Process a single JSON-RPC 2.0 request/notification and return a response dict (or None for notifications)."""
     if not isinstance(msg, dict):
         return {
@@ -1195,6 +1251,12 @@ def handle_jsonrpc_message(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "id": None,
             "error": {"code": -32600, "message": "Invalid Request"},
         }
+
+    ctx = context if isinstance(context, dict) else {}
+    transport = str(ctx.get("transport") or "direct")
+    session_id = str(ctx.get("session_id") or "")
+    client_ip = str(ctx.get("client_ip") or "")
+    user_agent = str(ctx.get("user_agent") or "")
 
     method = msg.get("method", "")
     msg_id = msg.get("id")
@@ -1206,9 +1268,25 @@ def handle_jsonrpc_message(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     try:
         if method == "initialize":
+            t0 = time.perf_counter()
             client_version = params.get("protocolVersion") or MCP_PROTOCOL_VERSION
             supported_versions = {"2024-11-05", "2025-03-26", "2025-06-18"}
             negotiated_version = client_version if client_version in supported_versions else MCP_PROTOCOL_VERSION
+            client_info = params.get("clientInfo") if isinstance(params.get("clientInfo"), dict) else {}
+            record_mcp_audit_event(
+                event_type="session_init",
+                name="initialize",
+                arguments={"protocolVersion": client_version, "clientInfo": client_info},
+                transport=transport,
+                session_id=session_id,
+                jsonrpc_id=msg_id,
+                client_ip=client_ip,
+                user_agent=user_agent,
+                client_info=client_info,
+                status="ok",
+                duration_ms=(time.perf_counter() - t0) * 1000.0,
+                output={"negotiatedProtocolVersion": negotiated_version},
+            )
             result = {
                 "protocolVersion": negotiated_version,
                 "capabilities": {
@@ -1233,9 +1311,33 @@ def handle_jsonrpc_message(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
         elif method == "tools/call":
             tool_name = params.get("name", "")
-            tool_args = params.get("arguments") or {}
+            raw_tool_args = params.get("arguments") or {}
+            audit_args = copy.deepcopy(raw_tool_args) if isinstance(raw_tool_args, dict) else {"_raw": raw_tool_args}
+            exec_args = copy.deepcopy(raw_tool_args) if isinstance(raw_tool_args, dict) else raw_tool_args
+            tts_before = _safe_read_persisted_tts()
+            t0 = time.perf_counter()
             try:
-                output = execute_mcp_tool(tool_name, tool_args)
+                output = execute_mcp_tool(tool_name, exec_args)
+                elapsed_ms = (time.perf_counter() - t0) * 1000.0
+                tts_after = _safe_read_persisted_tts()
+                audit_rec = record_mcp_audit_event(
+                    event_type="tool_call",
+                    name=tool_name,
+                    arguments=audit_args,
+                    transport=transport,
+                    session_id=session_id,
+                    jsonrpc_id=msg_id,
+                    client_ip=client_ip,
+                    user_agent=user_agent,
+                    status="ok",
+                    duration_ms=elapsed_ms,
+                    output=output,
+                    tts_before=tts_before,
+                    tts_after=tts_after,
+                )
+                if audit_rec.get("category") == "write":
+                    c_name = audit_rec.get("client", {}).get("name") or transport
+                    _log_stderr(f"📝 Audit [{c_name}] {tool_name} -> ok ({audit_rec.get('duration_ms')}ms)")
                 return {
                     "jsonrpc": "2.0",
                     "id": msg_id,
@@ -1250,6 +1352,25 @@ def handle_jsonrpc_message(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                     },
                 }
             except Exception as tool_err:
+                elapsed_ms = (time.perf_counter() - t0) * 1000.0
+                tts_after = _safe_read_persisted_tts()
+                audit_rec = record_mcp_audit_event(
+                    event_type="tool_call",
+                    name=tool_name,
+                    arguments=audit_args,
+                    transport=transport,
+                    session_id=session_id,
+                    jsonrpc_id=msg_id,
+                    client_ip=client_ip,
+                    user_agent=user_agent,
+                    status="error",
+                    duration_ms=elapsed_ms,
+                    error=str(tool_err),
+                    tts_before=tts_before,
+                    tts_after=tts_after,
+                )
+                c_name = audit_rec.get("client", {}).get("name") or transport
+                _log_stderr(f"⚠️ Audit [{c_name}] {tool_name} -> ERROR: {tool_err}")
                 return {
                     "jsonrpc": "2.0",
                     "id": msg_id,
@@ -1279,8 +1400,38 @@ def handle_jsonrpc_message(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
         elif method == "resources/read":
             uri = params.get("uri", "")
-            res_data = read_mcp_resource(uri)
-            return {"jsonrpc": "2.0", "id": msg_id, "result": res_data}
+            t0 = time.perf_counter()
+            try:
+                res_data = read_mcp_resource(uri)
+                record_mcp_audit_event(
+                    event_type="resource_read",
+                    name=uri,
+                    arguments={"uri": uri},
+                    transport=transport,
+                    session_id=session_id,
+                    jsonrpc_id=msg_id,
+                    client_ip=client_ip,
+                    user_agent=user_agent,
+                    status="ok",
+                    duration_ms=(time.perf_counter() - t0) * 1000.0,
+                    output={"uri": uri},
+                )
+                return {"jsonrpc": "2.0", "id": msg_id, "result": res_data}
+            except Exception as res_err:
+                record_mcp_audit_event(
+                    event_type="resource_read",
+                    name=uri,
+                    arguments={"uri": uri},
+                    transport=transport,
+                    session_id=session_id,
+                    jsonrpc_id=msg_id,
+                    client_ip=client_ip,
+                    user_agent=user_agent,
+                    status="error",
+                    duration_ms=(time.perf_counter() - t0) * 1000.0,
+                    error=str(res_err),
+                )
+                raise
 
         elif method == "prompts/list":
             return {"jsonrpc": "2.0", "id": msg_id, "result": {"prompts": MCP_PROMPTS}}
@@ -1288,8 +1439,38 @@ def handle_jsonrpc_message(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         elif method == "prompts/get":
             pname = params.get("name", "")
             pargs = params.get("arguments") or {}
-            pdata = get_mcp_prompt(pname, pargs)
-            return {"jsonrpc": "2.0", "id": msg_id, "result": pdata}
+            t0 = time.perf_counter()
+            try:
+                pdata = get_mcp_prompt(pname, pargs)
+                record_mcp_audit_event(
+                    event_type="prompt_get",
+                    name=pname,
+                    arguments=pargs if isinstance(pargs, dict) else {},
+                    transport=transport,
+                    session_id=session_id,
+                    jsonrpc_id=msg_id,
+                    client_ip=client_ip,
+                    user_agent=user_agent,
+                    status="ok",
+                    duration_ms=(time.perf_counter() - t0) * 1000.0,
+                    output={"prompt": pname},
+                )
+                return {"jsonrpc": "2.0", "id": msg_id, "result": pdata}
+            except Exception as pr_err:
+                record_mcp_audit_event(
+                    event_type="prompt_get",
+                    name=pname,
+                    arguments=pargs if isinstance(pargs, dict) else {},
+                    transport=transport,
+                    session_id=session_id,
+                    jsonrpc_id=msg_id,
+                    client_ip=client_ip,
+                    user_agent=user_agent,
+                    status="error",
+                    duration_ms=(time.perf_counter() - t0) * 1000.0,
+                    error=str(pr_err),
+                )
+                raise
 
         else:
             if msg_id is None:
@@ -1322,6 +1503,27 @@ def register_mcp_routes(app):
     from fastapi import Request, Response
     from fastapi.responses import JSONResponse, StreamingResponse
 
+    @app.get("/api/mcp/history")
+    def get_mcp_audit_history_api(
+        limit: int = 100,
+        offset: int = 0,
+        category: str = "all",
+        status: str = "all",
+        tool_name: str = "",
+        transport: str = "",
+        query: str = "",
+    ):
+        """Read-only API endpoint returning persisted MCP audit history for Vue Studio."""
+        return query_mcp_audit_history(
+            limit=limit,
+            offset=offset,
+            category=category,
+            status=status,
+            tool_name=tool_name,
+            transport=transport,
+            query=query,
+        )
+
     @app.get("/mcp/info")
     def mcp_info():
         return {
@@ -1350,18 +1552,24 @@ def register_mcp_routes(app):
                 content={"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}},
             )
 
+        req_ctx = {
+            "transport": "http",
+            "session_id": request.headers.get("mcp-session-id", ""),
+            "client_ip": request.client.host if request.client else "",
+            "user_agent": request.headers.get("user-agent", ""),
+        }
         loop = asyncio.get_running_loop()
         if isinstance(body, list):
             responses = []
             for item in body:
-                resp = await loop.run_in_executor(None, handle_jsonrpc_message, item)
+                resp = await loop.run_in_executor(None, handle_jsonrpc_message, item, req_ctx)
                 if resp is not None:
                     responses.append(resp)
             if not responses:
                 return Response(status_code=202)
             return JSONResponse(content=responses)
         else:
-            resp = await loop.run_in_executor(None, handle_jsonrpc_message, body)
+            resp = await loop.run_in_executor(None, handle_jsonrpc_message, body, req_ctx)
             if resp is None:
                 return Response(status_code=202)
             return JSONResponse(content=resp)
@@ -1422,8 +1630,14 @@ def register_mcp_routes(app):
         except Exception:
             return JSONResponse(status_code=400, content={"error": "Invalid JSON"})
 
+        req_ctx = {
+            "transport": "sse",
+            "session_id": session_id or "",
+            "client_ip": request.client.host if request.client else "",
+            "user_agent": request.headers.get("user-agent", ""),
+        }
         loop = asyncio.get_running_loop()
-        resp = await loop.run_in_executor(None, handle_jsonrpc_message, body)
+        resp = await loop.run_in_executor(None, handle_jsonrpc_message, body, req_ctx)
 
         if session_id:
             with _SSE_LOCK:
@@ -1447,6 +1661,11 @@ def run_stdio_server():
     stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace") if hasattr(sys.stdin, "buffer") else sys.stdin
     stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", line_buffering=True) if hasattr(sys.stdout, "buffer") else sys.stdout
 
+    stdio_ctx = {
+        "transport": "stdio",
+        "session_id": f"stdio_{os.getpid()}_{uuid.uuid4().hex[:6]}",
+    }
+
     for raw_line in stdin:
         line = raw_line.strip()
         if not line:
@@ -1466,14 +1685,14 @@ def run_stdio_server():
         if isinstance(msg, list):
             batch_resps = []
             for item in msg:
-                r = handle_jsonrpc_message(item)
+                r = handle_jsonrpc_message(item, stdio_ctx)
                 if r is not None:
                     batch_resps.append(r)
             if batch_resps:
                 stdout.write(json.dumps(batch_resps, ensure_ascii=False) + "\n")
                 stdout.flush()
         else:
-            resp = handle_jsonrpc_message(msg)
+            resp = handle_jsonrpc_message(msg, stdio_ctx)
             if resp is not None:
                 stdout.write(json.dumps(resp, ensure_ascii=False) + "\n")
                 stdout.flush()

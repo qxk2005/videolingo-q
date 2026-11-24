@@ -154,6 +154,7 @@ cython_debug/
 /output/
 /history/
 /publish/
+/logs/
 _model_cache/
 
 batch/input/

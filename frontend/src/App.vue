@@ -43,6 +43,11 @@
           <span v-else>配置 Cookies</span>
         </button>
 
+        <button @click="openMcpAuditModal" class="studio-subtle px-3 py-1.5 rounded-lg text-xs font-semibold hover:border-blue-500 transition flex items-center gap-1.5 whitespace-nowrap" title="查看所有 MCP 外部客户端调用历史与配音参数溯源">
+          <span>🔌</span>
+          <span>MCP 记录</span>
+        </button>
+
         <button @click="openSettings('llm')" class="studio-subtle px-3.5 py-1.5 rounded-lg text-xs font-semibold hover:border-blue-500 transition flex items-center gap-1.5 whitespace-nowrap">
           <span>⚙️</span>
           <span>参数设置</span>
@@ -1936,6 +1941,200 @@
       </div>
     </div>
 
+    <!-- ==================== 3B. MCP 调用历史与溯源审计弹窗 ==================== -->
+    <div
+      v-if="showMcpAuditModal"
+      class="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4"
+      @click.self="showMcpAuditModal = false"
+    >
+      <div class="studio-card rounded-2xl shadow-2xl w-full max-w-5xl max-h-[88vh] flex flex-col overflow-hidden">
+        <div class="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div class="font-bold text-base flex items-center gap-2">
+              <span>🔌 MCP 调用历史与溯源审计</span>
+              <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/15 text-blue-600 dark:text-blue-400">
+                敏感密钥/Cookie 已自动脱敏
+              </span>
+            </div>
+            <div class="text-[11px] text-slate-400 font-mono mt-0.5 truncate max-w-2xl" :title="mcpAuditData.log_path">
+              日志文件: {{ mcpAuditData.log_path || 'logs/mcp_audit.jsonl' }}
+            </div>
+          </div>
+          <div class="flex items-center gap-2 text-xs">
+            <button
+              type="button"
+              @click="fetchMcpAuditHistory"
+              :disabled="mcpAuditLoading"
+              class="studio-subtle px-3 py-1.5 rounded-lg font-semibold hover:border-blue-500 transition"
+            >
+              {{ mcpAuditLoading ? '⏳ 加载中...' : '🔄 刷新记录' }}
+            </button>
+            <button
+              type="button"
+              @click="showMcpAuditModal = false"
+              class="studio-subtle px-3 py-1.5 rounded-lg font-semibold hover:border-rose-500 transition"
+            >
+              ✕ 关闭
+            </button>
+          </div>
+        </div>
+
+        <!-- 统计快捷筛选栏 -->
+        <div class="px-5 py-2.5 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              @click="mcpAuditFilter.category = 'all'; mcpAuditFilter.status = 'all'; fetchMcpAuditHistory()"
+              :class="mcpAuditFilter.category === 'all' && mcpAuditFilter.status === 'all' ? 'bg-blue-600 text-white font-bold' : 'studio-subtle text-slate-500 hover:border-blue-500'"
+              class="px-2.5 py-1 rounded-lg transition"
+            >
+              全部 ({{ mcpAuditData.stats?.total || 0 }})
+            </button>
+            <button
+              type="button"
+              @click="mcpAuditFilter.category = 'write'; mcpAuditFilter.status = 'all'; fetchMcpAuditHistory()"
+              :class="mcpAuditFilter.category === 'write' ? 'bg-indigo-600 text-white font-bold' : 'studio-subtle text-indigo-600 dark:text-indigo-400 hover:border-indigo-500'"
+              class="px-2.5 py-1 rounded-lg transition"
+            >
+              ✍️ 仅看变更与任务提交 ({{ mcpAuditData.stats?.write_count || 0 }})
+            </button>
+            <button
+              type="button"
+              @click="mcpAuditFilter.category = 'read'; mcpAuditFilter.status = 'all'; fetchMcpAuditHistory()"
+              :class="mcpAuditFilter.category === 'read' ? 'bg-slate-700 text-white font-bold' : 'studio-subtle text-slate-500 hover:border-slate-500'"
+              class="px-2.5 py-1 rounded-lg transition"
+            >
+              🔍 只读查询 ({{ mcpAuditData.stats?.read_count || 0 }})
+            </button>
+            <button
+              type="button"
+              @click="mcpAuditFilter.status = 'error'; fetchMcpAuditHistory()"
+              :class="mcpAuditFilter.status === 'error' ? 'bg-rose-600 text-white font-bold' : 'studio-subtle text-rose-500 hover:border-rose-500'"
+              class="px-2.5 py-1 rounded-lg transition"
+            >
+              ❌ 异常报错 ({{ mcpAuditData.stats?.error_count || 0 }})
+            </button>
+          </div>
+          <span class="text-slate-400">当前匹配 {{ mcpAuditData.total_matched || 0 }} 条（展示最近 {{ mcpAuditData.items?.length || 0 }} 条）</span>
+        </div>
+
+        <!-- 多维搜索过滤栏 -->
+        <div class="px-5 py-2.5 border-b border-slate-200 dark:border-slate-800 grid grid-cols-1 md:grid-cols-12 gap-2 text-xs">
+          <select v-model="mcpAuditFilter.tool_name" @change="fetchMcpAuditHistory" class="md:col-span-4 studio-input px-2.5 py-1.5 rounded-lg font-mono">
+            <option value="">🧰 全部 MCP 工具 / 资源</option>
+            <option v-for="tname in mcpAuditData.available_tools" :key="tname" :value="tname">{{ tname }}</option>
+          </select>
+          <select v-model="mcpAuditFilter.transport" @change="fetchMcpAuditHistory" class="md:col-span-2 studio-input px-2.5 py-1.5 rounded-lg font-mono">
+            <option value="">🌐 全部通道</option>
+            <option value="stdio">stdio</option>
+            <option value="http">http (/mcp)</option>
+            <option value="sse">sse (/mcp/sse)</option>
+          </select>
+          <input
+            type="text"
+            v-model="mcpAuditFilter.query"
+            @keyup.enter="fetchMcpAuditHistory"
+            placeholder="搜索参数关键词（如 doubao_tts、elevenlabs_tts、视频链接、音色ID、客户端...）"
+            class="md:col-span-4 studio-input px-2.5 py-1.5 rounded-lg"
+          />
+          <button
+            type="button"
+            @click="fetchMcpAuditHistory"
+            class="md:col-span-2 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold transition"
+          >
+            🔍 检索记录
+          </button>
+        </div>
+
+        <!-- 记录列表 -->
+        <div class="p-4 overflow-y-auto flex-1 flex flex-col gap-2 text-xs">
+          <div v-if="!mcpAuditData.items?.length && !mcpAuditLoading" class="py-12 text-center text-slate-400">
+            暂无匹配的 MCP 调用历史记录（后续通过 stdio / HTTP / SSE 发起的所有 MCP 调用均会自动落盘记录在此）。
+          </div>
+
+          <div
+            v-for="item in mcpAuditData.items"
+            :key="item.audit_id"
+            class="studio-subtle rounded-xl border border-slate-200/70 dark:border-slate-800 overflow-hidden"
+          >
+            <div
+              class="px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 cursor-pointer hover:bg-slate-500/5 transition"
+              @click="toggleMcpAuditDetail(item.audit_id)"
+            >
+              <div class="flex flex-wrap items-center gap-2 min-w-0">
+                <span :class="item.status === 'error' ? 'text-rose-500' : 'text-emerald-500'" class="font-bold">
+                  {{ item.status === 'error' ? '❌' : '✅' }}
+                </span>
+                <span
+                  class="px-1.5 py-0.5 rounded font-bold text-[11px]"
+                  :class="item.category === 'write' ? 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400' : 'bg-slate-500/15 text-slate-500'"
+                >
+                  {{ item.category === 'write' ? '✍️ 变更/执行' : '🔍 只读' }}
+                </span>
+                <span class="font-mono font-bold text-sm truncate">{{ item.name }}</span>
+                <span class="px-1.5 py-0.5 rounded bg-slate-500/10 text-slate-400 font-mono text-[11px]">
+                  {{ item.transport }}
+                </span>
+                <span v-if="item.client?.name" class="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono text-[11px]">
+                  {{ item.client.name }}{{ item.client.version ? '/' + item.client.version : '' }}
+                </span>
+
+                <!-- 配音引擎溯源徽标 -->
+                <span
+                  v-if="item.tts_trace?.task_override"
+                  class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 font-semibold text-[11px]"
+                >
+                  ⚠️ 单任务指定 TTS: {{ item.tts_trace.task_override }} (全局: {{ item.tts_trace.global_before || '-' }})
+                </span>
+                <span
+                  v-else-if="item.tts_trace?.global_before && item.tts_trace?.global_after && item.tts_trace.global_before !== item.tts_trace.global_after"
+                  class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-semibold text-[11px]"
+                >
+                  🔄 全局 TTS 变更: {{ item.tts_trace.global_before }} → {{ item.tts_trace.global_after }}
+                </span>
+                <span
+                  v-else-if="item.category === 'write' && item.tts_trace?.effective"
+                  class="px-2 py-0.5 rounded studio-card text-slate-500 font-mono text-[11px]"
+                >
+                  🎙️ 全局 TTS: {{ item.tts_trace.effective }}
+                </span>
+              </div>
+
+              <div class="flex items-center gap-3 text-[11px] text-slate-400 shrink-0 font-mono">
+                <span>{{ item.duration_ms }}ms</span>
+                <span>{{ item.timestamp }}</span>
+                <span class="text-blue-500 font-sans font-semibold">{{ expandedMcpAuditId === item.audit_id ? '收起 ▲' : '详情 ▼' }}</span>
+              </div>
+            </div>
+
+            <!-- 展开详情面板 -->
+            <div v-if="expandedMcpAuditId === item.audit_id" class="px-4 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-950 text-slate-200 font-mono text-[11px] flex flex-col gap-2.5">
+              <div class="flex flex-wrap gap-x-5 gap-y-1 text-slate-400">
+                <span>Audit ID: <strong class="text-slate-200">{{ item.audit_id }}</strong></span>
+                <span>Event: <strong class="text-slate-200">{{ item.event_type }}</strong></span>
+                <span v-if="item.session_id">Session: <strong class="text-slate-200">{{ item.session_id }}</strong></span>
+                <span v-if="item.client?.ip">IP: <strong class="text-slate-200">{{ item.client.ip }}</strong></span>
+                <span v-if="item.client?.user_agent">UA: <strong class="text-slate-200">{{ item.client.user_agent }}</strong></span>
+              </div>
+              <div v-if="item.error" class="p-2 rounded bg-rose-950/60 border border-rose-500/40 text-rose-300 whitespace-pre-wrap">
+                ❌ 错误信息: {{ item.error }}
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                <div>
+                  <div class="text-slate-400 mb-1 font-sans font-semibold">📥 调用入参 (Arguments · 已脱敏):</div>
+                  <pre class="p-2.5 rounded bg-slate-900 border border-slate-800 overflow-x-auto whitespace-pre-wrap max-h-56">{{ formatMcpJson(item.arguments) }}</pre>
+                </div>
+                <div>
+                  <div class="text-slate-400 mb-1 font-sans font-semibold">📤 执行结果摘要 & 配音引擎快照:</div>
+                  <pre class="p-2.5 rounded bg-slate-900 border border-slate-800 overflow-x-auto whitespace-pre-wrap max-h-56">{{ formatMcpJson({ result_summary: item.result_summary, tts_trace: item.tts_trace }) }}</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ==================== 4. 底部可折叠实时终端日志抽屉 ==================== -->
     <footer class="sticky bottom-0 z-30 border-t border-slate-200 dark:border-slate-800" style="background-color: var(--console-bg); color: #e2e8f0;">
       <div class="px-4 py-1.5 flex items-center justify-between text-xs cursor-pointer" @click="showConsole = !showConsole">
@@ -1974,6 +2173,23 @@ const activeLineInfo = ref('')
 const speakerSubTab = ref('cards')
 const showSettingsModal = ref(false)
 const settingsTab = ref('llm')
+const showMcpAuditModal = ref(false)
+const mcpAuditLoading = ref(false)
+const expandedMcpAuditId = ref('')
+const mcpAuditFilter = reactive({
+  category: 'all',
+  status: 'all',
+  tool_name: '',
+  transport: '',
+  query: '',
+})
+const mcpAuditData = reactive({
+  log_path: '',
+  stats: { total: 0, write_count: 0, read_count: 0, error_count: 0 },
+  available_tools: [],
+  total_matched: 0,
+  items: [],
+})
 const showConsole = ref(false)
 const toastMessage = ref('')
 const videoPlayerRef = ref(null)
@@ -2979,6 +3195,50 @@ function openBatchPreviewModal(t) {
     batchPreviewSource.value = 'sub'
   } else {
     batchPreviewSource.value = 'orig'
+  }
+}
+
+async function fetchMcpAuditHistory() {
+  mcpAuditLoading.value = true
+  try {
+    const params = new URLSearchParams({
+      limit: '120',
+      category: mcpAuditFilter.category || 'all',
+      status: mcpAuditFilter.status || 'all',
+      tool_name: mcpAuditFilter.tool_name || '',
+      transport: mcpAuditFilter.transport || '',
+      query: mcpAuditFilter.query || '',
+    })
+    const res = await fetch(`/api/mcp/history?${params.toString()}`)
+    if (res.ok) {
+      const data = await res.json()
+      mcpAuditData.log_path = data.log_path || ''
+      mcpAuditData.stats = data.stats || { total: 0, write_count: 0, read_count: 0, error_count: 0 }
+      mcpAuditData.available_tools = data.available_tools || []
+      mcpAuditData.total_matched = data.total_matched || 0
+      mcpAuditData.items = data.items || []
+    }
+  } catch (_) {
+    showToast('⚠️ 读取 MCP 历史记录失败')
+  } finally {
+    mcpAuditLoading.value = false
+  }
+}
+
+async function openMcpAuditModal() {
+  showMcpAuditModal.value = true
+  await fetchMcpAuditHistory()
+}
+
+function toggleMcpAuditDetail(auditId) {
+  expandedMcpAuditId.value = expandedMcpAuditId.value === auditId ? '' : auditId
+}
+
+function formatMcpJson(obj) {
+  try {
+    return JSON.stringify(obj || {}, null, 2)
+  } catch (_) {
+    return String(obj || '')
   }
 }
 
